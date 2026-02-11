@@ -256,7 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (state === 'waiting') {
-      drawOverlay('📦 Shippy Container', 'Click or press Space to start');
+      drawOverlay('� Shippy Container', 'Click or press Space to start');
     } else if (state === 'dead') {
       drawOverlay('Score: ' + score, 'Click or press Space to retry');
       if (score === best && score > 0) {

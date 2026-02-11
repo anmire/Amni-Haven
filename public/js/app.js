@@ -1254,6 +1254,10 @@ class HavenApp {
       container.appendChild(this._createMessageEl(msg, prevMsg));
     });
     this._scrollToBottom(true);
+    // Re-scroll after any images finish loading
+    container.querySelectorAll('img').forEach(img => {
+      if (!img.complete) img.addEventListener('load', () => this._scrollToBottom(true), { once: true });
+    });
   }
 
   _appendMessage(message) {
@@ -1271,7 +1275,14 @@ class HavenApp {
 
     const wasAtBottom = this._isScrolledToBottom();
     container.appendChild(this._createMessageEl(message, prevMsg));
-    if (wasAtBottom) this._scrollToBottom();
+    if (wasAtBottom) {
+      this._scrollToBottom();
+      // Also scroll after images load (they shift content down)
+      const imgs = container.lastElementChild?.querySelectorAll('img');
+      if (imgs) imgs.forEach(img => {
+        if (!img.complete) img.addEventListener('load', () => this._scrollToBottom(), { once: true });
+      });
+    }
   }
 
   _createMessageEl(msg, prevMsg) {
@@ -1339,11 +1350,12 @@ class HavenApp {
 
   _appendSystemMessage(text) {
     const container = document.getElementById('messages');
+    const wasAtBottom = this._isScrolledToBottom();
     const el = document.createElement('div');
     el.className = 'system-message';
     el.textContent = text;
     container.appendChild(el);
-    if (this._isScrolledToBottom()) this._scrollToBottom();
+    if (wasAtBottom) this._scrollToBottom();
   }
 
   // ── Users ─────────────────────────────────────────────
@@ -1669,7 +1681,7 @@ class HavenApp {
 
   _isScrolledToBottom() {
     const el = document.getElementById('messages');
-    return el.scrollHeight - el.clientHeight - el.scrollTop < 60;
+    return el.scrollHeight - el.clientHeight - el.scrollTop < 150;
   }
 
   _scrollToBottom(force) {
@@ -1743,19 +1755,23 @@ class HavenApp {
     const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
     if (!msgEl) return;
 
+    const wasAtBottom = this._isScrolledToBottom();
+
     // Remove old reactions row
     const oldRow = msgEl.querySelector('.reactions-row');
     if (oldRow) oldRow.remove();
 
     // Add new reactions
     const html = this._renderReactions(messageId, reactions);
-    if (!html) return;
+    if (!html) { if (wasAtBottom) this._scrollToBottom(); return; }
 
     // Find where to insert — after .message-content
     const content = msgEl.querySelector('.message-content');
     if (content) {
       content.insertAdjacentHTML('afterend', html);
     }
+
+    if (wasAtBottom) this._scrollToBottom();
   }
 
   _showReactionPicker(msgEl, msgId) {
