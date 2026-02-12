@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.3.2-audit] — 2026-02-11
+
+### Security
+- **Listen Together XSS fix** — URL whitelist (YouTube, Spotify, SoundCloud, Vimeo only), sandbox iframe, empty fallback for unrecognized URLs
+- **Full security audit** — documented in SECURITY_AUDIT.md
+- **Git history clean** — verified no secrets, keys, or proprietary code in tracked history
+
+### Added
+- **Game Together design doc** — roadmap for Flash/retro emulation features (Ruffle + EmulatorJS)
+- **ROM gitignore** — `/games/roms/` excluded to prevent accidental copyright issues
+
+---
+
 ## [1.3.2-sc] — 2025-06-26
 
 ### Added — Stream Controls, Subchannels, Listen Together
