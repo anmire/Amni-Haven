@@ -1622,6 +1622,8 @@ function setupSocketHandlers(io, db) {
       const url = typeof data.url === 'string' ? data.url.trim().slice(0, 2048) : '';
       const title = typeof data.title === 'string' ? data.title.trim().slice(0, 200) : '';
       if (!url) return;
+      const allowedDomains = /^https:\/\/(www\.)?(youtube\.com|youtu\.be|open\.spotify\.com|soundcloud\.com|vimeo\.com)\//i;
+      if (!allowedDomains.test(url)) return socket.emit('error-msg', 'Only YouTube, Spotify, SoundCloud, and Vimeo URLs allowed');
       try {
         db.prepare('DELETE FROM listen_sessions WHERE channel_code = ?').run(channelCode);
         db.prepare('INSERT INTO listen_sessions (channel_code, host_id, media_url, media_title) VALUES (?, ?, ?, ?)').run(channelCode, socket.user.id, url, title);

@@ -2159,7 +2159,7 @@ class HavenApp {
     if ((m = url.match(/open\.spotify\.com\/(track|album|playlist)\/([\w]+)/))) return `https://open.spotify.com/embed/${m[1]}/${m[2]}?utm_source=generator&theme=0`;
     if ((m = url.match(/soundcloud\.com\/.+/))) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&auto_play=true&visual=true`;
     if ((m = url.match(/vimeo\.com\/(\d+)/))) return `https://player.vimeo.com/video/${m[1]}?autoplay=1`;
-    return url;
+    return '';
   }
   _onListenSession(session) {
     this._listenSession = session;
@@ -2183,7 +2183,8 @@ class HavenApp {
     stopBtn.style.display = isHost ? '' : 'none';
     playPause.textContent = session.isPlaying ? '⏸ Pause' : '▶ Play';
     const embedUrl = this._buildEmbedUrl(session.url);
-    embedCont.innerHTML = `<iframe src="${this._escapeHtml(embedUrl)}" width="100%" height="80" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen style="border-radius:8px"></iframe>`;
+    if (!embedUrl) return this._showToast('Unsupported media URL', 'error');
+    embedCont.innerHTML = `<iframe src="${this._escapeHtml(embedUrl)}" width="100%" height="80" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation" allowfullscreen style="border-radius:8px"></iframe>`;
     this._showToast(`🎵 ${session.hostName} started Listen Together`, 'info');
   }
   _onListenSync(data) {
