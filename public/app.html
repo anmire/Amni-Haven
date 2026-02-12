@@ -8,7 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <title>Haven</title>
+  <title>Amni-Haven</title>
+  <link rel="stylesheet" href="/css/themes.css">
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/theme-init.js"></script>
 </head>
@@ -20,7 +21,7 @@
       <!-- ─── Server Bar (far left — like Discord) ─────── -->
       <nav class="server-bar" id="server-bar">
         <div class="server-icon home active" id="home-server" title="This Server">
-          <span class="server-icon-text">⬡</span>
+          <span class="server-icon-text">◆</span>
           <span class="server-status-dot online"></span>
         </div>
         <div class="server-separator"></div>
@@ -89,7 +90,9 @@
         <div class="sidebar-section theme-sidebar-section" style="margin-top:auto">
           <h5 class="section-label">Theme</h5>
           <div class="theme-selector" id="theme-selector">
-            <button class="theme-btn active" data-theme="haven" title="Haven"><span class="theme-icon">⬡</span></button>
+            <span class="theme-group-label">Dark</span>
+            <button class="theme-btn active" data-theme="amni" title="Amni"><span class="theme-icon">◆</span></button>
+            <button class="theme-btn" data-theme="haven" title="Haven"><span class="theme-icon">⬡</span></button>
             <button class="theme-btn" data-theme="discord" title="Discord"><span class="theme-icon">🎮</span></button>
             <button class="theme-btn" data-theme="matrix" title="Matrix"><span class="theme-icon">Ⅿ</span></button>
             <button class="theme-btn" data-theme="tron" title="Tron"><span class="theme-icon">◈</span></button>
@@ -107,6 +110,11 @@
             <button class="theme-btn" data-theme="ffx" title="FFX"><span class="theme-icon">⚔️</span></button>
             <button class="theme-btn" data-theme="zelda" title="Zelda"><span class="theme-icon">🗡️</span></button>
             <button class="theme-btn" data-theme="triangle" title="Triangle"><span class="theme-icon">△</span></button>
+            <span class="theme-group-label">Light</span>
+            <button class="theme-btn" data-theme="light" title="Light"><span class="theme-icon">☀️</span></button>
+            <button class="theme-btn" data-theme="solarized-light" title="Solarized"><span class="theme-icon">🌅</span></button>
+            <button class="theme-btn" data-theme="sakura" title="Sakura"><span class="theme-icon">🌸</span></button>
+            <span class="theme-group-label">Dynamic</span>
             <button class="theme-btn" data-theme="rgb" title="RGB Cycle"><span class="theme-icon">🌈</span></button>
             <button class="theme-btn" data-theme="custom" title="Custom"><span class="theme-icon">🎨</span></button>
           </div>

@@ -56,7 +56,7 @@ function initThemeSwitcher(containerId, socket) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const saved = localStorage.getItem('haven_theme') || 'haven';
+  const saved = localStorage.getItem('haven_theme') || 'amni';
   const rgbPanel = document.getElementById('rgb-controls-panel');
   const customPanel = document.getElementById('custom-theme-panel');
 

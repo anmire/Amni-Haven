@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.4.0] — 2025-02-12
+
+### Added
+- **Amni default theme** — new teal/cyan identity (`#22d3ee` accent, Inter font, 10px radius, JetBrains Mono for code) replaces Haven purple as default; Haven preserved as selectable option
+- **3 light themes** — Light (clean blue), Solarized Light (warm parchment), Sakura (pink pastel) with proper scrollbar, sidebar shadow, and modal overlay overrides for light backgrounds
+- **Theme group labels** — Dark / Light / Dynamic section labels in sidebar theme selector
+- **CSS module split** — monolithic `style.css` (4522 lines) split into `themes.css` (theme variables + overrides) and `style.css` (layout + components)
+
+### Changed
+- **Branding** — login page updated: `⬡` → `◆` logo, `HAVEN` → `AMNI-HAVEN` heading, new tagline "your server · your arcade · your rules"
+- **Default theme fallback** — `theme.js` falls back to `amni` instead of `haven` for new users
+- **Root directory cleaned** — moved `ARCHITECTURE.md`, `GUIDE.md`, `SECURITY_AUDIT.md`, `GAME_FEATURE_DESIGN.md`, and all `checklist_*.md` files into `docs/`
+
+---
+
 ## [1.3.9] — 2025-02-12
 
 ### Fixed
