@@ -109,13 +109,10 @@ function setupSocketHandlers(io, db) {
 
     // ── Get user's channels ─────────────────────────────────
     socket.on('get-channels', () => {
-      const channels = db.prepare(`
-        SELECT c.id, c.name, c.code, c.created_by, c.channel_type, c.parent_id
-        FROM channels c
-        JOIN channel_members cm ON c.id = cm.channel_id
-        WHERE cm.user_id = ?
-        ORDER BY c.name
-      `).all(socket.user.id);
+      const query = socket.user.isAdmin
+        ? `SELECT c.id, c.name, c.code, c.created_by, c.channel_type, c.parent_id, c.is_private FROM channels c JOIN channel_members cm ON c.id = cm.channel_id WHERE cm.user_id = ? ORDER BY c.name`
+        : `SELECT DISTINCT c.id, c.name, c.code, c.created_by, c.channel_type, c.parent_id, c.is_private FROM channels c JOIN channel_members cm ON c.id = cm.channel_id LEFT JOIN channel_permissions cp ON c.id = cp.channel_id AND cp.user_id = ? WHERE cm.user_id = ? AND (c.is_private = 0 OR c.is_private IS NULL OR cp.user_id IS NOT NULL) ORDER BY c.name`;
+      const channels = socket.user.isAdmin ? db.prepare(query).all(socket.user.id) : db.prepare(query).all(socket.user.id, socket.user.id);
       channels.forEach(ch => socket.join(`channel:${ch.code}`));
       socket.emit('channels-list', channels);
     });
@@ -141,6 +138,7 @@ function setupSocketHandlers(io, db) {
 
       const channelType = typeof data.type === 'string' && ['text','voice','both'].includes(data.type) ? data.type : 'both';
       const parentId = typeof data.parentId === 'number' ? data.parentId : null;
+      const isPrivate = data.isPrivate ? 1 : 0;
       if (parentId) {
         const parent = db.prepare('SELECT id FROM channels WHERE id = ?').get(parentId);
         if (!parent) return socket.emit('error-msg', 'Parent channel not found');
@@ -148,8 +146,8 @@ function setupSocketHandlers(io, db) {
       const code = generateChannelCode();
       try {
         const result = db.prepare(
-          'INSERT INTO channels (name, code, created_by, channel_type, parent_id) VALUES (?, ?, ?, ?, ?)'
-        ).run(name.trim(), code, socket.user.id, channelType, parentId);
+          'INSERT INTO channels (name, code, created_by, channel_type, parent_id, is_private) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(name.trim(), code, socket.user.id, channelType, parentId, isPrivate);
 
         // Auto-join creator
         db.prepare(
@@ -162,7 +160,8 @@ function setupSocketHandlers(io, db) {
           code,
           created_by: socket.user.id,
           channel_type: channelType,
-          parent_id: parentId
+          parent_id: parentId,
+          is_private: isPrivate
         };
 
         socket.join(`channel:${code}`);
@@ -185,8 +184,10 @@ function setupSocketHandlers(io, db) {
       if (!channel) {
         return socket.emit('error-msg', 'Invalid channel code — double-check it');
       }
-
-      // Add membership if not already a member
+      if (channel.is_private && !socket.user.isAdmin) {
+        const hasPerm = db.prepare('SELECT 1 FROM channel_permissions WHERE channel_id = ? AND user_id = ?').get(channel.id, socket.user.id);
+        if (!hasPerm) return socket.emit('error-msg', 'You need permission to join this channel');
+      }
       const membership = db.prepare(
         'SELECT * FROM channel_members WHERE channel_id = ? AND user_id = ?'
       ).get(channel.id, socket.user.id);
@@ -772,6 +773,74 @@ function setupSocketHandlers(io, db) {
 
       channelUsers.delete(code);
       voiceUsers.delete(code);
+    });
+
+    // ═══════════════ CHANNEL PERMISSIONS ═════════════════════
+
+    socket.on('get-channel-permissions', (data) => {
+      if (!data?.code || !socket.user.isAdmin) return;
+      const channel = db.prepare('SELECT id, is_private FROM channels WHERE code = ?').get(data.code);
+      if (!channel) return;
+      const users = db.prepare(`SELECT u.id, u.username, cp.created_at FROM channel_permissions cp JOIN users u ON cp.user_id = u.id WHERE cp.channel_id = ? ORDER BY u.username`).all(channel.id);
+      socket.emit('channel-permissions', { code: data.code, users, isPrivate: !!channel.is_private });
+    });
+
+    socket.on('add-channel-user', (data) => {
+      if (!socket.user.isAdmin) return socket.emit('error-msg', 'Admin only');
+      if (!data?.code || !data?.username) return;
+      const channel = db.prepare('SELECT id, code, name FROM channels WHERE code = ?').get(data.code);
+      if (!channel) return socket.emit('error-msg', 'Channel not found');
+      const targetUser = db.prepare('SELECT id, username FROM users WHERE username = ? COLLATE NOCASE').get(data.username.trim());
+      if (!targetUser) return socket.emit('error-msg', 'User not found');
+      try {
+        db.prepare('INSERT OR IGNORE INTO channel_permissions (channel_id, user_id, granted_by) VALUES (?, ?, ?)').run(channel.id, targetUser.id, socket.user.id);
+        db.prepare('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(channel.id, targetUser.id);
+        socket.emit('success-msg', `${targetUser.username} added to ${channel.name}`);
+        const users = db.prepare(`SELECT u.id, u.username, cp.created_at FROM channel_permissions cp JOIN users u ON cp.user_id = u.id WHERE cp.channel_id = ? ORDER BY u.username`).all(channel.id);
+        socket.emit('channel-permissions', { code: data.code, users, isPrivate: true });
+        const targetSocket = [...io.sockets.sockets.values()].find(s => s.user?.id === targetUser.id);
+        if (targetSocket) {
+          targetSocket.join(`channel:${channel.code}`);
+          targetSocket.emit('channel-joined', { id: channel.id, name: channel.name, code: channel.code, created_by: channel.created_by });
+          targetSocket.emit('channels-refresh');
+        }
+      } catch (e) { socket.emit('error-msg', 'Failed to add user'); }
+    });
+
+    socket.on('remove-channel-user', (data) => {
+      if (!socket.user.isAdmin) return socket.emit('error-msg', 'Admin only');
+      if (!data?.code || !data?.userId) return;
+      const channel = db.prepare('SELECT id, code, name FROM channels WHERE code = ?').get(data.code);
+      if (!channel) return socket.emit('error-msg', 'Channel not found');
+      db.prepare('DELETE FROM channel_permissions WHERE channel_id = ? AND user_id = ?').run(channel.id, data.userId);
+      db.prepare('DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?').run(channel.id, data.userId);
+      const users = db.prepare(`SELECT u.id, u.username, cp.created_at FROM channel_permissions cp JOIN users u ON cp.user_id = u.id WHERE cp.channel_id = ? ORDER BY u.username`).all(channel.id);
+      socket.emit('channel-permissions', { code: data.code, users, isPrivate: true });
+      const targetSocket = [...io.sockets.sockets.values()].find(s => s.user?.id === data.userId);
+      if (targetSocket) {
+        targetSocket.leave(`channel:${channel.code}`);
+        targetSocket.emit('channel-removed', { code: channel.code });
+        targetSocket.emit('channels-refresh');
+      }
+    });
+
+    socket.on('leave-channel', (data) => {
+      if (!data?.code) return;
+      const channel = db.prepare('SELECT id, is_private FROM channels WHERE code = ?').get(data.code);
+      if (!channel) return;
+      if (channel.is_private && !socket.user.isAdmin) {
+        return socket.emit('error-msg', 'Cannot leave private channels - ask admin to remove you');
+      }
+      db.prepare('DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?').run(channel.id, socket.user.id);
+      socket.leave(`channel:${data.code}`);
+      socket.emit('channel-left', { code: data.code });
+      io.to(`channel:${data.code}`).emit('user-left', { channelCode: data.code, userId: socket.user.id, username: socket.user.username });
+    });
+
+    socket.on('get-all-channels', () => {
+      if (!socket.user.isAdmin) return;
+      const channels = db.prepare('SELECT id, name, code, channel_type, parent_id, is_private FROM channels ORDER BY name').all();
+      socket.emit('all-channels-list', channels);
     });
 
     // ═══════════════ EDIT MESSAGE ═══════════════════════════

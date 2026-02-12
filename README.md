@@ -41,6 +41,7 @@ You launch it, your friends connect to your IP address, and you have a private g
 | **Listen Together** | Sync music/video (YouTube, Spotify, SoundCloud, Vimeo) with your channel |
 | **Game Together** | Retro emulator (NES, SNES, N64, PS1, PS2, GameCube, etc.) with multiplayer controller sharing |
 | **Notifications** | 10 notification sounds (classic + AIM/retro), per-channel volume controls |
+| **Channels** | Public/private channels, nested subchannels, permission-based access, subscribe/unsubscribe |
 | **Moderation** | Admin: kick, mute (timed), ban, block/unblock, delete users, delete channels, auto-cleanup |
 | **Security** | PixelCipher-256-CBC encryption, Bcrypt passwords, JWT auth, HTTPS/SSL, rate limiting, CSP headers |
 | **Tunneling** | No-port-forward hosting via localtunnel or cloudflared |

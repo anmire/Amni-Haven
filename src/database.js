@@ -169,6 +169,22 @@ function initDatabase() {
   } catch {
     db.exec("ALTER TABLE reactions ADD COLUMN gif_url TEXT DEFAULT NULL");
   }
+  try {
+    db.prepare("SELECT is_private FROM channels LIMIT 0").get();
+  } catch {
+    db.exec("ALTER TABLE channels ADD COLUMN is_private INTEGER DEFAULT 0");
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS channel_permissions (
+      channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      granted_by INTEGER REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (channel_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_channel_perms_user ON channel_permissions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_channel_perms_channel ON channel_permissions(channel_id);
+  `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS high_scores (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

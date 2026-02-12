@@ -152,6 +152,26 @@ class HavenApp {
       this.switchChannel(channel.code);
     });
 
+    this.socket.on('channels-refresh', () => { this.socket.emit('get-channels'); });
+
+    this.socket.on('channel-removed', (data) => {
+      this.channels = this.channels.filter(c => c.code !== data.code);
+      this._renderChannels();
+      if (this.currentChannel === data.code) { this._showWelcome(); this.currentChannel = null; }
+    });
+
+    this.socket.on('channel-left', (data) => {
+      this.channels = this.channels.filter(c => c.code !== data.code);
+      this._renderChannels();
+      if (this.currentChannel === data.code) { this._showWelcome(); this.currentChannel = null; }
+      this._showToast('Left channel', 'info');
+    });
+
+    this.socket.on('channel-permissions', (data) => {
+      this._currentChannelPermissions = data;
+      this._renderChannelMembers(data);
+    });
+
     this.socket.on('message-history', (data) => {
       if (data.channelCode === this.currentChannel) {
         this._renderMessages(data.messages);
@@ -581,7 +601,9 @@ class HavenApp {
         const type = typeEl ? typeEl.value : 'both';
         const parentEl = document.getElementById('new-channel-parent');
         const parentId = parentEl && parentEl.value ? parseInt(parentEl.value) : null;
-        if (name) { this.socket.emit('create-channel', { name, type, parentId }); nameInput.value = ''; }
+        const privateEl = document.getElementById('new-channel-private');
+        const isPrivate = privateEl ? privateEl.checked : false;
+        if (name) { this.socket.emit('create-channel', { name, type, parentId, isPrivate }); nameInput.value = ''; if (privateEl) privateEl.checked = false; }
       });
       nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createBtn.click(); });
     }
@@ -599,6 +621,33 @@ class HavenApp {
     document.getElementById('delete-channel-btn').addEventListener('click', () => {
       if (this.currentChannel && confirm('Delete this channel? All messages will be lost.')) {
         this.socket.emit('delete-channel', { code: this.currentChannel });
+      }
+    });
+
+    // Manage channel members (admin)
+    document.getElementById('manage-members-btn')?.addEventListener('click', () => {
+      if (!this.currentChannel) return;
+      document.getElementById('channel-members-modal').style.display = 'flex';
+      document.getElementById('add-member-row').style.display = this.user.isAdmin ? 'flex' : 'none';
+      this.socket.emit('get-channel-permissions', { code: this.currentChannel });
+    });
+    document.getElementById('close-channel-members-btn')?.addEventListener('click', () => { document.getElementById('channel-members-modal').style.display = 'none'; });
+    document.getElementById('add-member-btn')?.addEventListener('click', () => {
+      const input = document.getElementById('add-member-input');
+      const username = input.value.trim();
+      if (!username || !this.currentChannel) return;
+      this.socket.emit('add-channel-user', { code: this.currentChannel, username });
+      input.value = '';
+    });
+    document.getElementById('add-member-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('add-member-btn').click(); });
+
+    // Leave channel
+    document.getElementById('leave-channel-btn')?.addEventListener('click', () => {
+      if (!this.currentChannel) return;
+      const ch = this.channels.find(c => c.code === this.currentChannel);
+      if (ch?.is_private) return this._showToast('Cannot leave private channels', 'error');
+      if (confirm('Leave this channel? You can rejoin with the code.')) {
+        this.socket.emit('leave-channel', { code: this.currentChannel });
       }
     });
 
@@ -1407,7 +1456,11 @@ class HavenApp {
 
     if (this.user.isAdmin) {
       document.getElementById('delete-channel-btn').style.display = 'inline-flex';
+      document.getElementById('manage-members-btn').style.display = 'inline-flex';
+    } else {
+      document.getElementById('manage-members-btn').style.display = 'none';
     }
+    document.getElementById('leave-channel-btn').style.display = channel && !channel.is_private ? 'inline-flex' : 'none';
 
     document.getElementById('messages').innerHTML = '';
     document.getElementById('message-area').style.display = 'flex';
@@ -1434,6 +1487,8 @@ class HavenApp {
     document.getElementById('channel-header-name').textContent = 'Select a channel';
     document.getElementById('channel-code-display').textContent = '';
     document.getElementById('copy-code-btn').style.display = 'none';
+    document.getElementById('manage-members-btn').style.display = 'none';
+    document.getElementById('leave-channel-btn').style.display = 'none';
     document.getElementById('delete-channel-btn').style.display = 'none';
     document.getElementById('voice-join-btn').style.display = 'none';
     document.getElementById('voice-mute-btn').style.display = 'none';
@@ -1466,13 +1521,14 @@ class HavenApp {
       el.dataset.code = ch.code;
       el.style.paddingLeft = `${8 + depth * 16}px`;
       const typeIcon = ch.channel_type === 'voice' ? '\ud83d\udd0a' : ch.channel_type === 'text' ? '\ud83d\udcac' : '#';
+      const lockIcon = ch.is_private ? '\ud83d\udd12 ' : '';
       const kids = childMap[ch.id];
       let toggleHtml = '';
       if (kids && kids.length) {
         const collapsed = this._collapsedChannels && this._collapsedChannels.has(ch.id);
         toggleHtml = `<span class="channel-toggle ${collapsed ? 'collapsed' : ''}" data-ch-id="${ch.id}">▾</span>`;
       }
-      el.innerHTML = `${toggleHtml}<span class="channel-hash">${depth > 0 ? '└ ' : ''}${typeIcon}</span><span class="channel-name">${this._escapeHtml(ch.name)}</span>`;
+      el.innerHTML = `${toggleHtml}<span class="channel-hash">${depth > 0 ? '└ ' : ''}${lockIcon}${typeIcon}</span><span class="channel-name">${this._escapeHtml(ch.name)}</span>`;
       if (this.unreadCounts[ch.code] > 0) {
         const badge = document.createElement('span');
         badge.className = 'channel-badge';
@@ -2645,6 +2701,20 @@ class HavenApp {
     document.getElementById('game-rom-input').value = '';
     document.getElementById('game-rom-btn').disabled = true;
     document.getElementById('game-start-btn').disabled = true;
+  }
+  _renderChannelMembers(data) {
+    const list = document.getElementById('channel-members-list');
+    const info = document.getElementById('channel-members-info');
+    if (!data || !data.users) { list.innerHTML = '<p class="muted-text">No data</p>'; return; }
+    info.textContent = data.isPrivate ? '🔒 Private channel - only listed users can access' : '🌐 Public channel - anyone with the code can join';
+    if (data.users.length === 0) { list.innerHTML = '<p class="muted-text">No users have explicit permission</p>'; return; }
+    list.innerHTML = data.users.map(u => `<div class="member-item" data-user-id="${u.id}"><span class="member-name">${this._escapeHtml(u.username)}</span>${this.user.isAdmin ? `<button class="btn-sm btn-danger-fill remove-member-btn" data-user-id="${u.id}">Remove</button>` : ''}</div>`).join('');
+    list.querySelectorAll('.remove-member-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const userId = parseInt(btn.dataset.userId);
+        this.socket.emit('remove-channel-user', { code: this.currentChannel, userId });
+      });
+    });
   }
 
   // ═══════════════════════════════════════════════════════

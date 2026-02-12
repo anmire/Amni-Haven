@@ -66,6 +66,9 @@
             <select id="new-channel-parent" class="channel-type-select" title="Parent channel (subchannel)">
               <option value="">Top-level</option>
             </select>
+            <label class="private-toggle" title="Admin-only channel">
+              <input type="checkbox" id="new-channel-private"> 🔒
+            </label>
             <button id="create-channel-btn" class="btn-sm btn-accent">+</button>
           </div>
         </div>
@@ -116,6 +119,10 @@
             <span class="channel-code-tag" id="channel-code-display" title="Channel code"></span>
             <button id="copy-code-btn" class="icon-btn small" title="Copy code"
                     style="display:none">📋</button>
+            <button id="manage-members-btn" class="icon-btn small" title="Manage channel members"
+                    style="display:none">👥</button>
+            <button id="leave-channel-btn" class="icon-btn small" title="Leave channel"
+                    style="display:none">🚪</button>
             <button id="delete-channel-btn" class="icon-btn small danger" title="Delete channel"
                     style="display:none">🗑️</button>
           </div>
@@ -605,6 +612,20 @@
       <div id="block-list" class="bans-list"><p class="muted-text">Loading...</p></div>
       <div class="modal-actions">
         <button class="btn-sm" id="close-block-list-btn">Close</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="channel-members-modal" style="display:none">
+    <div class="modal">
+      <h3>📋 Channel Members</h3>
+      <div id="channel-members-info" class="muted-text" style="margin-bottom:8px;font-size:12px;"></div>
+      <div id="add-member-row" class="input-row" style="margin-bottom:12px;display:none">
+        <input type="text" id="add-member-input" placeholder="Username to add..." class="settings-text-input" style="flex:1">
+        <button class="btn-sm btn-accent" id="add-member-btn">+ Add</button>
+      </div>
+      <div id="channel-members-list" class="bans-list"><p class="muted-text">Loading...</p></div>
+      <div class="modal-actions">
+        <button class="btn-sm" id="close-channel-members-btn">Close</button>
       </div>
     </div>
   </div>

@@ -14,6 +14,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 - **Git history clean** — verified no secrets, keys, or proprietary code in tracked history
 
 ### Added
+- **Channel Permissions System**
+  - Private channels (🔒) visible only to authorized users + admins
+  - Admin UI to add/remove users from channels (👥 Manage Members)
+  - Users can leave public channels (🚪 Leave button)
+  - `channel_permissions` table for explicit access control
+  - Subscription model: users see only channels they've joined
+  - Seed script for trading channels: `scripts/seed-trading-channels.js`
 - **Game Together** — Retro console emulator with multiplayer support
   - EmulatorJS integration for NES, SNES, N64, GB, GBC, GBA, NDS, GameCube, Genesis, Saturn, Dreamcast, PS1, PS2, PSP, Xbox
   - Host loads ROM, others join as players or spectators

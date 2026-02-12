@@ -3896,7 +3896,12 @@ input, textarea { font-family: inherit; outline: none; border: none; }
 .noise-suppress-btn.active-filter { opacity: 1; background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
 .channel-type-icon { margin-right: 4px; font-size: 12px; opacity: 0.7; }
 .channel-type-select { padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); font-size: 12px; }
+.private-toggle { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 14px; opacity: 0.7; transition: var(--transition); }
+.private-toggle:hover { opacity: 1; }
+.private-toggle input { width: 14px; height: 14px; cursor: pointer; }
 .admin-setting-group { margin-bottom: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .admin-setting-group label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
 .admin-setting-group input[type="text"] { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); font-size: 13px; margin-top: 4px; }
-.tunnel-status { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.tunnel-status { font-size: 12px; color: var(--text-muted); margin-top: 4px; }.member-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.member-item:last-child { border-bottom: none; }
+.member-name { color: var(--text-primary); font-size: 13px; }
