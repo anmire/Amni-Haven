@@ -1,310 +1,139 @@
 
-<img width="1918" height="948" alt="Screenshot 2026-02-11 003911" src="https://github.com/user-attachments/assets/f41a2be4-d00c-4fcc-a802-ca550e16e43c" />
+<p align="center">
+  <img width="180" src="https://img.shields.io/badge/⬡-AMNI--HAVEN-7289da?style=for-the-badge&labelColor=1a1a2e" alt="Amni-Haven" />
+</p>
 
+<h3 align="center">A turbocharged fork of <a href="https://github.com/ancsemi/Haven">Haven</a> — self-hosted private chat, voice, screen share, and retro gaming.</h3>
 
-# ⬡ AMNI-HAVEN — Private Chat That Lives On Your Machine
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.3.9-7289da" alt="Version" />
+  <img src="https://img.shields.io/badge/upstream-Haven%20v1.4.5-orange" alt="Upstream" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
+  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node" />
+  <img src="https://img.shields.io/badge/platform-Win%20%7C%20Linux%20%7C%20Mac-lightgrey" alt="Platform" />
+</p>
 
-> **Your server. Your rules. No cloud. No accounts with Big Tech. No one reading your messages.**
->
-> *Fork of [ancsemi/Haven](https://github.com/ancsemi/Haven) with expanded game library, additional themes, and upstream bug fix ports.*
-
-![Version](https://img.shields.io/badge/version-1.3.8-blue)
-![Upstream](https://img.shields.io/badge/upstream-Haven%20v1.4.5-orange)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
-
----
-
-## What Is This?
-
-Haven is a **private chat server** you run on your own computer. Think Discord, but:
-
-- **You own everything** — messages, data, the server itself
-- **Nothing leaves your machine** — no cloud, no telemetry, no analytics
-- **No account with anyone** — no email, no phone number, no verification
-- **Free forever** — no subscriptions, no Nitro, no ads
-
-You launch it, your friends connect to your IP address, and you have a private group chat with voice, images, themes, and games. That's it.
+<p align="center">
+  <a href="https://ko-fi.com/ancsemi">☕ Support the original Haven developer on Ko-fi</a>
+</p>
 
 ---
 
-## Features
+## Why This Fork?
 
-| Category | What You Get |
-|----------|-------------|
-| **Chat** | Real-time messaging, image uploads (paste/drag/drop), typing indicators, message editing, replies, emoji reactions, @mentions with autocomplete, DMs |
-| **Voice** | Peer-to-peer audio chat, per-user volume sliders, mute/deafen, noise suppression, private calls |
-| **GIFs** | Giphy GIF search with trending and keyword search |
-| **Formatting** | **Bold**, *italic*, ~~strikethrough~~, `code`, \|\|spoilers\|\|, auto-linked URLs |
-| **Slash Commands** | `/shrug`, `/tableflip`, `/roll 2d20`, `/flip`, `/me`, `/spoiler`, `/tts`, and more — type `/` to see them all |
-| **Search** | Search messages in any channel with Ctrl+F |
-| **Themes** | 18 built-in themes + Triangle morphism with glassmorphism — includes Dark Souls, Elden Ring, Minecraft, FFX, Zelda (fork-exclusive) |
-| **Multi-Server** | Add friends' Haven servers to your sidebar with live online/offline status |
-| **Listen Together** | Sync music/video (YouTube, Spotify, SoundCloud, Vimeo) with your channel |
-| **Game Together** | 32-system retro emulator (NES, SNES, N64, PS1, GBA, PSP, Arcade, Atari, DOS, and more) with correct libretro cores |
-| **Notifications** | 10 notification sounds (classic + AIM/retro), per-channel volume controls |
-| **Channels** | Public/private channels, nested subchannels, permission-based access, subscribe/unsubscribe |
-| **Moderation** | Admin: kick, mute (timed), ban, block/unblock, delete users, delete channels, auto-cleanup |
-| **Security** | PixelCipher-256-CBC encryption, Bcrypt passwords, JWT auth, HTTPS/SSL, rate limiting, CSP headers |
-| **Tunneling** | No-port-forward hosting via localtunnel or cloudflared |
-| **Bots** | REST API for bot/webhook integration with auto-generated tokens |
-| **Game** | Built-in Shippy Container mini-game with server-wide leaderboard |
-| **Emulator QoL** | Script error handling, unsupported console guard (GC/PS2/Xbox = Coming Soon), load timeout recovery |
+[Haven](https://github.com/ancsemi/Haven) by **ancsemi** is an excellent self-hosted chat server — no cloud, no Big Tech accounts, no telemetry. Amni-Haven builds on that foundation with a heavier focus on **retro gaming**, **visual themes**, and **quality-of-life fixes**.
+
+If you want the clean upstream experience, go use [Haven](https://github.com/ancsemi/Haven). If you want 32 emulated consoles, Dark Souls themes, and a bunch of extra polish — you're in the right place.
 
 ---
 
-## Quick Start (Windows)
-
-### 1. Install Node.js
-
-Download and install from **[nodejs.org](https://nodejs.org/)** (LTS version). Restart your PC after installing.
-
-### 2. Download Haven
-
-Download this repository and unzip it anywhere. Desktop is fine.
-
-### 3. Launch
-
-Double-click **`Start Haven.bat`**
-
-A terminal window opens. When you see `HAVEN is running`, it's ready.
-
-### 4. Open the App
-
-Your browser should open automatically. If not, go to:
-```
-https://localhost:3000
-```
-
-> You'll see a certificate warning — that's normal. Click **Advanced** → **Proceed**. Haven uses a self-signed certificate for encryption.
-
-### 5. Create Your Admin Account
-
-1. Click **Register**
-2. Use the username `admin` (or whatever you set in your data directory's `.env`)
-3. Pick a password
-4. You're now the admin — you can create channels
-
-### 6. Create a Channel & Invite Friends
-
-1. Type a channel name in the sidebar and click **Create**
-2. A channel code appears (8 characters like `a3f8b2c1`)
-3. Send this code + your IP address to your friends
-4. They go to `https://YOUR_IP:3000`, register, and enter the code
-
----
-
-## Quick Start (Linux / macOS)
-
-```bash
-chmod +x start.sh
-./start.sh
-```
-
-The script handles everything: checks Node.js, installs dependencies, generates SSL certs, and launches.
-
-Or manually:
-```bash
-npm install
-node server.js
-```
-
----
-
-## Letting Friends Connect Over the Internet
-
-If your friends aren't on your WiFi, you need to open a port on your router.
-
-### Step 1 — Find Your Public IP
-
-Go to [whatismyip.com](https://whatismyip.com). That's the address your friends will use.
-
-### Step 2 — Port Forward
-
-1. Log into your router (usually `http://192.168.1.1` or `http://10.0.0.1`)
-2. Find **Port Forwarding** (sometimes called NAT or Virtual Servers)
-3. Forward port **3000** (TCP) to your PC's local IP
-4. Save
-
-> **Find your local IP:** Open Command Prompt → type `ipconfig` → look for IPv4 Address (e.g. `192.168.1.50`)
-
-### Step 3 — Windows Firewall
-
-Open PowerShell as Administrator and run:
-```powershell
-New-NetFirewallRule -DisplayName "Haven Chat" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow
-```
-
-### Step 4 — Share With Friends
-
-Send them:
-```
-https://YOUR_PUBLIC_IP:3000
-```
-
-Tell them to click **Advanced** → **Proceed** on the certificate warning. It's normal.
-
----
-
-## Configuration
-
-Settings are in the `.env` file, stored in your **data directory** (created automatically on first launch):
-
-| OS | Data Directory |
-|----|---------------|
-| Windows | `%APPDATA%\Haven\` |
-| Linux / macOS | `~/.haven/` |
-
-| Setting | Default | What It Does |
-|---------|---------|-------------|
-| `PORT` | `3000` | Server port |
-| `SERVER_NAME` | `Haven` | Your server's display name |
-| `ADMIN_USERNAME` | `admin` | Register with this name to get admin powers |
-| `JWT_SECRET` | *(auto-generated)* | Security key — don't share or edit this |
-| `SSL_CERT_PATH` | *(auto-detected)* | Path to SSL certificate |
-| `SSL_KEY_PATH` | *(auto-detected)* | Path to SSL private key |
-| `HAVEN_DATA_DIR` | *(see above)* | Override the data directory location |
-
-After editing `.env`, restart the server.
-
----
-
-## Slash Commands
-
-Type `/` in the message box to see the full list. Here are some highlights:
-
-| Command | What It Does |
-|---------|-------------|
-| `/shrug` | ¯\\_(ツ)_/¯ |
-| `/tableflip` | (╯°□°)╯︵ ┻━┻ |
-| `/unflip` | ┬─┬ ノ( ゜-゜ノ) |
-| `/roll 2d20` | Roll dice (any NdN format) |
-| `/flip` | Flip a coin |
-| `/me does something` | Italic action text |
-| `/spoiler secret text` | Hidden spoiler text |
-| `/tts hello` | Text-to-speech |
-| `/nick NewName` | Change your username |
-| `/clear` | Clear your chat view |
-| `/bbs` | "Will be back soon" |
-| `/afk` | "Away from keyboard" |
-
----
-
-## Themes
-
-18 themes, switchable from the sidebar:
-
-**Haven** · **Discord** · **Matrix** · **Tron** · **HALO** · **Lord of the Rings** · **Cyberpunk** · **Nord** · **Dracula** · **Bloodborne** · **Ice** · **Abyss** · **Dark Souls** 🔥 · **Elden Ring** 💍 · **Minecraft** ⛏️ · **FFX** ⚔️ · **Zelda** 🗡️ · **Triangle Morph** 🔺
-
-*Game themes are fork-exclusive additions not found in upstream Haven.*
-
-Your theme choice persists across sessions.
-
-<img width="1917" height="947" alt="Screenshot 2026-02-11 004102" src="https://github.com/user-attachments/assets/b47be23a-853c-42f8-94a2-d6adcb206966" />
-
----
-
-## Voice Chat
-
-1. Join a text channel
-2. Click **🎤 Join Voice**
-3. Allow microphone access
-4. Adjust anyone's volume with their slider
-5. Click **📞 Leave** when done
-
-Voice is peer-to-peer — audio goes directly between users, not through the server. Requires HTTPS.
-
----
-
-## Admin Guide
-
-If you registered with the admin username, you can:
-
-- **Create / delete channels**
-- **Kick users** — disconnects them (they can rejoin)
-- **Mute users** — timed mute (can't send messages)
-- **Ban users** — permanent ban (can't connect)
-- **Delete users** — remove banned accounts (frees up their username)
-- **Auto-cleanup** — configure automatic deletion of old messages (Settings → Admin)
-- **Server settings** — EULA, max message age, DB size limits
-
-Access admin controls in the **Settings** panel (⚙️ gear icon in the sidebar).
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| "Node.js is not installed" | Install from [nodejs.org](https://nodejs.org/). Restart PC. |
-| Browser shows blank page | Clear cache or try incognito/private window |
-| Friends can't connect | Check port forwarding + firewall. Make sure server is running. |
-| "Error: EADDRINUSE" | Another app is using port 3000. Change `PORT` in `.env`. |
-| Voice chat echoes | Use headphones |
-| Voice doesn't work remotely | Must use `https://`, not `http://` |
-| Certificate error in browser | Normal — click Advanced → Proceed |
-
----
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Enter` | Send message |
-| `Shift+Enter` | New line |
-| `Ctrl+F` | Search messages |
-| `Escape` | Close search / modals |
-| `@` | @mention autocomplete |
-| `/` | Slash command autocomplete |
-| `↑` `↓` | Navigate autocomplete |
-| `Tab` | Select autocomplete suggestion |
-
----
-
-## Backing Up Your Data
-
-All your data lives in a dedicated directory **outside** the Haven code folder:
-
-| OS | Location |
-|----|----------|
-| Windows | `%APPDATA%\Haven\` |
-| Linux / macOS | `~/.haven/` |
-
-Inside you'll find:
-- **`haven.db`** — all messages, users, and channels
-- **`.env`** — your configuration
-- **`certs/`** — SSL certificates
-- **`uploads/`** — uploaded images
-
-Copy the entire folder somewhere safe to back up everything. The Haven code directory contains no personal data.
-
----
-
-## Fork Changes vs Upstream
-
-This fork (Amni-Haven) includes the following changes on top of [ancsemi/Haven](https://github.com/ancsemi/Haven):
-
-### Added
-- **5 game themes** — Dark Souls, Elden Ring, Minecraft, FFX, Zelda (full CSS + backgrounds + sidebar buttons)
-- **32-system game library** — expanded from 15 to 36 consoles with correct libretro WASM core names
-- **Emulator error handling** — script.onerror + timeout recovery prevents silent crashes
-- **Unsupported console guard** — GameCube, PS2, Dreamcast, Xbox greyed out as "Coming Soon"
+## What's Different Here
+
+### 🎮 32-System Retro Emulator
+Haven ships with a mini-game. Amni-Haven ships with an **entire arcade**.
+
+Load your own legally-owned ROMs and play right in the browser — NES, SNES, N64, PS1, PSP, GBA, Genesis, Arcade, DOS, and 23 more systems. All cores are correct libretro WASM builds served from the EmulatorJS CDN.
+
+<details>
+<summary>Full console list (32 playable + 4 coming soon)</summary>
+
+| System | Core | System | Core |
+|--------|------|--------|------|
+| NES | fceumm | Game Boy | gambatte |
+| SNES | snes9x | GBC | gambatte |
+| N64 | mupen64plus_next | GBA | mgba |
+| PS1 | mednafen_psx_hw | NDS | melonds |
+| PSP | ppsspp | Genesis / MD | genesis_plus_gx |
+| Arcade | mame2003_plus | Neo Geo | fbalpha2012_neogeo |
+| DOS | dosbox_pure | Atari 2600 | stella2014 |
+| Atari 7800 | prosystem | Atari Lynx | handy |
+| Atari Jaguar | virtualjaguar | TurboGrafx-16 | mednafen_pce |
+| WonderSwan | mednafen_wswan | WonderSwan Color | mednafen_wswan |
+| Virtual Boy | mednafen_vb | Neo Geo Pocket | mednafen_ngp |
+| 32X | picodrive | ColecoVision | gearcoleco |
+| Intellivision | freeintv | Vectrex | vecx |
+| MSX | fmsx | MSX2 | fmsx |
+| Sega Saturn | yabause | 3DO | opera |
+| PC-FX | mednafen_pcfx | PC Engine CD | mednafen_pce |
+| *GameCube* | *coming soon* | *PS2* | *coming soon* |
+| *Dreamcast* | *coming soon* | *Xbox* | *coming soon* |
+
+</details>
+
+### 🎨 18 Visual Themes (6 Fork-Exclusive)
+All 12 upstream Haven themes plus:
+- **Dark Souls** 🔥 — ember glow, bonfire warmth
+- **Elden Ring** 💍 — golden grace, Erdtree light
+- **Minecraft** ⛏️ — dirt-block brown, creeper green
+- **Final Fantasy X** ⚔️ — Zanarkand pyrefly blues
+- **Zelda** 🗡️ — Hyrule field green, Triforce gold
+- **Triangle Morph** 🔺 — barycentric Chill/Heat/Dream blend with glassmorphism
+
+### 🔧 Quality-of-Life Additions
 - **Spotify Premium integration** — OAuth + Web Playback SDK for Listen Together
 - **Display names** — separate from login username
-- **Triangle Morph theme** — barycentric Chill/Heat/Dream blend with glassmorphism
 - **Sidebar expand/collapse** — toggle buttons for both sidebars
+- **Emulator error handling** — script.onerror + load timeout recovery
+- **Unsupported console guard** — GameCube/PS2/Dreamcast/Xbox greyed out as "Coming Soon"
+- **Stream close actually works** — tile × stops your stream or dismisses remote tiles
+- **ROM loading fix** — game container visible before EmulatorJS bootstraps (no more 0×0 canvas)
+- **Expanded ROM file picker** — 40+ file extensions covering all 32 systems
 
-### Bug Fixes (ported from upstream)
-- SSL_ERROR_RX_RECORD_TOO_LONG — bat file detects HTTP vs HTTPS ([#2](https://github.com/ancsemi/Haven/issues/2))
-- Admin status & display name lost on reconnect (session-info event)
-- Stale JS/CSS after deploy (ETag revalidation)
+### 🐛 Bug Fixes Ported from Upstream
+- SSL bat file protocol detection ([upstream #2](https://github.com/ancsemi/Haven/issues/2))
+- Admin status & display name preserved on reconnect
+- Stale JS/CSS after deploy (ETag revalidation replaces maxAge caching)
 - Mobile tap-to-reveal message toolbar
 
-### Bug Fixes (fork-original)
-- GIF picker z-index, theme background opacity boost, tunnel/status 403, CORS health check URL, EmulatorJS cleanup crashes, emulator timeout killing mid-load
+### 🐛 Fork-Original Bug Fixes
+- GIF picker z-index overlap
+- Theme background opacity visibility
+- Tunnel/status 403 auth header
+- CORS health check URL extraction
+- EmulatorJS cleanup crash prevention
+- Emulator timeout false-positive on slow loads
 
-See [CHANGELOG.md](CHANGELOG.md) for full version history.
+---
+
+## Getting Started
+
+> Full setup docs (port forwarding, SSL, Linux/macOS, configuration, etc.) are in the upstream [Haven README](https://github.com/ancsemi/Haven#readme). Everything there applies here — Amni-Haven is a drop-in replacement.
+
+**Quick version (Windows):**
+
+1. Install [Node.js](https://nodejs.org/) (LTS) and restart your PC
+2. Download / clone this repo
+3. Double-click **`Start Haven.bat`**
+4. Browser opens → register with `admin` username → create channels → share your IP + channel code
+
+**Quick version (Linux / macOS):**
+```bash
+chmod +x start.sh && ./start.sh
+```
+
+---
+
+## Theme Gallery
+
+<img width="1917" height="947" alt="Theme gallery showing Haven themes" src="https://github.com/user-attachments/assets/b47be23a-853c-42f8-94a2-d6adcb206966" />
+
+---
+
+## Version History
+
+See [CHANGELOG.md](CHANGELOG.md) for the full log. Current version: **1.3.9**.
+
+---
+
+## Relationship to Upstream
+
+Amni-Haven tracks [ancsemi/Haven](https://github.com/ancsemi/Haven) as an upstream remote. Bug fixes flow both directions when applicable. The upstream project is the source of truth for core architecture — this fork focuses on additive features and extended platform support.
+
+**If you like what Haven does, support the original developer:**
+
+<p align="center">
+  <a href="https://ko-fi.com/ancsemi"><img src="https://img.shields.io/badge/Ko--fi-Support%20ancsemi-ff5e5b?logo=ko-fi&logoColor=white&style=for-the-badge" alt="Ko-fi" /></a>
+</p>
 
 ---
 
@@ -312,10 +141,10 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 MIT — free to use, modify, and share.
 
-Original project: [github.com/ancsemi/Haven](https://github.com/ancsemi/Haven)
+Original project: [ancsemi/Haven](https://github.com/ancsemi/Haven)
 
 ---
 
 <p align="center">
-  <b>⬡ Amni-Haven</b> — Because your conversations are yours.
+  <b>⬡ Amni-Haven</b> — your server, your arcade, your rules.
 </p>
