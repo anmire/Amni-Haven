@@ -40,7 +40,7 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "https://cdn.emulatorjs.org"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.emulatorjs.org"],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
       connectSrc: ["'self'", "wss:", "ws:", "https://cdn.emulatorjs.org"],
       mediaSrc: ["'self'", "blob:"],
