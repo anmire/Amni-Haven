@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.3.9] — 2025-02-12
+
+### Fixed
+- **Screen share close buttons don't stop stream** — tile close button only collapsed/expanded visually; container close button only toggled minimize. Neither actually stopped the MediaStream. Tile close now calls `stopScreenShare()` for own tile or dismisses remote tiles. Container close stops your stream if sharing, otherwise minimizes.
+- **ROM emulator renders into hidden container** — `game-active-session` had `display:none` when EmulatorJS bootstrapped into `#game-container`, causing 0×0 canvas. Container is now shown BEFORE `startGame()` so EmulatorJS initializes with correct dimensions. Error recovery re-shows host controls on failure.
+- **ROM file picker too restrictive** — `accept` filter expanded from 20 to 40+ extensions covering all 32 supported consoles (added `.a26`, `.a78`, `.lnx`, `.pce`, `.ws`, `.wsc`, `.vb`, `.ngp`, `.32x`, `.col`, `.zip`, `.7z`, `.chd`, etc.)
+
+---
+
 ## [1.3.8] — 2025-02-12
 
 ### Fixed (ported from upstream)

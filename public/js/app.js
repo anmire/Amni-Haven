@@ -2323,13 +2323,10 @@ class HavenApp {
         tile.appendChild(toolbar);
         const closeBtn = document.createElement('button');
         closeBtn.className = 'screen-share-tile-close';
-        closeBtn.title = 'Collapse stream';
-        closeBtn.textContent = '▾';
+        closeBtn.title = (userId === null || userId === this.user.id) ? 'Stop sharing' : 'Dismiss stream';
+        closeBtn.textContent = '✕';
         closeBtn.addEventListener('click', () => {
-          const vid = tile.querySelector('video');
-          const collapsed = tile.classList.toggle('collapsed');
-          closeBtn.textContent = collapsed ? '▸' : '▾';
-          closeBtn.title = collapsed ? 'Expand stream' : 'Collapse stream';
+          (userId === null || userId === this.user.id) ? this._toggleScreenShare() : this._handleScreenStream(userId, null);
         });
         tile.appendChild(closeBtn);
         grid.appendChild(tile);
@@ -2365,6 +2362,10 @@ class HavenApp {
   }
 
   _hideScreenShare() {
+    if (this.voice?.isScreenSharing) {
+      this._toggleScreenShare();
+      return;
+    }
     const container = document.getElementById('screen-share-container');
     const collapsed = container.classList.toggle('screen-collapsed');
     const btn = document.getElementById('screen-share-close');
@@ -2794,14 +2795,15 @@ class HavenApp {
       const rom = romInput.files?.[0];
       if (!cid || !rom) return this._showToast('Select console and ROM', 'error');
       try {
-        await this.gameManager.startGame(cid, rom, this.currentChannel);
         document.getElementById('game-host-controls').style.display = 'none';
         document.getElementById('game-active-session').style.display = 'block';
         document.getElementById('game-now-title').textContent = rom.name;
         document.getElementById('game-now-host').textContent = `Host: ${this.user.username}`;
         endBtn.style.display = 'inline-flex';
+        await this.gameManager.startGame(cid, rom, this.currentChannel);
       } catch (e) {
         this._showToast(e.message, 'error');
+        this._resetGameUI();
       }
     });
     controllerSelect?.addEventListener('change', () => {
