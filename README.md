@@ -2,11 +2,14 @@
 <img width="1918" height="948" alt="Screenshot 2026-02-11 003911" src="https://github.com/user-attachments/assets/f41a2be4-d00c-4fcc-a802-ca550e16e43c" />
 
 
-# ⬡ HAVEN — Private Chat That Lives On Your Machine
+# ⬡ AMNI-HAVEN — Private Chat That Lives On Your Machine
 
 > **Your server. Your rules. No cloud. No accounts with Big Tech. No one reading your messages.**
+>
+> *Fork of [ancsemi/Haven](https://github.com/ancsemi/Haven) with expanded game library, additional themes, and upstream bug fix ports.*
 
-![Version](https://img.shields.io/badge/version-1.3.6-blue)
+![Version](https://img.shields.io/badge/version-1.3.8-blue)
+![Upstream](https://img.shields.io/badge/upstream-Haven%20v1.4.5-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
@@ -36,10 +39,10 @@ You launch it, your friends connect to your IP address, and you have a private g
 | **Formatting** | **Bold**, *italic*, ~~strikethrough~~, `code`, \|\|spoilers\|\|, auto-linked URLs |
 | **Slash Commands** | `/shrug`, `/tableflip`, `/roll 2d20`, `/flip`, `/me`, `/spoiler`, `/tts`, and more — type `/` to see them all |
 | **Search** | Search messages in any channel with Ctrl+F |
-| **Themes** | 13 built-in themes + Triangle morphism with glassmorphism (barycentric Chill/Heat/Dream blend with backdrop-filter glass effects) |
+| **Themes** | 18 built-in themes + Triangle morphism with glassmorphism — includes Dark Souls, Elden Ring, Minecraft, FFX, Zelda (fork-exclusive) |
 | **Multi-Server** | Add friends' Haven servers to your sidebar with live online/offline status |
 | **Listen Together** | Sync music/video (YouTube, Spotify, SoundCloud, Vimeo) with your channel |
-| **Game Together** | Retro emulator (NES, SNES, N64, PS1, PS2, GameCube, etc.) with multiplayer controller sharing |
+| **Game Together** | 32-system retro emulator (NES, SNES, N64, PS1, GBA, PSP, Arcade, Atari, DOS, and more) with correct libretro cores |
 | **Notifications** | 10 notification sounds (classic + AIM/retro), per-channel volume controls |
 | **Channels** | Public/private channels, nested subchannels, permission-based access, subscribe/unsubscribe |
 | **Moderation** | Admin: kick, mute (timed), ban, block/unblock, delete users, delete channels, auto-cleanup |
@@ -47,6 +50,7 @@ You launch it, your friends connect to your IP address, and you have a private g
 | **Tunneling** | No-port-forward hosting via localtunnel or cloudflared |
 | **Bots** | REST API for bot/webhook integration with auto-generated tokens |
 | **Game** | Built-in Shippy Container mini-game with server-wide leaderboard |
+| **Emulator QoL** | Script error handling, unsupported console guard (GC/PS2/Xbox = Coming Soon), load timeout recovery |
 
 ---
 
@@ -189,9 +193,11 @@ Type `/` in the message box to see the full list. Here are some highlights:
 
 ## Themes
 
-12 themes, switchable from the sidebar:
+18 themes, switchable from the sidebar:
 
-**Haven** · **Discord** · **Matrix** · **Tron** · **HALO** · **Lord of the Rings** · **Cyberpunk** · **Nord** · **Dracula** · **Bloodborne** · **Ice** · **Abyss**
+**Haven** · **Discord** · **Matrix** · **Tron** · **HALO** · **Lord of the Rings** · **Cyberpunk** · **Nord** · **Dracula** · **Bloodborne** · **Ice** · **Abyss** · **Dark Souls** 🔥 · **Elden Ring** 💍 · **Minecraft** ⛏️ · **FFX** ⚔️ · **Zelda** 🗡️ · **Triangle Morph** 🔺
+
+*Game themes are fork-exclusive additions not found in upstream Haven.*
 
 Your theme choice persists across sessions.
 
@@ -275,12 +281,41 @@ Copy the entire folder somewhere safe to back up everything. The Haven code dire
 
 ---
 
+## Fork Changes vs Upstream
+
+This fork (Amni-Haven) includes the following changes on top of [ancsemi/Haven](https://github.com/ancsemi/Haven):
+
+### Added
+- **5 game themes** — Dark Souls, Elden Ring, Minecraft, FFX, Zelda (full CSS + backgrounds + sidebar buttons)
+- **32-system game library** — expanded from 15 to 36 consoles with correct libretro WASM core names
+- **Emulator error handling** — script.onerror + timeout recovery prevents silent crashes
+- **Unsupported console guard** — GameCube, PS2, Dreamcast, Xbox greyed out as "Coming Soon"
+- **Spotify Premium integration** — OAuth + Web Playback SDK for Listen Together
+- **Display names** — separate from login username
+- **Triangle Morph theme** — barycentric Chill/Heat/Dream blend with glassmorphism
+- **Sidebar expand/collapse** — toggle buttons for both sidebars
+
+### Bug Fixes (ported from upstream)
+- SSL_ERROR_RX_RECORD_TOO_LONG — bat file detects HTTP vs HTTPS ([#2](https://github.com/ancsemi/Haven/issues/2))
+- Admin status & display name lost on reconnect (session-info event)
+- Stale JS/CSS after deploy (ETag revalidation)
+- Mobile tap-to-reveal message toolbar
+
+### Bug Fixes (fork-original)
+- GIF picker z-index, theme background opacity boost, tunnel/status 403, CORS health check URL, EmulatorJS cleanup crashes, emulator timeout killing mid-load
+
+See [CHANGELOG.md](CHANGELOG.md) for full version history.
+
+---
+
 ## License
 
 MIT — free to use, modify, and share.
 
+Original project: [github.com/ancsemi/Haven](https://github.com/ancsemi/Haven)
+
 ---
 
 <p align="center">
-  <b>⬡ Haven</b> — Because your conversations are yours.
+  <b>⬡ Amni-Haven</b> — Because your conversations are yours.
 </p>
