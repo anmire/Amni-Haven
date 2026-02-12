@@ -110,16 +110,13 @@ function setupSocketHandlers(io, db) {
     // ── Get user's channels ─────────────────────────────────
     socket.on('get-channels', () => {
       const channels = db.prepare(`
-        SELECT c.id, c.name, c.code, c.created_by, c.channel_type
+        SELECT c.id, c.name, c.code, c.created_by, c.channel_type, c.parent_id
         FROM channels c
         JOIN channel_members cm ON c.id = cm.channel_id
         WHERE cm.user_id = ?
         ORDER BY c.name
       `).all(socket.user.id);
-
-      // Join all channel rooms for message delivery
       channels.forEach(ch => socket.join(`channel:${ch.code}`));
-
       socket.emit('channels-list', channels);
     });
 
@@ -143,11 +140,16 @@ function setupSocketHandlers(io, db) {
       }
 
       const channelType = typeof data.type === 'string' && ['text','voice','both'].includes(data.type) ? data.type : 'both';
+      const parentId = typeof data.parentId === 'number' ? data.parentId : null;
+      if (parentId) {
+        const parent = db.prepare('SELECT id FROM channels WHERE id = ?').get(parentId);
+        if (!parent) return socket.emit('error-msg', 'Parent channel not found');
+      }
       const code = generateChannelCode();
       try {
         const result = db.prepare(
-          'INSERT INTO channels (name, code, created_by, channel_type) VALUES (?, ?, ?, ?)'
-        ).run(name.trim(), code, socket.user.id, channelType);
+          'INSERT INTO channels (name, code, created_by, channel_type, parent_id) VALUES (?, ?, ?, ?, ?)'
+        ).run(name.trim(), code, socket.user.id, channelType, parentId);
 
         // Auto-join creator
         db.prepare(
@@ -159,7 +161,8 @@ function setupSocketHandlers(io, db) {
           name: name.trim(),
           code,
           created_by: socket.user.id,
-          channel_type: channelType
+          channel_type: channelType,
+          parent_id: parentId
         };
 
         socket.join(`channel:${code}`);
@@ -1612,6 +1615,50 @@ function setupSocketHandlers(io, db) {
       if (!handler) return null;
       return handler();
     }
+    socket.on('listen-start', (data) => {
+      if (!data || !data.url || !socket.user) return;
+      const channelCode = socket.currentChannel || data.channelCode;
+      if (!channelCode) return socket.emit('error-msg', 'Join a channel first');
+      const url = typeof data.url === 'string' ? data.url.trim().slice(0, 2048) : '';
+      const title = typeof data.title === 'string' ? data.title.trim().slice(0, 200) : '';
+      if (!url) return;
+      try {
+        db.prepare('DELETE FROM listen_sessions WHERE channel_code = ?').run(channelCode);
+        db.prepare('INSERT INTO listen_sessions (channel_code, host_id, media_url, media_title) VALUES (?, ?, ?, ?)').run(channelCode, socket.user.id, url, title);
+      } catch {}
+      const session = { url, title, hostId: socket.user.id, hostName: socket.user.username, isPlaying: true, position: 0 };
+      io.to(`channel:${channelCode}`).emit('listen-session', session);
+    });
+    socket.on('listen-sync', (data) => {
+      if (!data || !socket.user) return;
+      const channelCode = socket.currentChannel || data.channelCode;
+      if (!channelCode) return;
+      const hostCheck = db.prepare('SELECT id FROM listen_sessions WHERE channel_code = ? AND host_id = ?').get(channelCode, socket.user.id);
+      if (!hostCheck) return socket.emit('error-msg', 'Only the host can sync');
+      const isPlaying = typeof data.isPlaying === 'boolean' ? data.isPlaying : true;
+      const position = typeof data.position === 'number' ? data.position : 0;
+      try {
+        db.prepare('UPDATE listen_sessions SET is_playing = ?, position = ?, updated_at = CURRENT_TIMESTAMP WHERE channel_code = ? AND host_id = ?').run(isPlaying ? 1 : 0, position, channelCode, socket.user.id);
+      } catch {}
+      socket.to(`channel:${channelCode}`).emit('listen-sync-update', { isPlaying, position, hostId: socket.user.id });
+    });
+    socket.on('listen-stop', (data) => {
+      const channelCode = socket.currentChannel || (data && data.channelCode);
+      if (!channelCode || !socket.user) return;
+      try { db.prepare('DELETE FROM listen_sessions WHERE channel_code = ? AND host_id = ?').run(channelCode, socket.user.id); } catch {}
+      io.to(`channel:${channelCode}`).emit('listen-ended', { hostId: socket.user.id });
+    });
+    socket.on('listen-get', (data) => {
+      const channelCode = socket.currentChannel || (data && data.channelCode);
+      if (!channelCode) return;
+      const row = db.prepare('SELECT * FROM listen_sessions WHERE channel_code = ? ORDER BY started_at DESC LIMIT 1').get(channelCode);
+      if (row) {
+        const host = db.prepare('SELECT username FROM users WHERE id = ?').get(row.host_id);
+        socket.emit('listen-session', { url: row.media_url, title: row.media_title, hostId: row.host_id, hostName: host ? host.username : 'Unknown', isPlaying: !!row.is_playing, position: row.position });
+      } else {
+        socket.emit('listen-session', null);
+      }
+    });
   });
   setupBotSocketHandlers(io, db);
 }

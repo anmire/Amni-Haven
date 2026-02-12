@@ -63,6 +63,9 @@
               <option value="text">Text</option>
               <option value="voice">Voice</option>
             </select>
+            <select id="new-channel-parent" class="channel-type-select" title="Parent channel (subchannel)">
+              <option value="">Top-level</option>
+            </select>
             <button id="create-channel-btn" class="btn-sm btn-accent">+</button>
           </div>
         </div>
@@ -149,8 +152,37 @@
             <button id="noise-suppress-btn" class="btn-voice" style="display:none" title="Noise Suppression">
               🧭 Filter
             </button>
+            <button id="listen-together-btn" class="btn-voice" style="display:none" title="Listen Together">
+              🎵 Listen
+            </button>
           </div>
         </header>
+        <div id="listen-together-panel" class="listen-together-panel" style="display:none">
+          <div class="listen-panel-header">
+            <span id="listen-panel-title">🎵 Listen Together</span>
+            <button id="listen-panel-close" class="icon-btn small">&times;</button>
+          </div>
+          <div class="listen-panel-body">
+            <div id="listen-host-controls">
+              <div class="input-row" style="gap:6px">
+                <input type="text" id="listen-url-input" class="settings-text-input" placeholder="Paste media URL (Spotify, YouTube, SoundCloud...)" style="flex:1">
+                <input type="text" id="listen-title-input" class="settings-text-input" placeholder="Title (optional)" style="width:140px">
+                <button id="listen-start-btn" class="btn-sm btn-accent">▶ Start</button>
+              </div>
+            </div>
+            <div id="listen-active-session" style="display:none">
+              <div class="listen-now-playing">
+                <span id="listen-now-title" class="listen-track-name">Nothing playing</span>
+                <span id="listen-now-host" class="listen-host-tag"></span>
+              </div>
+              <div id="listen-embed-container" class="listen-embed-container"></div>
+              <div class="listen-controls">
+                <button id="listen-play-pause" class="btn-sm">⏸ Pause</button>
+                <button id="listen-stop-btn" class="btn-sm btn-danger">⏹ Stop</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Welcome Screen -->
         <div id="no-channel-msg" class="welcome-screen">

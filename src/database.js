@@ -20,6 +20,7 @@ function initDatabase() {
       code TEXT UNIQUE NOT NULL,
       created_by INTEGER REFERENCES users(id),
       channel_type TEXT NOT NULL DEFAULT 'both',
+      parent_id INTEGER REFERENCES channels(id) ON DELETE CASCADE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS channel_members (
@@ -148,6 +149,11 @@ function initDatabase() {
     db.exec("ALTER TABLE messages ADD COLUMN is_bot INTEGER DEFAULT 0");
   }
   try {
+    db.prepare("SELECT parent_id FROM channels LIMIT 0").get();
+  } catch {
+    db.exec("ALTER TABLE channels ADD COLUMN parent_id INTEGER REFERENCES channels(id) ON DELETE CASCADE");
+  }
+  try {
     db.prepare("SELECT gif_url FROM reactions LIMIT 0").get();
   } catch {
     db.exec("ALTER TABLE reactions ADD COLUMN gif_url TEXT DEFAULT NULL");
@@ -235,6 +241,20 @@ function initDatabase() {
       UNIQUE(message_id)
     );
     CREATE INDEX IF NOT EXISTS idx_pinned_channel ON pinned_messages(channel_id);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS listen_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_code TEXT NOT NULL,
+      host_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      media_url TEXT NOT NULL,
+      media_title TEXT DEFAULT '',
+      is_playing INTEGER DEFAULT 1,
+      position REAL DEFAULT 0,
+      started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_listen_channel ON listen_sessions(channel_code);
   `);
   return db;
 }

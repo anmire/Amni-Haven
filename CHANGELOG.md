@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.3.2-sc] — 2025-06-26
+
+### Added — Stream Controls, Subchannels, Listen Together
+
+#### Stream Viewer Controls
+- **Fullscreen/maximize** button on each screen-share tile via Fullscreen API
+- **Volume slider** per tile — unmute screen audio and adjust level independently
+- **Resolution selector** per tile — switch playback quality (Auto/1080p/720p/480p/360p) via `applyConstraints()`
+- Toolbar appears on hover, persists in fullscreen mode
+
+#### Subchannels (Nested Channel Hierarchy)
+- **parent_id** column added to channels table with CASCADE delete
+- Create-channel UI has parent selector dropdown (Top-level or under existing channel)
+- Channel list renders as collapsible tree with indent, toggle arrows, and `└` prefix for children
+- Socket handlers updated: `create-channel` accepts `parentId`, `get-channels` returns `parent_id`
+
+#### Listen Together (Media Sync)
+- **listen_sessions** table for persistent session tracking per channel
+- Host starts a session by pasting any media URL (YouTube, Spotify, SoundCloud, Vimeo)
+- Auto-embeds via oEmbed iframes (Spotify embed, YouTube embed, SoundCloud player, Vimeo player)
+- Play/pause/stop host controls broadcast sync state to all channel participants
+- Panel accessible via 🎵 Listen button in channel header
+- Socket events: `listen-start`, `listen-sync`, `listen-stop`, `listen-get`, `listen-session`, `listen-sync-update`, `listen-ended`
+
+---
+
 ## [1.3.2] — 2025-06-25
 
 ### Added — 13 New Features

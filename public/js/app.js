@@ -223,7 +223,15 @@ class HavenApp {
     this.socket.on('error-msg', (msg) => {
       this._showToast(msg, 'error');
     });
-
+    this.socket.on('listen-session', (session) => {
+      this._onListenSession(session);
+    });
+    this.socket.on('listen-sync-update', (data) => {
+      this._onListenSync(data);
+    });
+    this.socket.on('listen-ended', () => {
+      this._onListenEnded();
+    });
     this.socket.on('pong-check', () => {
       if (this._pingStart) {
         const latency = Date.now() - this._pingStart;
@@ -569,7 +577,9 @@ class HavenApp {
         const name = nameInput.value.trim();
         const typeEl = document.getElementById('new-channel-type');
         const type = typeEl ? typeEl.value : 'both';
-        if (name) { this.socket.emit('create-channel', { name, type }); nameInput.value = ''; }
+        const parentEl = document.getElementById('new-channel-parent');
+        const parentId = parentEl && parentEl.value ? parseInt(parentEl.value) : null;
+        if (name) { this.socket.emit('create-channel', { name, type, parentId }); nameInput.value = ''; }
       });
       nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createBtn.click(); });
     }
@@ -605,6 +615,43 @@ class HavenApp {
         noiseSuppBtn.textContent = on ? '\ud83e\udded Active' : '\ud83e\udded Filter';
         noiseSuppBtn.classList.toggle('active-filter', on);
         this._showToast(on ? 'Noise suppression ON' : 'Noise suppression OFF', 'info');
+      });
+    }
+    const listenBtn = document.getElementById('listen-together-btn');
+    if (listenBtn) {
+      listenBtn.addEventListener('click', () => {
+        const panel = document.getElementById('listen-together-panel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        if (panel.style.display === 'block') this.socket.emit('listen-get', { channelCode: this.currentChannel });
+      });
+    }
+    const listenCloseBtn = document.getElementById('listen-panel-close');
+    if (listenCloseBtn) listenCloseBtn.addEventListener('click', () => { document.getElementById('listen-together-panel').style.display = 'none'; });
+    const listenStartBtn = document.getElementById('listen-start-btn');
+    if (listenStartBtn) {
+      listenStartBtn.addEventListener('click', () => {
+        const url = document.getElementById('listen-url-input').value.trim();
+        const title = document.getElementById('listen-title-input').value.trim();
+        if (!url) return this._showToast('Paste a media URL first', 'error');
+        this.socket.emit('listen-start', { url, title, channelCode: this.currentChannel });
+        document.getElementById('listen-url-input').value = '';
+        document.getElementById('listen-title-input').value = '';
+      });
+    }
+    const listenPlayPause = document.getElementById('listen-play-pause');
+    if (listenPlayPause) {
+      listenPlayPause.addEventListener('click', () => {
+        if (!this._listenSession) return;
+        this._listenSession.isPlaying = !this._listenSession.isPlaying;
+        listenPlayPause.textContent = this._listenSession.isPlaying ? '⏸ Pause' : '▶ Play';
+        const iframe = document.querySelector('#listen-embed-container iframe');
+        this.socket.emit('listen-sync', { isPlaying: this._listenSession.isPlaying, position: 0, channelCode: this.currentChannel });
+      });
+    }
+    const listenStopBtn = document.getElementById('listen-stop-btn');
+    if (listenStopBtn) {
+      listenStopBtn.addEventListener('click', () => {
+        this.socket.emit('listen-stop', { channelCode: this.currentChannel });
       });
     }
     const callAcceptBtn = document.getElementById('call-accept-btn');
@@ -1349,6 +1396,9 @@ class HavenApp {
     document.getElementById('voice-join-btn').style.display = 'inline-flex';
     document.getElementById('search-toggle-btn').style.display = 'inline-flex';
     document.getElementById('pinned-toggle-btn').style.display = 'inline-flex';
+    document.getElementById('listen-together-btn').style.display = 'inline-flex';
+    document.getElementById('listen-together-panel').style.display = 'none';
+    this.socket.emit('listen-get', { channelCode: code });
 
     if (this.user.isAdmin) {
       document.getElementById('delete-channel-btn').style.display = 'inline-flex';
@@ -1387,6 +1437,8 @@ class HavenApp {
     document.getElementById('screen-share-btn').style.display = 'none';
     document.getElementById('search-toggle-btn').style.display = 'none';
     document.getElementById('pinned-toggle-btn').style.display = 'none';
+    document.getElementById('listen-together-btn').style.display = 'none';
+    document.getElementById('listen-together-panel').style.display = 'none';
     document.getElementById('status-channel').textContent = 'None';
     document.getElementById('status-online-count').textContent = '0';
   }
@@ -1394,27 +1446,60 @@ class HavenApp {
   _renderChannels() {
     const list = document.getElementById('channel-list');
     list.innerHTML = '';
-
-    this.channels.forEach(ch => {
+    const topLevel = this.channels.filter(c => !c.parent_id);
+    const childMap = {};
+    this.channels.forEach(c => {
+      if (c.parent_id) {
+        (childMap[c.parent_id] = childMap[c.parent_id] || []).push(c);
+      }
+    });
+    const renderItem = (ch, depth) => {
       const el = document.createElement('div');
-      el.className = 'channel-item' + (ch.code === this.currentChannel ? ' active' : '');
+      el.className = 'channel-item' + (ch.code === this.currentChannel ? ' active' : '') + (depth > 0 ? ' subchannel' : '');
       el.dataset.code = ch.code;
+      el.style.paddingLeft = `${8 + depth * 16}px`;
       const typeIcon = ch.channel_type === 'voice' ? '\ud83d\udd0a' : ch.channel_type === 'text' ? '\ud83d\udcac' : '#';
-      el.innerHTML = `
-        <span class="channel-hash">${typeIcon}</span>
-        <span class="channel-name">${this._escapeHtml(ch.name)}</span>
-      `;
-
+      const kids = childMap[ch.id];
+      let toggleHtml = '';
+      if (kids && kids.length) {
+        const collapsed = this._collapsedChannels && this._collapsedChannels.has(ch.id);
+        toggleHtml = `<span class="channel-toggle ${collapsed ? 'collapsed' : ''}" data-ch-id="${ch.id}">▾</span>`;
+      }
+      el.innerHTML = `${toggleHtml}<span class="channel-hash">${depth > 0 ? '└ ' : ''}${typeIcon}</span><span class="channel-name">${this._escapeHtml(ch.name)}</span>`;
       if (this.unreadCounts[ch.code] > 0) {
         const badge = document.createElement('span');
         badge.className = 'channel-badge';
         badge.textContent = this.unreadCounts[ch.code];
         el.appendChild(badge);
       }
-
+      const toggle = el.querySelector('.channel-toggle');
+      if (toggle) {
+        toggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!this._collapsedChannels) this._collapsedChannels = new Set();
+          this._collapsedChannels.has(ch.id) ? this._collapsedChannels.delete(ch.id) : this._collapsedChannels.add(ch.id);
+          this._renderChannels();
+        });
+      }
       el.addEventListener('click', () => this.switchChannel(ch.code));
       list.appendChild(el);
-    });
+      if (kids && kids.length && !(this._collapsedChannels && this._collapsedChannels.has(ch.id))) {
+        kids.forEach(kid => renderItem(kid, depth + 1));
+      }
+    };
+    topLevel.forEach(ch => renderItem(ch, 0));
+    const parentSelect = document.getElementById('new-channel-parent');
+    if (parentSelect) {
+      const curVal = parentSelect.value;
+      parentSelect.innerHTML = '<option value="">Top-level</option>';
+      this.channels.filter(c => !c.parent_id).forEach(c => {
+        const o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = c.name;
+        parentSelect.appendChild(o);
+      });
+      parentSelect.value = curVal || '';
+    }
   }
 
   _updateBadge(code) {
@@ -1951,29 +2036,75 @@ class HavenApp {
     const container = document.getElementById('screen-share-container');
     const grid = document.getElementById('screen-share-grid');
     const label = document.getElementById('screen-share-label');
-
     if (stream) {
-      // Create a tile for this user's stream
       const tileId = `screen-tile-${userId || 'self'}`;
       let tile = document.getElementById(tileId);
       if (!tile) {
         tile = document.createElement('div');
         tile.id = tileId;
         tile.className = 'screen-share-tile';
-
         const vid = document.createElement('video');
         vid.autoplay = true;
         vid.playsInline = true;
-        vid.muted = true; // Always mute — screen audio routes through WebRTC audio track
+        vid.muted = true;
         tile.appendChild(vid);
-
         const lbl = document.createElement('div');
         lbl.className = 'screen-share-tile-label';
         const peer = this.voice.peers.get(userId);
         const who = userId === null || userId === this.user.id ? 'You' : (peer ? peer.username : 'Someone');
         lbl.textContent = who;
         tile.appendChild(lbl);
-
+        const toolbar = document.createElement('div');
+        toolbar.className = 'screen-tile-toolbar';
+        const maxBtn = document.createElement('button');
+        maxBtn.className = 'screen-tile-btn';
+        maxBtn.title = 'Fullscreen';
+        maxBtn.innerHTML = '⛶';
+        maxBtn.addEventListener('click', () => {
+          if (document.fullscreenElement === tile) {
+            document.exitFullscreen().catch(() => {});
+          } else {
+            tile.requestFullscreen().catch(() => {});
+          }
+        });
+        toolbar.appendChild(maxBtn);
+        const volWrap = document.createElement('div');
+        volWrap.className = 'screen-tile-vol';
+        const volIcon = document.createElement('span');
+        volIcon.textContent = '🔊';
+        volIcon.className = 'screen-tile-vol-icon';
+        const volSlider = document.createElement('input');
+        volSlider.type = 'range';
+        volSlider.min = '0';
+        volSlider.max = '100';
+        volSlider.value = '100';
+        volSlider.className = 'screen-tile-vol-slider';
+        volSlider.addEventListener('input', () => {
+          vid.muted = volSlider.value === '0';
+          vid.volume = volSlider.value / 100;
+          volIcon.textContent = volSlider.value === '0' ? '🔇' : (volSlider.value < 50 ? '🔉' : '🔊');
+        });
+        volWrap.appendChild(volIcon);
+        volWrap.appendChild(volSlider);
+        toolbar.appendChild(volWrap);
+        const resSelect = document.createElement('select');
+        resSelect.className = 'screen-tile-res';
+        resSelect.title = 'Playback quality';
+        ['Auto','1080p','720p','480p','360p'].forEach(r => {
+          const o = document.createElement('option');
+          o.value = r.toLowerCase();
+          o.textContent = r;
+          resSelect.appendChild(o);
+        });
+        resSelect.addEventListener('change', () => {
+          const track = stream.getVideoTracks()[0];
+          if (!track || resSelect.value === 'auto') return;
+          const h = parseInt(resSelect.value);
+          const w = Math.round(h * (16 / 9));
+          track.applyConstraints({ width: { ideal: w }, height: { ideal: h } }).catch(() => {});
+        });
+        toolbar.appendChild(resSelect);
+        tile.appendChild(toolbar);
         const closeBtn = document.createElement('button');
         closeBtn.className = 'screen-share-tile-close';
         closeBtn.title = 'Hide this stream';
@@ -1983,17 +2114,15 @@ class HavenApp {
           this._updateScreenShareVisibility();
         });
         tile.appendChild(closeBtn);
-
         grid.appendChild(tile);
       }
       const videoEl = tile.querySelector('video');
       videoEl.srcObject = stream;
-      videoEl.play().catch(() => {}); // ensure autoplay isn't blocked
+      videoEl.play().catch(() => {});
       container.style.display = 'flex';
       const count = grid.children.length;
       label.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''}`;
     } else {
-      // Stream ended — remove this tile
       const tileId = `screen-tile-${userId || 'self'}`;
       const tile = document.getElementById(tileId);
       if (tile) {
@@ -2020,10 +2149,54 @@ class HavenApp {
   _hideScreenShare() {
     const container = document.getElementById('screen-share-container');
     const grid = document.getElementById('screen-share-grid');
-    // Stop all video elements and clear grid
     grid.querySelectorAll('video').forEach(v => { v.srcObject = null; });
     grid.innerHTML = '';
     container.style.display = 'none';
+  }
+  _buildEmbedUrl(url) {
+    let m;
+    if ((m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/))) return `https://www.youtube.com/embed/${m[1]}?autoplay=1`;
+    if ((m = url.match(/open\.spotify\.com\/(track|album|playlist)\/([\w]+)/))) return `https://open.spotify.com/embed/${m[1]}/${m[2]}?utm_source=generator&theme=0`;
+    if ((m = url.match(/soundcloud\.com\/.+/))) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&auto_play=true&visual=true`;
+    if ((m = url.match(/vimeo\.com\/(\d+)/))) return `https://player.vimeo.com/video/${m[1]}?autoplay=1`;
+    return url;
+  }
+  _onListenSession(session) {
+    this._listenSession = session;
+    const activeEl = document.getElementById('listen-active-session');
+    const hostCtrl = document.getElementById('listen-host-controls');
+    const embedCont = document.getElementById('listen-embed-container');
+    const playPause = document.getElementById('listen-play-pause');
+    const stopBtn = document.getElementById('listen-stop-btn');
+    if (!session) {
+      activeEl.style.display = 'none';
+      hostCtrl.style.display = 'block';
+      embedCont.innerHTML = '';
+      return;
+    }
+    hostCtrl.style.display = 'none';
+    activeEl.style.display = 'block';
+    document.getElementById('listen-now-title').textContent = session.title || session.url;
+    document.getElementById('listen-now-host').textContent = `Hosted by ${session.hostName}`;
+    const isHost = session.hostId === this.user.id;
+    playPause.style.display = isHost ? '' : 'none';
+    stopBtn.style.display = isHost ? '' : 'none';
+    playPause.textContent = session.isPlaying ? '⏸ Pause' : '▶ Play';
+    const embedUrl = this._buildEmbedUrl(session.url);
+    embedCont.innerHTML = `<iframe src="${this._escapeHtml(embedUrl)}" width="100%" height="80" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen style="border-radius:8px"></iframe>`;
+    this._showToast(`🎵 ${session.hostName} started Listen Together`, 'info');
+  }
+  _onListenSync(data) {
+    if (!this._listenSession) return;
+    this._listenSession.isPlaying = data.isPlaying;
+    this._listenSession.position = data.position;
+  }
+  _onListenEnded() {
+    this._listenSession = null;
+    document.getElementById('listen-active-session').style.display = 'none';
+    document.getElementById('listen-host-controls').style.display = 'block';
+    document.getElementById('listen-embed-container').innerHTML = '';
+    this._showToast('🎵 Listen Together ended', 'info');
   }
 
   // ── Utilities ─────────────────────────────────────────
