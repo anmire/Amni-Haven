@@ -32,11 +32,11 @@ You launch it, your friends connect to your IP address, and you have a private g
 |----------|-------------|
 | **Chat** | Real-time messaging, image uploads (paste/drag/drop), typing indicators, message editing, replies, emoji reactions, @mentions with autocomplete, DMs |
 | **Voice** | Peer-to-peer audio chat, per-user volume sliders, mute/deafen, noise suppression, private calls |
-| **GIFs** | Dual-provider GIF search (Tenor + Giphy), GIF reactions on messages |
+| **GIFs** | Giphy GIF search with trending and keyword search |
 | **Formatting** | **Bold**, *italic*, ~~strikethrough~~, `code`, \|\|spoilers\|\|, auto-linked URLs |
 | **Slash Commands** | `/shrug`, `/tableflip`, `/roll 2d20`, `/flip`, `/me`, `/spoiler`, `/tts`, and more — type `/` to see them all |
 | **Search** | Search messages in any channel with Ctrl+F |
-| **Themes** | 13 built-in themes: Haven, Discord, Matrix, Tron, HALO, LoTR, Cyberpunk, Nord, Dracula, Bloodborne, Ice, Abyss, Triangle |
+| **Themes** | 13 built-in themes + Triangle morphism sliders (barycentric Vibe/Era blend) |
 | **Multi-Server** | Add friends' Haven servers to your sidebar with live online/offline status |
 | **Listen Together** | Sync music/video (YouTube, Spotify, SoundCloud, Vimeo) with your channel |
 | **Game Together** | Retro emulator (NES, SNES, N64, PS1, PS2, GameCube, etc.) with multiplayer controller sharing |

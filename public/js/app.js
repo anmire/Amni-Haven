@@ -31,7 +31,7 @@ class HavenApp {
     this.dms = [];
     this.currentDm = null;
     this.activeCall = null;
-    this.gifProvider = 'tenor';
+    this.gifProvider = 'giphy';
     this.gameManager = null;
 
     // Slash command definitions for autocomplete
@@ -664,7 +664,7 @@ class HavenApp {
       noiseSuppBtn.addEventListener('click', () => {
         if (!this.voice || !this.voice.inVoice) return;
         const on = this.voice.toggleNoiseSuppression();
-        noiseSuppBtn.textContent = on ? '\ud83e\udded Active' : '\ud83e\udded Filter';
+        noiseSuppBtn.innerHTML = on ? '<span class="led on" style="width:8px;height:8px;margin-right:4px"></span>🧭 Active' : '<span class="led off" style="width:8px;height:8px;margin-right:4px"></span>🧭 Filter';
         noiseSuppBtn.classList.toggle('active-filter', on);
         this._showToast(on ? 'Noise suppression ON' : 'Noise suppression OFF', 'info');
       });
@@ -2083,6 +2083,7 @@ class HavenApp {
       this.voice.stopScreenShare();
       document.getElementById('screen-share-btn').textContent = '🖥️ Share';
       document.getElementById('screen-share-btn').classList.remove('sharing');
+      this._handleScreenStream(this.user.id, null);
       this._showToast('Stopped screen sharing', 'info');
     } else {
       const ok = await this.voice.shareScreen();
@@ -2173,11 +2174,13 @@ class HavenApp {
         tile.appendChild(toolbar);
         const closeBtn = document.createElement('button');
         closeBtn.className = 'screen-share-tile-close';
-        closeBtn.title = 'Hide this stream';
-        closeBtn.textContent = '×';
+        closeBtn.title = 'Collapse stream';
+        closeBtn.textContent = '▾';
         closeBtn.addEventListener('click', () => {
-          tile.remove();
-          this._updateScreenShareVisibility();
+          const vid = tile.querySelector('video');
+          const collapsed = tile.classList.toggle('collapsed');
+          closeBtn.textContent = collapsed ? '▸' : '▾';
+          closeBtn.title = collapsed ? 'Expand stream' : 'Collapse stream';
         });
         tile.appendChild(closeBtn);
         grid.appendChild(tile);
@@ -2214,10 +2217,10 @@ class HavenApp {
 
   _hideScreenShare() {
     const container = document.getElementById('screen-share-container');
-    const grid = document.getElementById('screen-share-grid');
-    grid.querySelectorAll('video').forEach(v => { v.srcObject = null; });
-    grid.innerHTML = '';
-    container.style.display = 'none';
+    const collapsed = container.classList.toggle('screen-collapsed');
+    const btn = document.getElementById('screen-share-close');
+    btn.textContent = collapsed ? '▸' : '▾';
+    btn.title = collapsed ? 'Expand streams' : 'Minimize streams';
   }
   _buildEmbedUrl(url) {
     let m;
@@ -2452,53 +2455,24 @@ class HavenApp {
     const searchInput = document.getElementById('gif-search-input');
     const grid = document.getElementById('gif-grid');
     if (!btn || !picker) return;
-
     this._gifDebounce = null;
-
     btn.addEventListener('click', () => {
-      if (picker.style.display === 'flex') {
-        picker.style.display = 'none';
-        return;
-      }
+      if (picker.style.display === 'flex') { picker.style.display = 'none'; return; }
       document.getElementById('emoji-picker').style.display = 'none';
       picker.style.display = 'flex';
       searchInput.value = '';
       searchInput.focus();
       this._loadTrendingGifs();
     });
-    const tabs = picker.querySelectorAll('.gif-tab');
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        tabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        this.gifProvider = tab.dataset.provider;
-        const footer = document.getElementById('gif-footer');
-        if (footer) footer.textContent = `Powered by ${this.gifProvider === 'giphy' ? 'Giphy' : 'Tenor'}`;
-        searchInput.value = '';
-        this._loadTrendingGifs();
-      });
-    });
-
-    // Close when clicking outside
     document.addEventListener('click', (e) => {
-      if (picker.style.display !== 'none' &&
-          !picker.contains(e.target) && !btn.contains(e.target)) {
-        picker.style.display = 'none';
-      }
+      if (picker.style.display !== 'none' && !picker.contains(e.target) && !btn.contains(e.target)) picker.style.display = 'none';
     });
-
-    // Search on typing with debounce
     searchInput.addEventListener('input', () => {
       clearTimeout(this._gifDebounce);
       const q = searchInput.value.trim();
-      if (!q) {
-        this._loadTrendingGifs();
-        return;
-      }
+      if (!q) { this._loadTrendingGifs(); return; }
       this._gifDebounce = setTimeout(() => this._searchGifs(q), 350);
     });
-
-    // Click on a GIF to send it
     grid.addEventListener('click', (e) => {
       const img = e.target.closest('img');
       if (!img || !img.dataset.full) return;
@@ -2510,11 +2484,11 @@ class HavenApp {
   _loadTrendingGifs() {
     const grid = document.getElementById('gif-grid');
     grid.innerHTML = '<div class="gif-picker-empty">Loading...</div>';
-    const endpoint = this.gifProvider === 'giphy' ? '/api/gif/giphy/trending?limit=20' : '/api/gif/trending?limit=20';
+    const endpoint = '/api/gif/giphy/trending?limit=20';
     fetch(endpoint)
       .then(r => r.json())
       .then(data => {
-        if (data.error === 'gif_not_configured') {
+        if (data.error === 'gif_not_configured' || data.error === 'giphy_not_configured') {
           this._showGifSetupGuide(grid);
           return;
         }
@@ -2532,11 +2506,11 @@ class HavenApp {
   _searchGifs(query) {
     const grid = document.getElementById('gif-grid');
     grid.innerHTML = '<div class="gif-picker-empty">Searching...</div>';
-    const endpoint = this.gifProvider === 'giphy' ? `/api/gif/giphy/search?q=${encodeURIComponent(query)}&limit=20` : `/api/gif/search?q=${encodeURIComponent(query)}&limit=20`;
+    const endpoint = `/api/gif/giphy/search?q=${encodeURIComponent(query)}&limit=20`;
     fetch(endpoint)
       .then(r => r.json())
       .then(data => {
-        if (data.error === 'gif_not_configured') {
+        if (data.error === 'gif_not_configured' || data.error === 'giphy_not_configured') {
           this._showGifSetupGuide(grid);
           return;
         }
@@ -2562,36 +2536,33 @@ class HavenApp {
       grid.innerHTML = `
         <div class="gif-setup-guide">
           <h3>🎞️ Set Up GIF Search</h3>
-          <p>GIF search is powered by <strong>Tenor</strong> (Google) and needs a free API key.</p>
+          <p>GIF search is powered by <strong>Giphy</strong> and needs a free API key.</p>
           <ol>
-            <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console → Credentials</a></li>
-            <li>Create a project (or pick an existing one)</li>
-            <li>Click <b>+ CREATE CREDENTIALS → API key</b></li>
-            <li>Copy the key and paste it below</li>
+            <li>Go to <a href="https://developers.giphy.com" target="_blank" rel="noopener">developers.giphy.com</a></li>
+            <li>Create an app (select API, not SDK)</li>
+            <li>Copy the API key and paste it below</li>
           </ol>
           <div class="gif-setup-input-row">
-            <input type="text" id="gif-tenor-key-input" placeholder="Paste your Tenor API key…" spellcheck="false" autocomplete="off" />
-            <button id="gif-tenor-key-save">Save</button>
+            <input type="text" id="gif-giphy-key-input" placeholder="Paste Giphy API key…" spellcheck="false" autocomplete="off" />
+            <button id="gif-giphy-key-save">Save</button>
           </div>
-          <p class="gif-setup-note">💡 No billing required — the Tenor API is completely free.</p>
+          <p class="gif-setup-note">💡 Free tier = 100 searches/hr. More than enough!</p>
         </div>`;
-      const saveBtn = document.getElementById('gif-tenor-key-save');
-      const input = document.getElementById('gif-tenor-key-input');
+      const saveBtn = document.getElementById('gif-giphy-key-save');
+      const input = document.getElementById('gif-giphy-key-input');
       saveBtn.addEventListener('click', () => {
         const key = input.value.trim();
         if (!key) return;
-        this.socket.emit('update-server-setting', { key: 'tenor_api_key', value: key });
+        this.socket.emit('update-server-setting', { key: 'giphy_api_key', value: key });
         grid.innerHTML = '<div class="gif-picker-empty">Saved! Loading GIFs…</div>';
         setTimeout(() => this._loadTrendingGifs(), 500);
       });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') saveBtn.click();
-      });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveBtn.click(); });
     } else {
       grid.innerHTML = `
         <div class="gif-setup-guide">
           <h3>🎞️ GIF Search Not Available</h3>
-          <p>An admin needs to set up the Tenor API key before GIF search can work.</p>
+          <p>An admin needs to set up the Giphy API key in Settings before GIF search can work.</p>
         </div>`;
     }
   }

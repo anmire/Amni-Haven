@@ -10,10 +10,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ### Added
 - **Interactive Tutorial System**
-  - 12-step guided onboarding tour for new users
+  - 11-step guided onboarding tour with robust element detection
   - Spotlight highlighting with animated transitions
+  - Viewport-clamped tooltip positioning
   - "Don't show again" checkbox stored in localStorage
-  - Covers: server bar, channels, voice, Listen/Game Together, themes, chat
+  - Fallback comma-separated selectors + getBoundingClientRect dimension checks
 - **Discord-Compatible Webhook API**
   - Accepts Discord embed format (`embeds` array with fields, color, footer)
   - Rich HTML rendering for bot messages in channels
@@ -23,6 +24,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
   - `HavenNotifier` class for Python (`core/haven_notifier.py`)
   - Bridge config template: `config/azno-bridge.json`
   - Same API as DiscordNotifier: `send_trade()`, `send_signal()`, `send_portfolio()`
+- **Triangular Morphism Theme Sliders**
+  - Two interactive ternary/barycentric coordinate triangles for Triangle theme
+  - Vibe triangle: Serene / Fierce / Mystic — controls accent, background, text hues
+  - Era triangle: Retro / Cyber / Organic — controls radius, glow, saturation
+  - Draggable SVG point constrained inside triangle, real-time CSS variable interpolation
+  - State persisted to localStorage, reset button to restore defaults
+  - Panel auto-shows/hides when Triangle theme toggled
+- **Noise Suppression LED Indicator** — inline on/off LED dot with glow on noise filter button
+
+### Changed
+- **GIF Provider: Giphy Only** — removed deprecated Tenor API entirely (client + server routes); Giphy is sole provider
+- **Screen Share UX** — close button changed to collapse/expand toggle (▾/▸); streams preserved on hide
+- **Stop Streaming** — button now properly cleans up screen tile via explicit `_handleScreenStream(userId, null)`
+- **CSP Headers** — added `frame-src` (Spotify, YouTube, SoundCloud, Vimeo), `script-src` (EmulatorJS CDN), `worker-src` (blob:), `connect-src` (EmulatorJS CDN)
 
 ---
 

@@ -39,16 +39,18 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://cdn.emulatorjs.org"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:", "https://media.tenor.com", "https://media.giphy.com", "https://media0.giphy.com", "https://media1.giphy.com", "https://media2.giphy.com", "https://media3.giphy.com", "https://media4.giphy.com", "https:"],
-      connectSrc: ["'self'", "wss:", "ws:"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      connectSrc: ["'self'", "wss:", "ws:", "https://cdn.emulatorjs.org"],
       mediaSrc: ["'self'", "blob:"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
+      frameSrc: ["'self'", "https://open.spotify.com", "https://www.youtube.com", "https://w.soundcloud.com", "https://player.vimeo.com"],
       frameAncestors: ["'none'"],
+      workerSrc: ["'self'", "blob:"],
     }
   },
   crossOriginEmbedderPolicy: false,
@@ -182,50 +184,7 @@ app.post('/api/upload', uploadLimiter, (req, res) => {
   });
 });
 
-// ── GIF search proxy (Tenor API — keeps key server-side) ──
-function getTenorKey() {
-  // Check database first (set via admin panel), fall back to .env
-  try {
-    const { getDb } = require('./src/database');
-    const row = getDb().prepare("SELECT value FROM server_settings WHERE key = 'tenor_api_key'").get();
-    if (row && row.value) return row.value;
-  } catch { /* DB not ready yet or no key stored */ }
-  return process.env.TENOR_API_KEY || '';
-}
-
-app.get('/api/gif/search', (req, res) => {
-  const key = getTenorKey();
-  if (!key) return res.status(501).json({ error: 'gif_not_configured' });
-  const q = (req.query.q || '').trim().slice(0, 100);
-  if (!q) return res.status(400).json({ error: 'Missing search query' });
-  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-  const url = `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q)}&key=${key}&client_key=haven&limit=${limit}&media_filter=tinygif,gif`;
-  fetch(url).then(r => r.json()).then(data => {
-    const results = (data.results || []).map(r => ({
-      id: r.id,
-      title: r.title || '',
-      tiny: r.media_formats?.tinygif?.url || '',
-      full: r.media_formats?.gif?.url || '',
-    }));
-    res.json({ results });
-  }).catch(() => res.status(502).json({ error: 'Tenor API error' }));
-});
-
-app.get('/api/gif/trending', (req, res) => {
-  const key = getTenorKey();
-  if (!key) return res.status(501).json({ error: 'gif_not_configured' });
-  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-  const url = `https://tenor.googleapis.com/v2/featured?key=${key}&client_key=haven&limit=${limit}&media_filter=tinygif,gif`;
-  fetch(url).then(r => r.json()).then(data => {
-    const results = (data.results || []).map(r => ({
-      id: r.id,
-      title: r.title || '',
-      tiny: r.media_formats?.tinygif?.url || '',
-      full: r.media_formats?.gif?.url || '',
-    }));
-    res.json({ results });
-  }).catch(() => res.status(502).json({ error: 'Tenor API error' }));
-});
+// ── GIF search proxy (Giphy API — keeps key server-side) ──
 function getGiphyKey() {
   try {
     const { getDb } = require('./src/database');

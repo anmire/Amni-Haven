@@ -588,6 +588,15 @@
 [data-theme="triangle"] .inline-code { color: #ff8ed7; }
 [data-theme="triangle"] .sidebar, [data-theme="triangle"] .right-panel { clip-path: polygon(0 0, 100% 2%, 100% 98%, 0 100%); }
 [data-theme="triangle"] .message-bubble { clip-path: polygon(0% 0%, 100% 0%, 98% 100%, 2% 100%); border-radius: 0; }
+.triangle-morph-panel { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 0; align-items: flex-start; }
+.tri-morph-group { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tri-morph-title { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+.tri-morph-svg polygon { transition: fill 0.15s; }
+.tri-label { fill: var(--text-secondary); font-size: 8px; font-weight: 600; pointer-events: none; }
+.tri-dot { fill: var(--accent); stroke: #fff; stroke-width: 1.5; filter: drop-shadow(0 0 4px var(--accent-glow)); transition: fill 0.15s; cursor: grab; }
+.tri-ring { fill: none; stroke: var(--accent); stroke-width: 1; opacity: 0.4; }
+.tri-morph-reset { background: none; border: 1px solid var(--border); color: var(--text-muted); font-size: 10px; padding: 2px 8px; border-radius: var(--radius-sm); cursor: pointer; align-self: flex-end; margin-top: auto; transition: var(--transition); }
+.tri-morph-reset:hover { border-color: var(--accent); color: var(--accent); }
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -3402,6 +3411,16 @@ input, textarea { font-family: inherit; outline: none; border: none; }
 .screen-share-tile:hover .screen-tile-toolbar { opacity: 1; }
 .screen-share-tile:fullscreen .screen-tile-toolbar { opacity: 1; bottom: 32px; }
 .screen-share-tile:fullscreen video { max-height: 100vh; }
+.screen-share-container.screen-collapsed .screen-share-grid { display: none; }
+.screen-share-container.screen-collapsed .screen-share-header .icon-btn::after { content: '▸'; }
+.screen-share-tile.collapsed video,
+.screen-share-tile.collapsed .screen-tile-toolbar,
+.screen-share-tile.collapsed .screen-share-tile-label { display: none; }
+.screen-share-tile.collapsed { height: 28px; background: var(--bg-tertiary); }
+.screen-share-tile.collapsed .screen-share-tile-close { position: static; background: none; width: auto; height: auto; border-radius: 0; font-size: 12px; padding: 4px 8px; }
+.noise-led { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; vertical-align: middle; }
+.noise-led.on { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+.noise-led.off { background: #666; }
 .screen-tile-btn {
   background: rgba(255,255,255,0.15);
   border: none;

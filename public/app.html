@@ -100,6 +100,7 @@
             <button class="theme-btn" data-theme="abyss" title="Abyss"><span class="theme-icon">🌊</span></button>
             <button class="theme-btn" data-theme="triangle" title="Triangle"><span class="theme-icon">△</span></button>
           </div>
+          <div id="triangle-morph-panel" class="triangle-morph-panel" style="display:none"></div>
           <button class="btn-game-sidebar" id="play-flappy-btn" title="Play Shippy Container">� Shippy Container</button>
         </div>
       </aside>
@@ -250,7 +251,7 @@
           <div id="screen-share-container" class="screen-share-container" style="display:none">
             <div class="screen-share-header">
               <span id="screen-share-label">🖥️ Streams</span>
-              <button id="screen-share-close" class="icon-btn small" title="Minimize">&times;</button>
+              <button id="screen-share-close" class="icon-btn small" title="Collapse streams">▾</button>
             </div>
             <div id="screen-share-grid" class="screen-share-grid"></div>
           </div>
@@ -287,14 +288,10 @@
             <button id="gif-btn" class="btn-gif" title="Search GIFs">GIF</button>
             <div id="gif-picker" class="gif-picker" style="display:none">
               <div class="gif-picker-header">
-                <div class="gif-provider-tabs">
-                  <button class="gif-tab active" data-provider="tenor">Tenor</button>
-                  <button class="gif-tab" data-provider="giphy">Giphy</button>
-                </div>
                 <input type="text" id="gif-search-input" placeholder="Search GIFs..." maxlength="100" autocomplete="off">
               </div>
               <div class="gif-picker-grid" id="gif-grid"></div>
-              <div class="gif-picker-footer" id="gif-footer">Powered by Tenor</div>
+              <div class="gif-picker-footer" id="gif-footer">Powered by Giphy</div>
             </div>
             <div id="mention-dropdown" class="mention-dropdown" style="display:none"></div>
             <div id="slash-dropdown" class="slash-dropdown" style="display:none"></div>
@@ -564,12 +561,13 @@
           <div id="tunnel-status-display" class="muted-text" style="margin-top:4px;font-size:11px;"></div>
         </div>
         <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-          <h5 class="settings-section-subtitle">🎞️ GIF Providers</h5>
+          <h5 class="settings-section-subtitle">🎞️ GIF Provider</h5>
           <label class="select-row">
             <span>Giphy Key</span>
             <input type="password" id="giphy-api-key-input" placeholder="Giphy API key..." class="settings-text-input" maxlength="100">
           </label>
-          <small class="settings-hint">Optional. Enables Giphy tab alongside Tenor.</small>
+          <button class="btn-sm" id="save-giphy-key-btn" style="margin-top:4px">Save Key</button>
+          <small class="settings-hint">Get a free key at <a href="https://developers.giphy.com" target="_blank">developers.giphy.com</a></small>
         </div>
         <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
           <h5 class="settings-section-subtitle">🤖 Bots</h5>
@@ -632,6 +630,7 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/theme.js"></script>
+  <script src="/js/triangle-morph.js"></script>
   <script src="/js/notifications.js"></script>
   <script src="/js/servers.js"></script>
   <script src="/js/voice.js"></script>
