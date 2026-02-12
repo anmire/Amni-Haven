@@ -291,12 +291,17 @@ function setupSocketHandlers(io, db) {
         JOIN users u ON r.user_id = u.id WHERE r.message_id = ?
       `);
 
+      const isPinnedStmt = db.prepare(
+        'SELECT 1 FROM pinned_messages WHERE message_id = ?'
+      );
+
       const enriched = messages.map(m => {
         const obj = { ...m };
         if (m.reply_to) {
           obj.replyContext = getReplyStmt.get(m.reply_to) || null;
         }
         obj.reactions = getReactionsStmt.all(m.id);
+        obj.pinned = !!isPinnedStmt.get(m.id);
         return obj;
       });
 
@@ -831,6 +836,105 @@ function setupSocketHandlers(io, db) {
         channelCode: code,
         messageId: data.messageId
       });
+    });
+
+    // ═══════════════ PIN / UNPIN MESSAGE ════════════════════
+
+    socket.on('pin-message', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!isInt(data.messageId)) return;
+      if (!socket.user.isAdmin) {
+        return socket.emit('error-msg', 'Only admins can pin messages');
+      }
+
+      const code = socket.currentChannel;
+      if (!code) return;
+
+      const channel = db.prepare('SELECT id FROM channels WHERE code = ?').get(code);
+      if (!channel) return;
+
+      const msg = db.prepare(
+        'SELECT id FROM messages WHERE id = ? AND channel_id = ?'
+      ).get(data.messageId, channel.id);
+      if (!msg) return socket.emit('error-msg', 'Message not found');
+
+      // Check if already pinned
+      const existing = db.prepare(
+        'SELECT id FROM pinned_messages WHERE message_id = ?'
+      ).get(data.messageId);
+      if (existing) return socket.emit('error-msg', 'Message is already pinned');
+
+      // Max 50 pins per channel
+      const pinCount = db.prepare(
+        'SELECT COUNT(*) as cnt FROM pinned_messages WHERE channel_id = ?'
+      ).get(channel.id);
+      if (pinCount.cnt >= 50) {
+        return socket.emit('error-msg', 'Channel has reached the 50-pin limit');
+      }
+
+      db.prepare(
+        'INSERT INTO pinned_messages (message_id, channel_id, pinned_by) VALUES (?, ?, ?)'
+      ).run(data.messageId, channel.id, socket.user.id);
+
+      io.to(`channel:${code}`).emit('message-pinned', {
+        channelCode: code,
+        messageId: data.messageId,
+        pinnedBy: socket.user.username
+      });
+    });
+
+    socket.on('unpin-message', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!isInt(data.messageId)) return;
+      if (!socket.user.isAdmin) {
+        return socket.emit('error-msg', 'Only admins can unpin messages');
+      }
+
+      const code = socket.currentChannel;
+      if (!code) return;
+
+      const channel = db.prepare('SELECT id FROM channels WHERE code = ?').get(code);
+      if (!channel) return;
+
+      const pin = db.prepare(
+        'SELECT id FROM pinned_messages WHERE message_id = ? AND channel_id = ?'
+      ).get(data.messageId, channel.id);
+      if (!pin) return socket.emit('error-msg', 'Message is not pinned');
+
+      db.prepare('DELETE FROM pinned_messages WHERE message_id = ?').run(data.messageId);
+
+      io.to(`channel:${code}`).emit('message-unpinned', {
+        channelCode: code,
+        messageId: data.messageId
+      });
+    });
+
+    socket.on('get-pinned-messages', (data) => {
+      if (!data || typeof data !== 'object') return;
+      const code = typeof data.code === 'string' ? data.code.trim() : '';
+      if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
+
+      const channel = db.prepare('SELECT id FROM channels WHERE code = ?').get(code);
+      if (!channel) return;
+
+      const member = db.prepare(
+        'SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?'
+      ).get(channel.id, socket.user.id);
+      if (!member) return;
+
+      const pins = db.prepare(`
+        SELECT m.id, m.content, m.created_at, m.edited_at,
+               COALESCE(u.username, '[Deleted User]') as username, u.id as user_id,
+               pm.pinned_at, COALESCE(pb.username, '[Deleted User]') as pinned_by
+        FROM pinned_messages pm
+        JOIN messages m ON pm.message_id = m.id
+        LEFT JOIN users u ON m.user_id = u.id
+        LEFT JOIN users pb ON pm.pinned_by = pb.id
+        WHERE pm.channel_id = ?
+        ORDER BY pm.pinned_at DESC
+      `).all(channel.id);
+
+      socket.emit('pinned-messages', { channelCode: code, pins });
     });
 
     // ═══════════════ ADMIN: KICK USER ═══════════════════════

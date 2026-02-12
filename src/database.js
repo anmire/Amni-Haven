@@ -155,6 +155,19 @@ function initDatabase() {
   insertSetting.run('cleanup_max_size_mb', '0');       // delete oldest messages when DB exceeds N MB (0 = disabled)
   insertSetting.run('whitelist_enabled', 'false');     // whitelist toggle
 
+  // ── Migration: pinned_messages table ──────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pinned_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      pinned_by INTEGER NOT NULL REFERENCES users(id),
+      pinned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(message_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pinned_channel ON pinned_messages(channel_id);
+  `);
+
   return db;
 }
 

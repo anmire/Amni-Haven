@@ -49,7 +49,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],  // inline styles needed for themes
-      imgSrc: ["'self'", "data:", "blob:", "https://media.tenor.com"],
+      imgSrc: ["'self'", "data:", "blob:", "https://media.tenor.com", "https:"],  // https: for link preview OG images
       connectSrc: ["'self'", "wss:", "ws:"],    // Socket.IO websockets
       mediaSrc: ["'self'", "blob:"],            // WebRTC audio
       fontSrc: ["'self'"],
@@ -212,6 +212,90 @@ app.get('/api/gif/trending', (req, res) => {
     }));
     res.json({ results });
   }).catch(() => res.status(502).json({ error: 'Tenor API error' }));
+});
+
+// ── Link preview (Open Graph metadata) ──────────────────
+const linkPreviewCache = new Map(); // url → { data, ts }
+const PREVIEW_CACHE_TTL = 30 * 60 * 1000; // 30 min
+const PREVIEW_MAX_SIZE = 256 * 1024; // only read first 256 KB of page
+
+app.get('/api/link-preview', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const url = (req.query.url || '').trim();
+  if (!url) return res.status(400).json({ error: 'Missing url param' });
+
+  // Only allow http(s) URLs
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'Only http/https URLs allowed' });
+    }
+  } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+
+  // Cache check
+  const cached = linkPreviewCache.get(url);
+  if (cached && Date.now() - cached.ts < PREVIEW_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const resp = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'HavenBot/1.0 (link preview)',
+        'Accept': 'text/html'
+      },
+      redirect: 'follow',
+      size: PREVIEW_MAX_SIZE
+    });
+    clearTimeout(timeout);
+
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) {
+      return res.json({ title: null, description: null, image: null, siteName: null });
+    }
+
+    const html = await resp.text();
+    // Truncate to max size for safety
+    const chunk = html.slice(0, PREVIEW_MAX_SIZE);
+
+    const getMetaContent = (property) => {
+      const ogRe = new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i');
+      const ogRe2 = new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${property}["']`, 'i');
+      const m = chunk.match(ogRe) || chunk.match(ogRe2);
+      return m ? m[1].trim() : null;
+    };
+
+    const titleTag = chunk.match(/<title[^>]*>([^<]+)<\/title>/i);
+
+    const data = {
+      title: getMetaContent('og:title') || getMetaContent('twitter:title') || (titleTag ? titleTag[1].trim() : null),
+      description: getMetaContent('og:description') || getMetaContent('twitter:description') || getMetaContent('description'),
+      image: getMetaContent('og:image') || getMetaContent('twitter:image'),
+      siteName: getMetaContent('og:site_name') || new URL(url).hostname,
+      url: getMetaContent('og:url') || url
+    };
+
+    linkPreviewCache.set(url, { data, ts: Date.now() });
+
+    // Prune old cache entries if over 500
+    if (linkPreviewCache.size > 500) {
+      const now = Date.now();
+      for (const [k, v] of linkPreviewCache) {
+        if (now - v.ts > PREVIEW_CACHE_TTL) linkPreviewCache.delete(k);
+      }
+    }
+
+    res.json(data);
+  } catch {
+    res.json({ title: null, description: null, image: null, siteName: null });
+  }
 });
 
 // ── Catch-all: 404 ──────────────────────────────────────

@@ -82,6 +82,8 @@ class NotificationManager {
   mute_off() { this._playTone([400, 600], [0.06, 0.08], 'sine'); }
   deafen_on()  { this._playTone([500, 350, 250], [0.05, 0.06, 0.08], 'sine'); }
   deafen_off() { this._playTone([250, 350, 500], [0.05, 0.06, 0.08], 'sine'); }
+  voice_join() { this._playTone([440, 554, 659], [0.08, 0.08, 0.14], 'sine'); }
+  voice_leave(){ this._playTone([659, 554, 440], [0.08, 0.08, 0.14], 'triangle'); }
 
   // ── Text-to-Speech ──────────────────────────────────────
   speak(text) {

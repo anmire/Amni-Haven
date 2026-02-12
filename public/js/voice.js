@@ -16,7 +16,13 @@ class VoiceManager {
     this.audioCtx = null;           // Web Audio context for volume boost
     this.gainNodes = new Map();     // userId → GainNode
     this.onScreenStream = null;     // callback(userId, stream|null) — set by app.js
-    this.screenShareUserId = null;  // who is currently sharing
+    this.onVoiceJoin = null;        // callback(userId, username)
+    this.onVoiceLeave = null;       // callback(userId, username)
+    this.onTalkingChange = null;    // callback(userId, isTalking)
+    this.screenSharers = new Set();  // userIds currently sharing
+    this.talkingState = new Map();  // userId → boolean
+    this.analysers = new Map();     // userId → { analyser, dataArray, interval }
+    this._localTalkInterval = null;
 
     this.rtcConfig = {
       iceServers: [
@@ -39,9 +45,12 @@ class VoiceManager {
     });
 
     // Someone new joined our voice channel — they'll send us an offer
-    this.socket.on('voice-user-joined', () => {
+    this.socket.on('voice-user-joined', (data) => {
       // The new user handles creating offers to existing users,
       // so we just wait for their offer via 'voice-offer'.
+      if (this.onVoiceJoin && data && data.user) {
+        this.onVoiceJoin(data.user.id, data.user.username);
+      }
     });
 
     // Received an offer — create peer & answer
@@ -95,25 +104,27 @@ class VoiceManager {
 
     // Someone left voice
     this.socket.on('voice-user-left', (data) => {
+      if (this.onVoiceLeave && data && data.user) {
+        this.onVoiceLeave(data.user.id, data.user.username);
+      }
+      this._stopAnalyser(data.user.id);
       this._removePeer(data.user.id);
       // If they were screen sharing, clean up
-      if (this.screenShareUserId === data.user.id) {
-        this.screenShareUserId = null;
+      if (this.screenSharers.has(data.user.id)) {
+        this.screenSharers.delete(data.user.id);
         if (this.onScreenStream) this.onScreenStream(data.user.id, null);
       }
     });
 
     // Someone started screen sharing
     this.socket.on('screen-share-started', (data) => {
-      this.screenShareUserId = data.userId;
+      this.screenSharers.add(data.userId);
     });
 
     // Someone stopped screen sharing
     this.socket.on('screen-share-stopped', (data) => {
-      if (this.screenShareUserId === data.userId) {
-        this.screenShareUserId = null;
-        if (this.onScreenStream) this.onScreenStream(data.userId, null);
-      }
+      this.screenSharers.delete(data.userId);
+      if (this.onScreenStream) this.onScreenStream(data.userId, null);
     });
   }
 
@@ -141,6 +152,10 @@ class VoiceManager {
       this.isMuted = false;
 
       this.socket.emit('voice-join', { code: channelCode });
+
+      // Start local talk indicator
+      this._startLocalTalkDetection();
+
       return true;
     } catch (err) {
       console.error('Microphone access failed:', err);
@@ -153,6 +168,10 @@ class VoiceManager {
     if (this.isScreenSharing) {
       this.stopScreenShare();
     }
+
+    // Stop all talk analysers
+    this._stopLocalTalkDetection();
+    for (const [id] of this.analysers) this._stopAnalyser(id);
 
     if (this.currentChannel) {
       this.socket.emit('voice-leave', { code: this.currentChannel });
@@ -174,7 +193,7 @@ class VoiceManager {
     this.inVoice = false;
     this.isMuted = false;
     this.isDeafened = false;
-    this.screenShareUserId = null;
+    this.screenSharers.clear();
   }
 
   toggleMute() {
@@ -333,7 +352,7 @@ class VoiceManager {
       }
     };
 
-    this.peers.set(userId, { connection, stream: remoteStream, username });
+    this.peers.set(userId, { connection, stream: remoteAudioStream, username });
 
     // If we're the initiator, create and send an offer
     if (createOffer) {
@@ -384,6 +403,103 @@ class VoiceManager {
     } catch { return 1; }
   }
 
+  // ── Talking Detection ───────────────────────────────────
+
+  _startAnalyser(userId, stream) {
+    try {
+      if (!this.audioCtx) {
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      const source = this.audioCtx.createMediaStreamSource(stream);
+      const analyser = this.audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.4;
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const THRESHOLD = 25; // min average RMS to count as "talking"
+      let wasTalking = false;
+
+      const interval = setInterval(() => {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        const avg = sum / dataArray.length;
+        const isTalking = avg > THRESHOLD;
+
+        if (isTalking !== wasTalking) {
+          wasTalking = isTalking;
+          this.talkingState.set(userId, isTalking);
+          if (this.onTalkingChange) this.onTalkingChange(userId, isTalking);
+        }
+      }, 100);
+
+      this.analysers.set(userId, { analyser, dataArray, interval, source });
+    } catch { /* analyser not available */ }
+  }
+
+  _stopAnalyser(userId) {
+    const a = this.analysers.get(userId);
+    if (a) {
+      clearInterval(a.interval);
+      this.analysers.delete(userId);
+      this.talkingState.delete(userId);
+      if (this.onTalkingChange) this.onTalkingChange(userId, false);
+    }
+  }
+
+  _startLocalTalkDetection() {
+    if (!this.localStream || this._localTalkInterval) return;
+    try {
+      if (!this.audioCtx) {
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      const source = this.audioCtx.createMediaStreamSource(this.localStream);
+      const analyser = this.audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.4;
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const THRESHOLD = 25;
+      let wasTalking = false;
+
+      this._localTalkAnalyser = { analyser, source };
+      this._localTalkInterval = setInterval(() => {
+        if (this.isMuted) {
+          if (wasTalking) {
+            wasTalking = false;
+            if (this.onTalkingChange) this.onTalkingChange('self', false);
+          }
+          return;
+        }
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        const avg = sum / dataArray.length;
+        const isTalking = avg > THRESHOLD;
+
+        if (isTalking !== wasTalking) {
+          wasTalking = isTalking;
+          if (this.onTalkingChange) this.onTalkingChange('self', isTalking);
+        }
+      }, 100);
+    } catch { /* analyser not available */ }
+  }
+
+  _stopLocalTalkDetection() {
+    if (this._localTalkInterval) {
+      clearInterval(this._localTalkInterval);
+      this._localTalkInterval = null;
+      this._localTalkAnalyser = null;
+      if (this.onTalkingChange) this.onTalkingChange('self', false);
+    }
+  }
+
   _playAudio(userId, stream) {
     let audioEl = document.getElementById(`voice-audio-${userId}`);
     if (!audioEl) {
@@ -394,6 +510,9 @@ class VoiceManager {
       document.getElementById('audio-container').appendChild(audioEl);
     }
     audioEl.srcObject = stream;
+
+    // Start talking analyser for this remote user
+    this._startAnalyser(userId, stream);
 
     // Route through Web Audio API for volume boost support (gain > 1.0)
     try {

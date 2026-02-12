@@ -296,6 +296,48 @@ class HavenApp {
       }
     });
 
+    // ── Pin / Unpin ──────────────────────────────────
+    this.socket.on('message-pinned', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        const msgEl = document.querySelector(`[data-msg-id="${data.messageId}"]`);
+        if (msgEl) {
+          msgEl.classList.add('pinned');
+          msgEl.dataset.pinned = '1';
+          // Add pin tag to header
+          const header = msgEl.querySelector('.message-header');
+          if (header && !header.querySelector('.pinned-tag')) {
+            header.insertAdjacentHTML('beforeend', '<span class="pinned-tag" title="Pinned message">📌</span>');
+          }
+          // Update toolbar: swap pin → unpin
+          const pinBtn = msgEl.querySelector('[data-action="pin"]');
+          if (pinBtn) { pinBtn.dataset.action = 'unpin'; pinBtn.title = 'Unpin'; }
+        }
+        this._appendSystemMessage(`📌 ${data.pinnedBy} pinned a message`);
+      }
+    });
+
+    this.socket.on('message-unpinned', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        const msgEl = document.querySelector(`[data-msg-id="${data.messageId}"]`);
+        if (msgEl) {
+          msgEl.classList.remove('pinned');
+          delete msgEl.dataset.pinned;
+          const tag = msgEl.querySelector('.pinned-tag');
+          if (tag) tag.remove();
+          // Update toolbar: swap unpin → pin
+          const unpinBtn = msgEl.querySelector('[data-action="unpin"]');
+          if (unpinBtn) { unpinBtn.dataset.action = 'pin'; unpinBtn.title = 'Pin'; }
+        }
+        this._appendSystemMessage('📌 A message was unpinned');
+      }
+    });
+
+    this.socket.on('pinned-messages', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this._renderPinnedPanel(data.pins);
+      }
+    });
+
     // ── Admin moderation events ────────────────────────
     this.socket.on('kicked', (data) => {
       this._showToast(`You were kicked${data.reason ? ': ' + data.reason : ''}`, 'error');
@@ -495,6 +537,21 @@ class HavenApp {
     // Wire up the voice manager's video callback
     this.voice.onScreenStream = (userId, stream) => this._handleScreenStream(userId, stream);
 
+    // Wire up voice join/leave audio cues
+    this.voice.onVoiceJoin = (userId, username) => {
+      this.notifications.playDirect('voice_join');
+    };
+    this.voice.onVoiceLeave = (userId, username) => {
+      this.notifications.playDirect('voice_leave');
+    };
+
+    // Wire up talking indicator
+    this.voice.onTalkingChange = (userId, isTalking) => {
+      const resolvedId = userId === 'self' ? this.user.id : userId;
+      const el = document.querySelector(`.voice-user-item[data-user-id="${resolvedId}"]`);
+      if (el) el.classList.toggle('talking', isTalking);
+    };
+
     // Search
     let searchTimeout = null;
     document.getElementById('search-toggle-btn').addEventListener('click', () => {
@@ -526,6 +583,19 @@ class HavenApp {
         document.getElementById('search-container').style.display = 'none';
         document.getElementById('search-results-panel').style.display = 'none';
       }
+    });
+
+    // Pinned messages panel
+    document.getElementById('pinned-toggle-btn').addEventListener('click', () => {
+      const panel = document.getElementById('pinned-panel');
+      if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+      } else if (this.currentChannel) {
+        this.socket.emit('get-pinned-messages', { code: this.currentChannel });
+      }
+    });
+    document.getElementById('pinned-close').addEventListener('click', () => {
+      document.getElementById('pinned-panel').style.display = 'none';
     });
 
     // Global keyboard shortcuts
@@ -619,6 +689,10 @@ class HavenApp {
         if (confirm('Delete this message?')) {
           this.socket.emit('delete-message', { messageId: msgId });
         }
+      } else if (action === 'pin') {
+        this.socket.emit('pin-message', { messageId: msgId });
+      } else if (action === 'unpin') {
+        this.socket.emit('unpin-message', { messageId: msgId });
       }
     });
 
@@ -1156,6 +1230,7 @@ class HavenApp {
     document.getElementById('copy-code-btn').style.display = 'inline-flex';
     document.getElementById('voice-join-btn').style.display = 'inline-flex';
     document.getElementById('search-toggle-btn').style.display = 'inline-flex';
+    document.getElementById('pinned-toggle-btn').style.display = 'inline-flex';
 
     if (this.user.isAdmin) {
       document.getElementById('delete-channel-btn').style.display = 'inline-flex';
@@ -1192,6 +1267,8 @@ class HavenApp {
     document.getElementById('voice-deafen-btn').style.display = 'none';
     document.getElementById('voice-leave-btn').style.display = 'none';
     document.getElementById('screen-share-btn').style.display = 'none';
+    document.getElementById('search-toggle-btn').style.display = 'none';
+    document.getElementById('pinned-toggle-btn').style.display = 'none';
     document.getElementById('status-channel').textContent = 'None';
     document.getElementById('status-online-count').textContent = '0';
   }
@@ -1294,6 +1371,8 @@ class HavenApp {
     container.querySelectorAll('img').forEach(img => {
       if (!img.complete) img.addEventListener('load', () => this._scrollToBottom(true), { once: true });
     });
+    // Fetch link previews for all messages
+    this._fetchLinkPreviews(container);
   }
 
   _appendMessage(message) {
@@ -1310,7 +1389,10 @@ class HavenApp {
     }
 
     const wasAtBottom = this._isScrolledToBottom();
-    container.appendChild(this._createMessageEl(message, prevMsg));
+    const msgEl = this._createMessageEl(message, prevMsg);
+    container.appendChild(msgEl);
+    // Fetch link previews for this message
+    this._fetchLinkPreviews(msgEl);
     if (wasAtBottom) {
       this._scrollToBottom();
       // Also scroll after images load (they shift content down)
@@ -1330,9 +1412,15 @@ class HavenApp {
 
     const reactionsHtml = this._renderReactions(msg.id, msg.reactions || []);
     const editedHtml = msg.edited_at ? `<span class="edited-tag" title="Edited at ${new Date(msg.edited_at).toLocaleString()}">(edited)</span>` : '';
+    const pinnedTag = msg.pinned ? '<span class="pinned-tag" title="Pinned message">📌</span>' : '';
 
     // Build toolbar with context-aware buttons
     let toolbarBtns = `<button data-action="react" title="React">😀</button><button data-action="reply" title="Reply">↩️</button>`;
+    if (this.user.isAdmin) {
+      toolbarBtns += msg.pinned
+        ? `<button data-action="unpin" title="Unpin">📌</button>`
+        : `<button data-action="pin" title="Pin">📌</button>`;
+    }
     if (msg.user_id === this.user.id) {
       toolbarBtns += `<button data-action="edit" title="Edit">✏️</button>`;
     }
@@ -1344,14 +1432,15 @@ class HavenApp {
 
     if (isCompact) {
       const el = document.createElement('div');
-      el.className = 'message-compact';
+      el.className = 'message-compact' + (msg.pinned ? ' pinned' : '');
       el.dataset.userId = msg.user_id;
       el.dataset.username = msg.username;
       el.dataset.time = msg.created_at;
       el.dataset.msgId = msg.id;
+      if (msg.pinned) el.dataset.pinned = '1';
       el.innerHTML = `
         <span class="compact-time">${new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
-        <div class="message-content">${this._formatContent(msg.content)}${editedHtml}</div>
+        <div class="message-content">${pinnedTag}${this._formatContent(msg.content)}${editedHtml}</div>
         ${toolbarHtml}
         ${reactionsHtml}
       `;
@@ -1362,10 +1451,11 @@ class HavenApp {
     const initial = msg.username.charAt(0).toUpperCase();
 
     const el = document.createElement('div');
-    el.className = 'message' + (isImage ? ' message-has-image' : '');
+    el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '');
     el.dataset.userId = msg.user_id;
     el.dataset.time = msg.created_at;
     el.dataset.msgId = msg.id;
+    if (msg.pinned) el.dataset.pinned = '1';
     el.innerHTML = `
       ${replyHtml}
       <div class="message-row">
@@ -1374,6 +1464,7 @@ class HavenApp {
           <div class="message-header">
             <span class="message-author" style="color:${color}">${this._escapeHtml(msg.username)}</span>
             <span class="message-time">${this._formatTime(msg.created_at)}</span>
+            ${pinnedTag}
           </div>
           <div class="message-content">${this._formatContent(msg.content)}${editedHtml}</div>
           ${reactionsHtml}
@@ -1392,6 +1483,99 @@ class HavenApp {
     el.textContent = text;
     container.appendChild(el);
     if (wasAtBottom) this._scrollToBottom();
+  }
+
+  // ── Pinned Messages Panel ─────────────────────────────
+
+  _renderPinnedPanel(pins) {
+    const panel = document.getElementById('pinned-panel');
+    const list = document.getElementById('pinned-list');
+    const count = document.getElementById('pinned-count');
+
+    count.textContent = `📌 ${pins.length} pinned message${pins.length !== 1 ? 's' : ''}`;
+
+    if (pins.length === 0) {
+      list.innerHTML = '<p class="muted-text" style="padding:12px">No pinned messages</p>';
+    } else {
+      list.innerHTML = pins.map(p => `
+        <div class="pinned-item" data-msg-id="${p.id}">
+          <div class="pinned-item-header">
+            <span class="pinned-item-author" style="color:${this._getUserColor(p.username)}">${this._escapeHtml(p.username)}</span>
+            <span class="pinned-item-time">${this._formatTime(p.created_at)}</span>
+          </div>
+          <div class="pinned-item-content">${this._formatContent(p.content)}</div>
+          <div class="pinned-item-footer">Pinned by ${this._escapeHtml(p.pinned_by)}</div>
+        </div>
+      `).join('');
+    }
+    panel.style.display = 'block';
+
+    // Click to scroll to pinned message
+    list.querySelectorAll('.pinned-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const msgId = item.dataset.msgId;
+        const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+        if (msgEl) {
+          msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          msgEl.classList.add('highlight-flash');
+          setTimeout(() => msgEl.classList.remove('highlight-flash'), 2000);
+        }
+        panel.style.display = 'none';
+      });
+    });
+  }
+
+  // ── Link Previews ─────────────────────────────────────
+
+  _fetchLinkPreviews(containerEl) {
+    const links = containerEl.querySelectorAll('.message-content a[href]');
+    const seen = new Set();
+    links.forEach(link => {
+      const url = link.href;
+      if (seen.has(url)) return;
+      seen.add(url);
+      // Skip image URLs (already rendered inline) and internal URLs
+      if (/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i.test(url)) return;
+      if (/^https:\/\/media\.tenor\.com\//i.test(url)) return;
+      if (url.startsWith(window.location.origin)) return;
+
+      fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
+        headers: { 'Authorization': `Bearer ${this.token}` }
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.title && !data.description) return;
+          const msgContent = link.closest('.message-content');
+          if (!msgContent) return;
+
+          // Don't add duplicate previews
+          if (msgContent.querySelector(`.link-preview[data-url="${CSS.escape(url)}"]`)) return;
+
+          const card = document.createElement('a');
+          card.className = 'link-preview';
+          card.href = url;
+          card.target = '_blank';
+          card.rel = 'noopener noreferrer nofollow';
+          card.dataset.url = url;
+
+          let inner = '';
+          if (data.image) {
+            inner += `<img class="link-preview-image" src="${this._escapeHtml(data.image)}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+          }
+          inner += '<div class="link-preview-text">';
+          if (data.siteName) inner += `<span class="link-preview-site">${this._escapeHtml(data.siteName)}</span>`;
+          if (data.title) inner += `<span class="link-preview-title">${this._escapeHtml(data.title)}</span>`;
+          if (data.description) inner += `<span class="link-preview-desc">${this._escapeHtml(data.description).slice(0, 200)}</span>`;
+          inner += '</div>';
+          card.innerHTML = inner;
+
+          msgContent.appendChild(card);
+
+          // Scroll if at bottom
+          if (this._isScrolledToBottom()) this._scrollToBottom();
+        })
+        .catch(() => {});
+    });
   }
 
   // ── Users ─────────────────────────────────────────────
@@ -1489,8 +1673,9 @@ class HavenApp {
     el.innerHTML = users.map(u => {
       const savedVol = this._getVoiceVolume(u.id);
       const isSelf = u.id === this.user.id;
+      const talking = this.voice && ((isSelf && this.voice.talkingState.get('self')) || this.voice.talkingState.get(u.id));
       return `
-        <div class="user-item voice-user-item">
+        <div class="user-item voice-user-item${talking ? ' talking' : ''}" data-user-id="${u.id}">
           <span class="user-dot voice"></span>
           <span class="user-item-name">${this._escapeHtml(u.username)}</span>
           ${!isSelf ? `<input type="range" class="volume-slider" min="0" max="200" value="${savedVol}" data-user-id="${u.id}" title="Volume: ${savedVol}%">` : '<span class="you-tag">you</span>'}
@@ -1635,12 +1820,8 @@ class HavenApp {
         document.getElementById('screen-share-btn').textContent = '🛑 Stop';
         document.getElementById('screen-share-btn').classList.add('sharing');
         this._showToast('Screen sharing started', 'success');
-        // Show our own screen in the viewer so we can see what's being shared
-        const vid = document.getElementById('screen-share-video');
-        vid.srcObject = this.voice.screenStream;
-        vid.muted = true; // don't echo our own audio
-        document.getElementById('screen-share-label').textContent = '🖥️ You are sharing';
-        document.getElementById('screen-share-container').style.display = 'flex';
+        // Show our own screen in the viewer via the multi-stream handler
+        this._handleScreenStream(this.user.id, this.voice.screenStream);
       } else {
         this._showToast('Screen share cancelled or not supported', 'error');
       }
@@ -1649,27 +1830,78 @@ class HavenApp {
 
   _handleScreenStream(userId, stream) {
     const container = document.getElementById('screen-share-container');
-    const vid = document.getElementById('screen-share-video');
+    const grid = document.getElementById('screen-share-grid');
     const label = document.getElementById('screen-share-label');
 
     if (stream) {
-      vid.srcObject = stream;
-      // Find username from voice peers or online list
-      const peer = this.voice.peers.get(userId);
-      const who = peer ? peer.username : 'Someone';
-      label.textContent = `🖥️ ${who} is sharing`;
+      // Create a tile for this user's stream
+      const tileId = `screen-tile-${userId || 'self'}`;
+      let tile = document.getElementById(tileId);
+      if (!tile) {
+        tile = document.createElement('div');
+        tile.id = tileId;
+        tile.className = 'screen-share-tile';
+
+        const vid = document.createElement('video');
+        vid.autoplay = true;
+        vid.playsInline = true;
+        if (userId === null || userId === this.user.id) vid.muted = true;
+        tile.appendChild(vid);
+
+        const lbl = document.createElement('div');
+        lbl.className = 'screen-share-tile-label';
+        const peer = this.voice.peers.get(userId);
+        const who = userId === null || userId === this.user.id ? 'You' : (peer ? peer.username : 'Someone');
+        lbl.textContent = who;
+        tile.appendChild(lbl);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'screen-share-tile-close';
+        closeBtn.title = 'Hide this stream';
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', () => {
+          tile.remove();
+          this._updateScreenShareVisibility();
+        });
+        tile.appendChild(closeBtn);
+
+        grid.appendChild(tile);
+      }
+      tile.querySelector('video').srcObject = stream;
       container.style.display = 'flex';
+      const count = grid.children.length;
+      label.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''}`;
     } else {
-      // Stream ended
-      vid.srcObject = null;
+      // Stream ended — remove this tile
+      const tileId = `screen-tile-${userId || 'self'}`;
+      const tile = document.getElementById(tileId);
+      if (tile) {
+        const vid = tile.querySelector('video');
+        if (vid) vid.srcObject = null;
+        tile.remove();
+      }
+      this._updateScreenShareVisibility();
+    }
+  }
+
+  _updateScreenShareVisibility() {
+    const container = document.getElementById('screen-share-container');
+    const grid = document.getElementById('screen-share-grid');
+    const label = document.getElementById('screen-share-label');
+    const count = grid.children.length;
+    if (count === 0) {
       container.style.display = 'none';
+    } else {
+      label.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''}`;
     }
   }
 
   _hideScreenShare() {
     const container = document.getElementById('screen-share-container');
-    const vid = document.getElementById('screen-share-video');
-    vid.srcObject = null;
+    const grid = document.getElementById('screen-share-grid');
+    // Stop all video elements and clear grid
+    grid.querySelectorAll('video').forEach(v => { v.srcObject = null; });
+    grid.innerHTML = '';
     container.style.display = 'none';
   }
 
@@ -1698,12 +1930,20 @@ class HavenApp {
   }
 
   _formatContent(str) {
-    let html = this._escapeHtml(str);
-
-    // Render server-hosted images inline
+    // Render server-hosted images inline (early return)
     if (/^\/uploads\/[\w\-]+\.(jpg|jpeg|png|gif|webp)$/i.test(str.trim())) {
       return `<img src="${this._escapeHtml(str.trim())}" class="chat-image" alt="image" loading="lazy">`;
     }
+
+    // ── Extract fenced code blocks before escaping ──
+    const codeBlocks = [];
+    const withPlaceholders = str.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+      const idx = codeBlocks.length;
+      codeBlocks.push({ lang: lang || '', code });
+      return `\x00CODEBLOCK_${idx}\x00`;
+    });
+
+    let html = this._escapeHtml(withPlaceholders);
 
     // Auto-link URLs (and render image URLs as inline images)
     html = html.replace(
@@ -1745,7 +1985,22 @@ class HavenApp {
     // Render `inline code`
     html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
 
+    // Render > blockquotes (lines starting with >)
+    html = html.replace(/(?:^|\n)&gt;\s?(.+)/g, (_, text) => {
+      return `\n<blockquote class="chat-blockquote">${text}</blockquote>`;
+    });
+
     html = html.replace(/\n/g, '<br>');
+
+    // ── Restore fenced code blocks ──
+    codeBlocks.forEach((block, idx) => {
+      const escaped = this._escapeHtml(block.code).replace(/\n$/, '');
+      const langAttr = block.lang ? ` data-lang="${this._escapeHtml(block.lang)}"` : '';
+      const langLabel = block.lang ? `<span class="code-block-lang">${this._escapeHtml(block.lang)}</span>` : '';
+      const rendered = `<div class="code-block"${langAttr}>${langLabel}<pre><code>${escaped}</code></pre></div>`;
+      html = html.replace(`\x00CODEBLOCK_${idx}\x00`, rendered);
+    });
+
     return html;
   }
 

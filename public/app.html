@@ -112,6 +112,7 @@
               <button id="search-close-btn" class="icon-btn small" title="Close search">&times;</button>
             </div>
             <button id="search-toggle-btn" class="icon-btn small" title="Search messages (Ctrl+F)" style="display:none">🔍</button>
+            <button id="pinned-toggle-btn" class="icon-btn small" title="Pinned messages" style="display:none">📌</button>
             <button id="mobile-users-btn" class="mobile-users-btn" title="Members" aria-label="Members">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -150,13 +151,13 @@
 
         <!-- Chat Area -->
         <div id="message-area" class="message-area" style="display:none">
-          <!-- Screen Share Viewer -->
+          <!-- Screen Share Viewer (multi-stream) -->
           <div id="screen-share-container" class="screen-share-container" style="display:none">
             <div class="screen-share-header">
-              <span id="screen-share-label">🖥️ Screen Share</span>
+              <span id="screen-share-label">🖥️ Streams</span>
               <button id="screen-share-close" class="icon-btn small" title="Minimize">&times;</button>
             </div>
-            <video id="screen-share-video" autoplay playsinline></video>
+            <div id="screen-share-grid" class="screen-share-grid"></div>
           </div>
           <div id="search-results-panel" class="search-results-panel" style="display:none">
             <div class="search-results-header">
@@ -164,6 +165,13 @@
               <button id="search-results-close" class="icon-btn small">&times;</button>
             </div>
             <div id="search-results-list" class="search-results-list"></div>
+          </div>
+          <div id="pinned-panel" class="pinned-panel" style="display:none">
+            <div class="pinned-panel-header">
+              <span id="pinned-count">📌 Pinned Messages</span>
+              <button id="pinned-close" class="icon-btn small">&times;</button>
+            </div>
+            <div id="pinned-list" class="pinned-list"></div>
           </div>
           <div class="messages" id="messages"></div>
           <div class="typing-indicator" id="typing-indicator"></div>
