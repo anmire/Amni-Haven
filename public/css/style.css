@@ -3904,4 +3904,19 @@ input, textarea { font-family: inherit; outline: none; border: none; }
 .admin-setting-group input[type="text"] { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); font-size: 13px; margin-top: 4px; }
 .tunnel-status { font-size: 12px; color: var(--text-muted); margin-top: 4px; }.member-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .member-item:last-child { border-bottom: none; }
-.member-name { color: var(--text-primary); font-size: 13px; }
+.member-name { color: var(--text-primary); font-size: 13px; }.tutorial-overlay { position: fixed; inset: 0; z-index: 9999; pointer-events: all; }
+.tutorial-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.75); }
+.tutorial-spotlight { position: absolute; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.75), 0 0 20px 4px var(--accent); pointer-events: none; transition: all 0.3s ease; }
+.tutorial-tooltip { position: absolute; width: 300px; background: var(--bg-card); border: 1px solid var(--accent); border-radius: 12px; padding: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index: 10000; }
+.tutorial-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.tutorial-step-num { background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+.tutorial-title { color: var(--text-primary); font-size: 16px; font-weight: 600; margin: 0; }
+.tutorial-desc { color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin: 0 0 12px; }
+.tutorial-actions { display: flex; justify-content: space-between; align-items: center; }
+.tutorial-skip-label { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; cursor: pointer; }
+.tutorial-skip-label input { width: 14px; height: 14px; cursor: pointer; }
+.tutorial-btns { display: flex; gap: 8px; }
+.tutorial-btn { padding: 6px 14px; border: none; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; cursor: pointer; transition: var(--transition); }
+.tutorial-btn:hover { background: var(--accent-hover); }
+.tutorial-btn.tutorial-prev { background: var(--bg-tertiary); color: var(--text-secondary); }
+.tutorial-btn.tutorial-prev:hover { background: var(--bg-hover); }

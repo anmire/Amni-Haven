@@ -102,6 +102,7 @@ class HavenApp {
       document.getElementById('admin-controls').style.display = 'block';
       document.getElementById('admin-mod-panel').style.display = 'block';
     }
+    setTimeout(() => new HavenTutorial().start(), 500);
   }
 
   // ── Socket Event Listeners ────────────────────────────
@@ -1705,9 +1706,10 @@ class HavenApp {
       el.dataset.time = msg.created_at;
       el.dataset.msgId = msg.id;
       if (msg.pinned) el.dataset.pinned = '1';
+      const contentHtml = msg.is_html ? msg.content : this._formatContent(msg.content);
       el.innerHTML = `
         <span class="compact-time">${new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
-        <div class="message-content">${pinnedTag}${this._formatContent(msg.content)}${editedHtml}</div>
+        <div class="message-content">${pinnedTag}${contentHtml}${editedHtml}</div>
         ${toolbarHtml}
         ${reactionsHtml}
       `;
@@ -1716,6 +1718,7 @@ class HavenApp {
 
     const color = this._getUserColor(msg.username);
     const initial = msg.username.charAt(0).toUpperCase();
+    const msgContentHtml = msg.is_html ? msg.content : this._formatContent(msg.content);
 
     const el = document.createElement('div');
     el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '');
@@ -1733,7 +1736,7 @@ class HavenApp {
             <span class="message-time">${this._formatTime(msg.created_at)}</span>
             ${pinnedTag}
           </div>
-          <div class="message-content">${this._formatContent(msg.content)}${editedHtml}</div>
+          <div class="message-content">${msgContentHtml}${editedHtml}</div>
           ${reactionsHtml}
         </div>
         ${toolbarHtml}

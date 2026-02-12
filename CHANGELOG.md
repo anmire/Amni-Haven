@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.3.3] — 2025-06-26
+
+### Added
+- **Interactive Tutorial System**
+  - 12-step guided onboarding tour for new users
+  - Spotlight highlighting with animated transitions
+  - "Don't show again" checkbox stored in localStorage
+  - Covers: server bar, channels, voice, Listen/Game Together, themes, chat
+- **Discord-Compatible Webhook API**
+  - Accepts Discord embed format (`embeds` array with fields, color, footer)
+  - Rich HTML rendering for bot messages in channels
+  - `is_html` flag for messages table
+  - Custom username support in webhook payloads
+- **Azno Bot Integration**
+  - `HavenNotifier` class for Python (`core/haven_notifier.py`)
+  - Bridge config template: `config/azno-bridge.json`
+  - Same API as DiscordNotifier: `send_trade()`, `send_signal()`, `send_portfolio()`
+
+---
+
 ## [1.3.2-audit] — 2026-02-11
 
 ### Security

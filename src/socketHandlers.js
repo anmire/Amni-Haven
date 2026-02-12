@@ -272,7 +272,7 @@ function setupSocketHandlers(io, db) {
       let messages;
       if (before) {
         messages = db.prepare(`
-          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at,
+          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_html,
                  COALESCE(u.username, '[Deleted User]') as username, u.id as user_id
           FROM messages m LEFT JOIN users u ON m.user_id = u.id
           WHERE m.channel_id = ? AND m.id < ?
@@ -280,7 +280,7 @@ function setupSocketHandlers(io, db) {
         `).all(channel.id, before, limit);
       } else {
         messages = db.prepare(`
-          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at,
+          SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_html,
                  COALESCE(u.username, '[Deleted User]') as username, u.id as user_id
           FROM messages m LEFT JOIN users u ON m.user_id = u.id
           WHERE m.channel_id = ?

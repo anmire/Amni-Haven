@@ -174,6 +174,11 @@ function initDatabase() {
   } catch {
     db.exec("ALTER TABLE channels ADD COLUMN is_private INTEGER DEFAULT 0");
   }
+  try {
+    db.prepare("SELECT is_html FROM messages LIMIT 0").get();
+  } catch {
+    db.exec("ALTER TABLE messages ADD COLUMN is_html INTEGER DEFAULT 0");
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS channel_permissions (
       channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,

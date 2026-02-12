@@ -1,0 +1,42 @@
+{
+  "description": "Azno Bot -> Haven Bridge Configuration",
+  "haven": {
+    "baseUrl": "http://localhost:3000",
+    "webhookPath": "/api/bot/webhook/{token}",
+    "botToken": "hvn_REPLACE_WITH_YOUR_BOT_TOKEN"
+  },
+  "channels": {
+    "trades": {
+      "channelCode": "REPLACE_WITH_EXECUTED_TRADES_CODE",
+      "description": "Executed trades notifications"
+    },
+    "signals": {
+      "channelCode": "REPLACE_WITH_CHARTING_CODE",
+      "description": "Trading signals and charts"
+    },
+    "portfolio": {
+      "channelCode": "REPLACE_WITH_PORTFOLIO_CODE",
+      "description": "Portfolio updates"
+    }
+  },
+  "usage": {
+    "python_example": "from core.haven_notifier import HavenNotifier; notifier = HavenNotifier(config); notifier.send_trade(...)",
+    "webhook_format": {
+      "method": "POST",
+      "headers": {"Content-Type": "application/json"},
+      "body": {
+        "channelCode": "channel_code_here",
+        "embeds": [
+          {
+            "title": "Message Title",
+            "color": 65280,
+            "fields": [
+              {"name": "Field", "value": "Value", "inline": true}
+            ],
+            "footer": {"text": "Footer text"}
+          }
+        ]
+      }
+    }
+  }
+}

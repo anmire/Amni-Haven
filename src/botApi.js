@@ -13,22 +13,50 @@ function botRateLimiter(req, res, next) {
   s.push(now); next();
 }
 function generateBotToken() { return 'hvn_' + crypto.randomBytes(24).toString('hex'); }
+function discordColorToHex(c) { return c ? `#${c.toString(16).padStart(6,'0')}` : '#5865f2'; }
+function embedsToHtml(embeds) {
+  if (!Array.isArray(embeds) || !embeds.length) return null;
+  return embeds.map(e => {
+    const col = discordColorToHex(e.color);
+    let h = `<div class="embed" style="border-left:4px solid ${col};background:var(--bg-tertiary);padding:12px;border-radius:4px;margin:4px 0">`;
+    if (e.title) h += `<div class="embed-title" style="font-weight:600;color:var(--text-primary);margin-bottom:8px">${escapeHtml(e.title)}</div>`;
+    if (e.description) h += `<div class="embed-desc" style="color:var(--text-secondary);margin-bottom:8px">${escapeHtml(e.description)}</div>`;
+    if (e.fields && e.fields.length) {
+      h += '<div class="embed-fields" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
+      e.fields.forEach(f => {
+        const w = f.inline ? 'auto' : '100%';
+        h += `<div style="grid-column:${f.inline?'auto':'1/-1'}"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">${escapeHtml(f.name)}</div><div style="color:var(--text-primary)">${escapeHtml(f.value).replace(/`([^`]+)`/g,'<code>$1</code>')}</div></div>`;
+      });
+      h += '</div>';
+    }
+    if (e.footer && e.footer.text) h += `<div class="embed-footer" style="font-size:11px;color:var(--text-muted);margin-top:8px">${escapeHtml(e.footer.text)}</div>`;
+    h += '</div>';
+    return h;
+  }).join('');
+}
+function escapeHtml(str) { return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 router.post('/webhook/:token', botRateLimiter, (req, res) => {
   const db = getDb();
   const bot = db.prepare('SELECT * FROM bots WHERE token = ? AND is_active = 1').get(req.params.token);
   if (!bot) return res.status(401).json({ error: 'Invalid bot token' });
-  const { channelCode, content } = req.body || {};
-  if (!channelCode || !content || typeof content !== 'string') return res.status(400).json({ error: 'channelCode and content required' });
-  if (content.length > 2000) return res.status(400).json({ error: 'Content too long (max 2000)' });
+  const { channelCode, content, embeds, username } = req.body || {};
+  if (!channelCode) return res.status(400).json({ error: 'channelCode required' });
+  let msgContent = '';
+  if (embeds && Array.isArray(embeds) && embeds.length) msgContent = embedsToHtml(embeds);
+  else if (content && typeof content === 'string') msgContent = escapeHtml(content.trim());
+  if (!msgContent) return res.status(400).json({ error: 'content or embeds required' });
+  if (msgContent.length > 8000) return res.status(400).json({ error: 'Content too long (max 8000)' });
   const channel = db.prepare('SELECT id FROM channels WHERE code = ?').get(channelCode);
   if (!channel) return res.status(404).json({ error: 'Channel not found' });
+  const isHtml = !!(embeds && embeds.length);
   const result = db.prepare(
-    'INSERT INTO messages (channel_id, user_id, content, is_bot) VALUES (?, ?, ?, 1)'
-  ).run(channel.id, bot.created_by, content.trim());
+    'INSERT INTO messages (channel_id, user_id, content, is_bot, is_html) VALUES (?, ?, ?, 1, ?)'
+  ).run(channel.id, bot.created_by, msgContent, isHtml ? 1 : 0);
+  const displayName = username ? `🤖 ${username}` : `🤖 ${bot.name}`;
   const message = {
-    id: result.lastInsertRowid, content: content.trim(), created_at: new Date().toISOString(),
-    username: `🤖 ${bot.name}`, user_id: bot.created_by, reply_to: null, replyContext: null,
-    reactions: [], edited_at: null, is_bot: true, bot_name: bot.name
+    id: result.lastInsertRowid, content: msgContent, created_at: new Date().toISOString(),
+    username: displayName, user_id: bot.created_by, reply_to: null, replyContext: null,
+    reactions: [], edited_at: null, is_bot: true, bot_name: bot.name, is_html: isHtml
   };
   if (global.havenIO) {
     global.havenIO.to(`channel:${channelCode}`).emit('new-message', { channelCode, message });
