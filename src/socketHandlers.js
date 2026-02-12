@@ -1661,6 +1661,98 @@ function setupSocketHandlers(io, db) {
         socket.emit('listen-session', null);
       }
     });
+    const gameSessions = new Map();
+    socket.on('game-start', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode || !socket.user || !data?.consoleId || !data?.romName) return;
+      const existing = gameSessions.get(channelCode);
+      if (existing && existing.hostId !== socket.user.id) return socket.emit('game-error', { msg: 'A game session is already active' });
+      const session = { hostId: socket.user.id, hostName: socket.user.username, consoleId: data.consoleId, romName: data.romName, maxPlayers: data.maxPlayers || 4, players: [{ id: socket.user.id, name: socket.user.username, controller: 1 }], controllers: [[1, socket.user.id]], spectators: [], state: 'loading', startedAt: Date.now() };
+      gameSessions.set(channelCode, session);
+      try { db.prepare('INSERT INTO game_sessions (host_id, channel_code, console_id, rom_name, max_players, state) VALUES (?, ?, ?, ?, ?, ?)').run(socket.user.id, channelCode, data.consoleId, data.romName, session.maxPlayers, 'loading'); } catch {}
+      io.to(`channel:${channelCode}`).emit('game-session', session);
+    });
+    socket.on('game-join', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode || !socket.user) return;
+      const session = gameSessions.get(channelCode);
+      if (!session) return socket.emit('game-error', { msg: 'No active game session' });
+      const alreadyIn = session.players.find(p => p.id === socket.user.id) || session.spectators.includes(socket.user.id);
+      if (!alreadyIn) {
+        session.spectators.push(socket.user.id);
+        io.to(`channel:${channelCode}`).emit('game-player-joined', { userId: socket.user.id, username: socket.user.username, asSpectator: true });
+      }
+      socket.emit('game-session', session);
+    });
+    socket.on('game-request-controller', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode || !socket.user || !data?.controllerId) return;
+      const session = gameSessions.get(channelCode);
+      if (!session) return;
+      const cid = parseInt(data.controllerId);
+      if (cid < 1 || cid > session.maxPlayers) return;
+      const taken = session.controllers.find(c => c[0] === cid);
+      if (taken) return socket.emit('game-error', { msg: `Controller ${cid} is already taken` });
+      session.controllers = session.controllers.filter(c => c[1] !== socket.user.id);
+      session.controllers.push([cid, socket.user.id]);
+      session.spectators = session.spectators.filter(id => id !== socket.user.id);
+      const pIdx = session.players.findIndex(p => p.id === socket.user.id);
+      pIdx >= 0 ? session.players[pIdx].controller = cid : session.players.push({ id: socket.user.id, name: socket.user.username, controller: cid });
+      io.to(`channel:${channelCode}`).emit('game-controller-assigned', { userId: socket.user.id, username: socket.user.username, controllerId: cid });
+    });
+    socket.on('game-release-controller', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode || !socket.user) return;
+      const session = gameSessions.get(channelCode);
+      if (!session) return;
+      const myC = session.controllers.find(c => c[1] === socket.user.id);
+      if (!myC) return;
+      session.controllers = session.controllers.filter(c => c[1] !== socket.user.id);
+      const pIdx = session.players.findIndex(p => p.id === socket.user.id);
+      if (pIdx >= 0) session.players[pIdx].controller = null;
+      if (!session.spectators.includes(socket.user.id)) session.spectators.push(socket.user.id);
+      io.to(`channel:${channelCode}`).emit('game-controller-released', { userId: socket.user.id, controllerId: myC[0] });
+    });
+    socket.on('game-input', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode || !socket.user) return;
+      const session = gameSessions.get(channelCode);
+      if (!session || session.state !== 'playing') return;
+      const hasController = session.controllers.find(c => c[1] === socket.user.id && c[0] === data.controllerId);
+      if (!hasController) return;
+      socket.to(`channel:${channelCode}`).emit('game-input-sync', { userId: socket.user.id, controllerId: data.controllerId, input: data.input, frame: data.frame });
+    });
+    socket.on('game-state', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode || !socket.user) return;
+      const session = gameSessions.get(channelCode);
+      if (!session || session.hostId !== socket.user.id) return;
+      session.state = data.state || 'playing';
+      try { db.prepare('UPDATE game_sessions SET state = ? WHERE channel_code = ? AND host_id = ?').run(session.state, channelCode, socket.user.id); } catch {}
+      io.to(`channel:${channelCode}`).emit('game-session', session);
+    });
+    socket.on('game-state-sync', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode || !socket.user) return;
+      const session = gameSessions.get(channelCode);
+      if (!session || session.hostId !== socket.user.id) return;
+      socket.to(`channel:${channelCode}`).emit('game-state-sync', { saveState: data.saveState });
+    });
+    socket.on('game-end', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode || !socket.user) return;
+      const session = gameSessions.get(channelCode);
+      if (!session || session.hostId !== socket.user.id) return;
+      gameSessions.delete(channelCode);
+      try { db.prepare('DELETE FROM game_sessions WHERE channel_code = ? AND host_id = ?').run(channelCode, socket.user.id); } catch {}
+      io.to(`channel:${channelCode}`).emit('game-ended', { hostId: socket.user.id });
+    });
+    socket.on('game-get', (data) => {
+      const channelCode = socket.currentChannel || data?.channelCode;
+      if (!channelCode) return;
+      const session = gameSessions.get(channelCode);
+      socket.emit('game-session', session || null);
+    });
   });
   setupBotSocketHandlers(io, db);
 }

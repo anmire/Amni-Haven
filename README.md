@@ -38,6 +38,8 @@ You launch it, your friends connect to your IP address, and you have a private g
 | **Search** | Search messages in any channel with Ctrl+F |
 | **Themes** | 13 built-in themes: Haven, Discord, Matrix, Tron, HALO, LoTR, Cyberpunk, Nord, Dracula, Bloodborne, Ice, Abyss, Triangle |
 | **Multi-Server** | Add friends' Haven servers to your sidebar with live online/offline status |
+| **Listen Together** | Sync music/video (YouTube, Spotify, SoundCloud, Vimeo) with your channel |
+| **Game Together** | Retro emulator (NES, SNES, N64, PS1, PS2, GameCube, etc.) with multiplayer controller sharing |
 | **Notifications** | 10 notification sounds (classic + AIM/retro), per-channel volume controls |
 | **Moderation** | Admin: kick, mute (timed), ban, block/unblock, delete users, delete channels, auto-cleanup |
 | **Security** | PixelCipher-256-CBC encryption, Bcrypt passwords, JWT auth, HTTPS/SSL, rate limiting, CSP headers |

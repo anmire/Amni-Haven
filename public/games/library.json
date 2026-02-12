@@ -1,0 +1,27 @@
+{
+  "consoles": [
+    {"id": "nes", "name": "Nintendo (NES)", "core": "nes", "icon": "🎮", "extensions": [".nes", ".zip"], "maxPlayers": 2},
+    {"id": "snes", "name": "Super Nintendo", "core": "snes", "icon": "🕹️", "extensions": [".sfc", ".smc", ".zip"], "maxPlayers": 2},
+    {"id": "n64", "name": "Nintendo 64", "core": "n64", "icon": "🎯", "extensions": [".n64", ".z64", ".v64", ".zip"], "maxPlayers": 4, "note": "Smash Bros, Mario Party, GoldenEye!"},
+    {"id": "gb", "name": "Game Boy", "core": "gb", "icon": "📱", "extensions": [".gb", ".zip"], "maxPlayers": 1},
+    {"id": "gbc", "name": "Game Boy Color", "core": "gb", "icon": "🌈", "extensions": [".gbc", ".zip"], "maxPlayers": 1},
+    {"id": "gba", "name": "Game Boy Advance", "core": "gba", "icon": "📲", "extensions": [".gba", ".zip"], "maxPlayers": 1},
+    {"id": "nds", "name": "Nintendo DS", "core": "nds", "icon": "📟", "extensions": [".nds", ".zip"], "maxPlayers": 1},
+    {"id": "gamecube", "name": "GameCube", "core": "dolphin", "icon": "🟣", "extensions": [".iso", ".gcm", ".gcz"], "maxPlayers": 4, "note": "Requires powerful device", "experimental": true},
+    {"id": "genesis", "name": "Sega Genesis", "core": "segaMD", "icon": "🔵", "extensions": [".md", ".gen", ".bin", ".zip"], "maxPlayers": 2},
+    {"id": "saturn", "name": "Sega Saturn", "core": "segaSaturn", "icon": "🪐", "extensions": [".cue", ".iso", ".zip"], "maxPlayers": 2, "needsBios": true},
+    {"id": "dreamcast", "name": "Dreamcast", "core": "dreamcast", "icon": "🌀", "extensions": [".cdi", ".gdi", ".chd"], "maxPlayers": 4, "experimental": true},
+    {"id": "psx", "name": "PlayStation 1", "core": "psx", "icon": "⬜", "extensions": [".bin", ".cue", ".iso", ".chd", ".pbp"], "maxPlayers": 2, "needsBios": true},
+    {"id": "ps2", "name": "PlayStation 2", "core": "pcsx2", "icon": "🎮", "extensions": [".iso", ".chd"], "maxPlayers": 2, "needsBios": true, "note": "FFX! Requires powerful device", "experimental": true},
+    {"id": "psp", "name": "PlayStation Portable", "core": "psp", "icon": "📀", "extensions": [".iso", ".cso", ".pbp"], "maxPlayers": 1},
+    {"id": "xbox", "name": "Xbox (Original)", "core": "xemu", "icon": "🟢", "extensions": [".iso", ".xbe"], "maxPlayers": 4, "note": "Halo! Experimental", "experimental": true}
+  ],
+  "games": [],
+  "multiplayer": {
+    "modes": ["local", "netplay", "spectate"],
+    "inputSync": {
+      "method": "lockstep",
+      "latencyFrames": 2
+    }
+  }
+}

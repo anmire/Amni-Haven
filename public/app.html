@@ -155,6 +155,9 @@
             <button id="listen-together-btn" class="btn-voice" style="display:none" title="Listen Together">
               🎵 Listen
             </button>
+            <button id="game-together-btn" class="btn-voice" style="display:none" title="Game Together">
+              🎮 Games
+            </button>
           </div>
         </header>
         <div id="listen-together-panel" class="listen-together-panel" style="display:none">
@@ -179,6 +182,46 @@
               <div class="listen-controls">
                 <button id="listen-play-pause" class="btn-sm">⏸ Pause</button>
                 <button id="listen-stop-btn" class="btn-sm btn-danger">⏹ Stop</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="game-together-panel" class="game-together-panel" style="display:none">
+          <div class="game-panel-header">
+            <span id="game-panel-title">🎮 Game Together</span>
+            <button id="game-panel-close" class="icon-btn small">&times;</button>
+          </div>
+          <div class="game-panel-body">
+            <div id="game-host-controls">
+              <div class="input-row" style="gap:6px">
+                <select id="game-console-select" class="settings-text-input" style="width:140px">
+                  <option value="">Select console...</option>
+                </select>
+                <input type="file" id="game-rom-input" accept=".nes,.smc,.sfc,.z64,.n64,.v64,.gb,.gbc,.gba,.nds,.iso,.bin,.cue,.gdi,.cdi,.pbp,.psp,.gen,.md,.smd,.xbe" style="display:none">
+                <button id="game-rom-btn" class="btn-sm" disabled>📁 Load ROM</button>
+                <button id="game-start-btn" class="btn-sm btn-accent" disabled>▶ Start</button>
+              </div>
+              <p class="game-notice">Bring your own legally-owned ROMs!</p>
+            </div>
+            <div id="game-active-session" style="display:none">
+              <div class="game-now-playing">
+                <span id="game-now-title" class="game-track-name">No game loaded</span>
+                <span id="game-now-host" class="game-host-tag"></span>
+              </div>
+              <div id="game-container" class="game-container">
+                <div class="game-placeholder">Select a game to play</div>
+              </div>
+              <div id="game-players-list" class="game-players-list"></div>
+              <div class="game-controls">
+                <select id="game-controller-select" class="settings-text-input" style="width:100px">
+                  <option value="">Spectate</option>
+                  <option value="1">Player 1</option>
+                  <option value="2">Player 2</option>
+                  <option value="3">Player 3</option>
+                  <option value="4">Player 4</option>
+                </select>
+                <button id="game-fullscreen-btn" class="btn-sm">⛶ Fullscreen</button>
+                <button id="game-end-btn" class="btn-sm btn-danger" style="display:none">⏹ End Game</button>
               </div>
             </div>
           </div>
@@ -571,6 +614,7 @@
   <script src="/js/notifications.js"></script>
   <script src="/js/servers.js"></script>
   <script src="/js/voice.js"></script>
+  <script src="/js/games.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

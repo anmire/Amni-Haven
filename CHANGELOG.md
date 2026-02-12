@@ -14,6 +14,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 - **Git history clean** — verified no secrets, keys, or proprietary code in tracked history
 
 ### Added
+- **Game Together** — Retro console emulator with multiplayer support
+  - EmulatorJS integration for NES, SNES, N64, GB, GBC, GBA, NDS, GameCube, Genesis, Saturn, Dreamcast, PS1, PS2, PSP, Xbox
+  - Host loads ROM, others join as players or spectators
+  - Controller assignment UI (P1-P4) with real-time slot management
+  - Input sync over WebSocket for netplay
+  - Fullscreen mode, save state support
+  - 🎮 Games button in channel header
+  - BYOROM (Bring Your Own ROM) — no ROMs included
 - **Game Together design doc** — roadmap for Flash/retro emulation features (Ruffle + EmulatorJS)
 - **ROM gitignore** — `/games/roms/` excluded to prevent accidental copyright issues
 

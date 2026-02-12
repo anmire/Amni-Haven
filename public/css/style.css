@@ -3508,6 +3508,98 @@ input, textarea { font-family: inherit; outline: none; border: none; }
   background: var(--danger) !important;
   color: #fff !important;
 }
+.game-together-panel {
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--accent);
+  padding: 0;
+  z-index: 5;
+}
+.game-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.game-panel-body { padding: 10px 14px; }
+.game-now-playing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.game-track-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-host-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.game-container {
+  margin: 8px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 4/3;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.game-placeholder {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.game-players-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.game-player-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.game-player-item.has-controller { border: 1px solid var(--accent); }
+.gp-name { color: var(--text-primary); font-weight: 500; }
+.gp-controller { color: var(--text-muted); font-size: 11px; }
+.game-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+.game-notice {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 6px;
+  font-style: italic;
+}
+.btn-voice.game-active {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+.game-container:fullscreen, .game-container:-webkit-full-screen {
+  aspect-ratio: unset;
+  width: 100vw;
+  height: 100vh;
+}
 
 /* ═══════════════════════════════════════════════════════════
    WHITELIST PANEL

@@ -32,6 +32,7 @@ class HavenApp {
     this.currentDm = null;
     this.activeCall = null;
     this.gifProvider = 'tenor';
+    this.gameManager = null;
 
     // Slash command definitions for autocomplete
     this.slashCommands = [
@@ -76,7 +77,7 @@ class HavenApp {
   _init() {
     this.socket = io({ auth: { token: this.token } });
     this.voice = new VoiceManager(this.socket);
-
+    this.gameManager = new GameManager(this.socket, this.user.id, this.user.username);
     this._setupSocketListeners();
     this._setupUI();
     this._setupThemes();
@@ -84,6 +85,7 @@ class HavenApp {
     this._setupNotifications();
     this._setupImageUpload();
     this._setupGifPicker();
+    this._setupGameUI();
     this._startStatusBar();
     this._setupMobile();
 
@@ -1398,7 +1400,10 @@ class HavenApp {
     document.getElementById('pinned-toggle-btn').style.display = 'inline-flex';
     document.getElementById('listen-together-btn').style.display = 'inline-flex';
     document.getElementById('listen-together-panel').style.display = 'none';
+    document.getElementById('game-together-btn').style.display = 'inline-flex';
+    document.getElementById('game-together-panel').style.display = 'none';
     this.socket.emit('listen-get', { channelCode: code });
+    this.socket.emit('game-get', { channelCode: code });
 
     if (this.user.isAdmin) {
       document.getElementById('delete-channel-btn').style.display = 'inline-flex';
@@ -1439,6 +1444,8 @@ class HavenApp {
     document.getElementById('pinned-toggle-btn').style.display = 'none';
     document.getElementById('listen-together-btn').style.display = 'none';
     document.getElementById('listen-together-panel').style.display = 'none';
+    document.getElementById('game-together-btn').style.display = 'none';
+    document.getElementById('game-together-panel').style.display = 'none';
     document.getElementById('status-channel').textContent = 'None';
     document.getElementById('status-online-count').textContent = '0';
   }
@@ -2549,6 +2556,95 @@ class HavenApp {
     const payload = { code: this.currentChannel, content: url };
     if (this.replyTo) { payload.replyTo = this.replyTo; this._clearReply(); }
     this.socket.emit('send-message', payload);
+  }
+  async _setupGameUI() {
+    const gameBtn = document.getElementById('game-together-btn');
+    const gamePanel = document.getElementById('game-together-panel');
+    const gameCloseBtn = document.getElementById('game-panel-close');
+    const consoleSelect = document.getElementById('game-console-select');
+    const romBtn = document.getElementById('game-rom-btn');
+    const romInput = document.getElementById('game-rom-input');
+    const startBtn = document.getElementById('game-start-btn');
+    const controllerSelect = document.getElementById('game-controller-select');
+    const fullscreenBtn = document.getElementById('game-fullscreen-btn');
+    const endBtn = document.getElementById('game-end-btn');
+    if (!gameBtn || !gamePanel) return;
+    await this.gameManager.loadLibrary();
+    const consoles = this.gameManager.getConsoles();
+    consoles.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name;
+      consoleSelect.appendChild(opt);
+    });
+    gameBtn.addEventListener('click', () => {
+      gamePanel.style.display = gamePanel.style.display === 'none' ? 'block' : 'none';
+      if (gamePanel.style.display === 'block') this.socket.emit('game-get', { channelCode: this.currentChannel });
+    });
+    gameCloseBtn?.addEventListener('click', () => { gamePanel.style.display = 'none'; });
+    consoleSelect.addEventListener('change', () => {
+      const v = consoleSelect.value;
+      romBtn.disabled = !v;
+      startBtn.disabled = true;
+      romInput.value = '';
+    });
+    romBtn.addEventListener('click', () => romInput.click());
+    romInput.addEventListener('change', () => {
+      startBtn.disabled = !romInput.files?.length;
+    });
+    startBtn.addEventListener('click', async () => {
+      const cid = consoleSelect.value;
+      const rom = romInput.files?.[0];
+      if (!cid || !rom) return this._showToast('Select console and ROM', 'error');
+      try {
+        await this.gameManager.startGame(cid, rom, this.currentChannel);
+        document.getElementById('game-host-controls').style.display = 'none';
+        document.getElementById('game-active-session').style.display = 'block';
+        document.getElementById('game-now-title').textContent = rom.name;
+        document.getElementById('game-now-host').textContent = `Host: ${this.user.username}`;
+        endBtn.style.display = 'inline-flex';
+      } catch (e) {
+        this._showToast(e.message, 'error');
+      }
+    });
+    controllerSelect?.addEventListener('change', () => {
+      const v = controllerSelect.value;
+      v ? this.gameManager.requestController(parseInt(v)) : this.gameManager.releaseController();
+    });
+    fullscreenBtn?.addEventListener('click', () => {
+      const container = document.getElementById('game-container');
+      container?.requestFullscreen?.() || container?.webkitRequestFullscreen?.();
+    });
+    endBtn?.addEventListener('click', () => {
+      this.gameManager.endGame();
+      this._resetGameUI();
+    });
+    this.gameManager.onSessionUpdate = (session) => {
+      document.getElementById('game-host-controls').style.display = 'none';
+      document.getElementById('game-active-session').style.display = 'block';
+      document.getElementById('game-now-title').textContent = session.romName;
+      const host = session.players.find(p => p.id === session.hostId);
+      document.getElementById('game-now-host').textContent = `Host: ${host?.name || 'Unknown'}`;
+      endBtn.style.display = session.hostId === this.user.id ? 'inline-flex' : 'none';
+      const opts = controllerSelect.querySelectorAll('option');
+      opts.forEach(o => {
+        const v = parseInt(o.value);
+        if (isNaN(v)) return;
+        const taken = session.controllers?.find(c => c[0] === v);
+        o.disabled = !!taken && taken[1] !== this.user.id;
+        o.textContent = taken ? `Player ${v} (${session.players.find(p => p.id === taken[1])?.name || '?'})` : `Player ${v}`;
+      });
+    };
+    this.gameManager.onSessionEnd = () => this._resetGameUI();
+  }
+  _resetGameUI() {
+    document.getElementById('game-host-controls').style.display = 'block';
+    document.getElementById('game-active-session').style.display = 'none';
+    document.getElementById('game-end-btn').style.display = 'none';
+    document.getElementById('game-console-select').value = '';
+    document.getElementById('game-rom-input').value = '';
+    document.getElementById('game-rom-btn').disabled = true;
+    document.getElementById('game-start-btn').disabled = true;
   }
 
   // ═══════════════════════════════════════════════════════

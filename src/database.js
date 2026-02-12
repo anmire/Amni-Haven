@@ -113,6 +113,17 @@ function initDatabase() {
       channel_code TEXT NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS game_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      host_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      channel_code TEXT NOT NULL,
+      console_id TEXT NOT NULL,
+      rom_name TEXT NOT NULL,
+      max_players INTEGER DEFAULT 4,
+      state TEXT DEFAULT 'waiting',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_game_sessions_channel ON game_sessions(channel_code, state);
     CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_channel_code ON channels(code);
     CREATE INDEX IF NOT EXISTS idx_reactions_message ON reactions(message_id);
