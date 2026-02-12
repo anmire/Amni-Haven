@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.5.1] — 2025-02-12
+
+### Added
+- **Win95 theme** — authentic Windows 95 aesthetic: `#c0c0c0` gray panels, `#008080` teal desktop, 3D inset/outset borders, blue titlebar gradient, MS Sans Serif font, 0px radius everywhere, no transitions/glow/glass, groove/outset borders, sunken message area
+- **WinXP theme** — Luna blue sidebar gradient (`#2b72d0→#1a4ca0`), `#ece9d8` beige panels, Tahoma font, 3px radius, XP-style blue titlebar on modals, orange badges, gradient buttons
+- **Win7 theme** — Aero glass: semi-transparent `rgba(20,40,80,0.75)` panels, `backdrop-filter: blur(20px)`, frosted glass modals, Segoe UI thin, inset white highlight lines, blue gradient backgrounds
+- **Retro theme group** in sidebar selector (Win95 🖥️ / WinXP 🪟 / Win7 🪟)
+
+### Changed
+- **Light theme overhaul** — accent `#2563eb`, purple secondary `#7c3aed`, gradient brand text (blue→purple), gradient active indicators, 12px radius, glassmorphism vars, gradient backgrounds on sidebar/header/main, floating shadows, blue-purple gradient send button + badges
+- Cache-bust version → `?v=1.5.1`
+
+---
+
 ## [1.5.0] — 2025-02-12
 
 ### Added

@@ -1,5 +1,5 @@
 # Amni-Haven Architecture Map
-## v1.5.0 (Glassmorphic Layout Overhaul)
+## v1.5.1 (Retro Themes + Light Overhaul)
 ### Server-Side
 - `server.js` (~600 lines) — Express + Socket.IO + HTTPS/SSL, file uploads, GIF proxy (Giphy), Spotify OAuth routes (auth-url, callback, token, status, unlink), link preview, rate limiting, auto-cleanup, PixelCipher banner, tunnel auto-start, bot routes, CSP (script-src Spotify SDK + EmulatorJS, connect-src Spotify API/WebSocket)
 - `src/auth.js` (212 lines) — bcrypt auth, JWT, rate limiter, register/login, whitelist check
@@ -10,8 +10,8 @@
 - `src/botApi.js` (~90 lines) — REST API + socket handlers for bot/webhook CRUD
 - `src/paths.js` — data directory resolution
 ### Client-Side
-- `public/app.html` (~770 lines) — main SPA shell, modals, sidebar (channels+DMs), message area, theme selector (22 themes: 19 dark + 3 light + RGB + custom), GIF picker (Giphy-only), noise suppression with LED, listen-together panel with Spotify SDK player UI, screen share collapse toggle; branding: ◆ AMNI sidebar brand, "Welcome to Amni-Haven" welcome screen
-- `public/index.html` (~160 lines) — login/register page, EULA modal, Amni-Haven branding (◆ logo, tagline), theme bar (22 themes)
+- `public/app.html` (~780 lines) — main SPA shell, modals, sidebar (channels+DMs), message area, theme selector (25 themes: 19 dark + 3 retro + 3 light + RGB + custom), GIF picker (Giphy-only), noise suppression with LED, listen-together panel with Spotify SDK player UI, screen share collapse toggle; branding: ◆ AMNI sidebar brand, "Welcome to Amni-Haven" welcome screen
+- `public/index.html` (~165 lines) — login/register page, EULA modal, Amni-Haven branding (◆ logo, tagline), theme bar (25 themes)
 - `public/js/app.js` (~3300 lines) — HavenApp class: chat, UI, GIF picker, reactions, mentions, search, admin, DMs, blocks, private calls, noise suppression LED, screen-share collapse, listen-together with Spotify SDK integration
 - `public/js/spotify.js` (~110 lines) — SpotifyPlayer class: Web Playback SDK wrapper, OAuth token management, play/pause/seek/volume, state callbacks, URI converter
 - `public/js/voice.js` (~640 lines) — VoiceManager: WebRTC P2P, screen share, volume, talking indicators, noise suppression
@@ -23,7 +23,7 @@
 - `public/js/servers.js` (81 lines) — multi-server sidebar manager
 - `public/js/games.js` — Game Together (EmulatorJS) controller/lobby management
 - `public/js/auth.js` — login/register page logic, auto-login for localhost
-- `public/css/themes.css` (~994 lines) — all theme variable definitions: Amni default (teal/cyan `:root` + glassmorphism vars: `--glass-bg/blur/border/shadow`, `--glow-sm/md/lg`, `--input-glow`, `--depth-1/2/3`), Haven, Discord, Matrix, Tron, HALO, LoTR, Cyberpunk, Nord, Dracula, Bloodborne, Ice, Abyss, Dark Souls, Elden Ring, Minecraft, FFX, Zelda, Triangle + 3 light themes (Light, Solarized Light, Sakura) + per-theme component overrides
+- `public/css/themes.css` (~1317 lines) — all theme variable definitions: Amni default (teal/cyan `:root` + glassmorphism vars: `--glass-bg/blur/border/shadow`, `--glow-sm/md/lg`, `--input-glow`, `--depth-1/2/3`), Haven, Discord, Matrix, Tron, HALO, LoTR, Cyberpunk, Nord, Dracula, Bloodborne, Ice, Abyss, Dark Souls, Elden Ring, Minecraft, FFX, Zelda, Triangle + 3 retro themes (Win95, WinXP, Win7) + 3 light themes (Light, Solarized Light, Sakura) + per-theme component overrides
 - `public/css/style.css` (~3724 lines) — layout, reset, components, responsive, glassmorphism (backdrop-filter blur on 10 components), micro-interactions (spring transitions, scale hovers), floating message input card, accent glow effects, pill-shaped controls, Spotify SDK player styles, screen-collapsed states, noise LED, triangle morph panel, tutorial overlay, theme-group-label styling
 ### Docs
 - `docs/ARCHITECTURE.md` — this file
@@ -33,6 +33,11 @@
 - `docs/checklist_*.md` — completed task checklists
 ### Dependencies
 - express, socket.io, better-sqlite3, bcryptjs, jsonwebtoken, multer, helmet, dotenv
+### New in v1.5.1
+- 3 retro Windows themes: Win95 (3D inset/outset borders, teal desktop, MS Sans Serif, 0px radius), WinXP (Luna blue sidebar, beige panels, Tahoma, XP-style gradients), Win7 (Aero glass, backdrop-filter blur(20px), frosted panels, Segoe UI)
+- Retro theme group label + buttons in app.html and index.html
+- Light theme overhaul: gradient brand text (blue→purple), purple secondary accent, 12px radius, glassmorphism vars, gradient backgrounds, floating shadows
+- Win95/XP disable glassmorphism (`--glass-blur: 0px`, no glow); Win7 uses full glassmorphism for Aero glass
 ### New in v1.5.0
 - Glassmorphism system: translucent backdrop-filter blur panels on sidebar, header, right sidebar, server bar, status bar, message input, modals, toasts, context menu (10 components)
 - CSS variable system: `--glass-bg`, `--glass-blur`, `--glass-border`, `--glass-shadow`, `--glow-sm/md/lg`, `--input-glow`, `--depth-1/2/3` in Amni `:root` theme
