@@ -208,4 +208,4 @@ function generateChannelCode() {
   return crypto.randomBytes(4).toString('hex'); // 8-char hex string
 }
 
-module.exports = { router, verifyToken, generateChannelCode, generateToken, authLimiter, JWT_SECRET, ADMIN_USERNAME };
+module.exports = { router, verifyToken, generateChannelCode, generateToken, authLimiter };

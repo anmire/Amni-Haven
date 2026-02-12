@@ -2,8 +2,18 @@ const crypto = require('crypto');
 const express = require('express');
 const { getDb } = require('./database');
 const router = express.Router();
+const botRateStore = new Map();
+function botRateLimiter(req, res, next) {
+  const t = req.params.token || req.ip;
+  const now = Date.now(), w = 60000, max = 30;
+  if (!botRateStore.has(t)) botRateStore.set(t, []);
+  const s = botRateStore.get(t).filter(x => now - x < w);
+  botRateStore.set(t, s);
+  if (s.length >= max) return res.status(429).json({ error: 'Rate limited' });
+  s.push(now); next();
+}
 function generateBotToken() { return 'hvn_' + crypto.randomBytes(24).toString('hex'); }
-router.post('/webhook/:token', (req, res) => {
+router.post('/webhook/:token', botRateLimiter, (req, res) => {
   const db = getDb();
   const bot = db.prepare('SELECT * FROM bots WHERE token = ? AND is_active = 1').get(req.params.token);
   if (!bot) return res.status(401).json({ error: 'Invalid bot token' });

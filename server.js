@@ -97,15 +97,15 @@ const upload = multer({
 // ── API routes (rate-limited) ────────────────────────────
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/bot', express.json(), botRoutes);
-app.get('/api/auth/auto-login', (req, res) => {
+app.get('/api/auth/auto-login', authLimiter, (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || '';
   const isLocal = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
-  if (!isLocal) return res.status(403).json({ error: 'Auto-login only from localhost' });
-  const { JWT_SECRET, ADMIN_USERNAME } = require('./src/auth');
+  if (!isLocal) return res.status(403).json({ error: 'Forbidden' });
   const db = require('./src/database').getDb();
-  const admin = db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(ADMIN_USERNAME);
+  const adminName = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
+  const admin = db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(adminName);
   if (!admin) return res.status(404).json({ error: 'Admin not registered yet' });
-  const token = jwt.sign({ id: admin.id, username: admin.username, isAdmin: true }, JWT_SECRET, { expiresIn: '7d' });
+  const token = jwt.sign({ id: admin.id, username: admin.username, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '7d' });
   res.json({ token, user: { id: admin.id, username: admin.username, isAdmin: true } });
 });
 
@@ -127,8 +127,7 @@ app.get('/api/health', (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.json({
     status: 'online',
-    name: process.env.SERVER_NAME || 'Haven',
-    version: require('./package.json').version
+    name: process.env.SERVER_NAME || 'Haven'
   });
 });
 
@@ -265,11 +264,16 @@ app.get('/api/gif/giphy/trending', (req, res) => {
     res.json({ results, provider: 'giphy' });
   }).catch(() => res.status(502).json({ error: 'Giphy API error' }));
 });
-app.get('/api/tunnel/status', (req, res) => { res.json(getTunnelStatus()); });
+app.get('/api/tunnel/status', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const u = token ? verifyToken(token) : null;
+  if (!u || !u.isAdmin) return res.status(403).json({ error: 'Admin only' });
+  res.json(getTunnelStatus());
+});
 app.get('/api/cipher/status', (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token || !verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
-  res.json({ active: true, algorithm: 'PixelCipher-256-CBC', rounds: 14, blockSize: 16, keySize: 32 });
+  res.json({ active: true, algorithm: 'PixelCipher-CBC', status: 'operational' });
 });
 const linkPreviewCache = new Map();
 const PREVIEW_CACHE_TTL = 30 * 60 * 1000; // 30 min
