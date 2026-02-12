@@ -240,12 +240,14 @@ function setupSocketHandlers(io, db) {
 
       socket.currentChannel = code;
       socket.join(`channel:${code}`);
-
-      // Track in new channel
+      const userRow = db.prepare('SELECT display_name FROM users WHERE id = ?').get(socket.user.id);
+      const displayName = userRow?.display_name || null;
+      socket.user.displayName = displayName;
       if (!channelUsers.has(code)) channelUsers.set(code, new Map());
       channelUsers.get(code).set(socket.user.id, {
         id: socket.user.id,
         username: socket.user.username,
+        displayName,
         socketId: socket.id
       });
 
@@ -273,7 +275,7 @@ function setupSocketHandlers(io, db) {
       if (before) {
         messages = db.prepare(`
           SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_html,
-                 COALESCE(u.username, '[Deleted User]') as username, u.id as user_id
+                 COALESCE(u.username, '[Deleted User]') as username, u.display_name as displayName, u.id as user_id
           FROM messages m LEFT JOIN users u ON m.user_id = u.id
           WHERE m.channel_id = ? AND m.id < ?
           ORDER BY m.created_at DESC LIMIT ?
@@ -281,7 +283,7 @@ function setupSocketHandlers(io, db) {
       } else {
         messages = db.prepare(`
           SELECT m.id, m.content, m.created_at, m.reply_to, m.edited_at, m.is_html,
-                 COALESCE(u.username, '[Deleted User]') as username, u.id as user_id
+                 COALESCE(u.username, '[Deleted User]') as username, u.display_name as displayName, u.id as user_id
           FROM messages m LEFT JOIN users u ON m.user_id = u.id
           WHERE m.channel_id = ?
           ORDER BY m.created_at DESC LIMIT ?
@@ -335,7 +337,7 @@ function setupSocketHandlers(io, db) {
 
       const results = db.prepare(`
         SELECT m.id, m.content, m.created_at,
-               COALESCE(u.username, '[Deleted User]') as username, u.id as user_id
+               COALESCE(u.username, '[Deleted User]') as username, u.display_name as displayName, u.id as user_id
         FROM messages m LEFT JOIN users u ON m.user_id = u.id
         WHERE m.channel_id = ? AND m.content LIKE ?
         ORDER BY m.created_at DESC LIMIT 25
@@ -401,6 +403,7 @@ function setupSocketHandlers(io, db) {
             content: finalContent,
             created_at: new Date().toISOString(),
             username: socket.user.username,
+            displayName: socket.user.displayName || null,
             user_id: socket.user.id,
             reply_to: null,
             replyContext: null,
@@ -427,6 +430,7 @@ function setupSocketHandlers(io, db) {
         content: content.trim(),
         created_at: new Date().toISOString(),
         username: socket.user.username,
+        displayName: socket.user.displayName || null,
         user_id: socket.user.id,
         reply_to: replyTo,
         replyContext: null,
@@ -451,7 +455,7 @@ function setupSocketHandlers(io, db) {
       if (!isString(data.code, 8, 8)) return;
       socket.to(`channel:${data.code}`).emit('user-typing', {
         channelCode: data.code,
-        username: socket.user.username
+        username: socket.user.displayName || socket.user.username
       });
     });
 
@@ -745,6 +749,26 @@ function setupSocketHandlers(io, db) {
       }
 
       console.log(`✏️  ${oldName} renamed to ${newName}`);
+    });
+    socket.on('update-display-name', (data) => {
+      if (!data || typeof data !== 'object') return;
+      const newName = typeof data.displayName === 'string' ? data.displayName.trim().slice(0, 32) : '';
+      const displayName = newName.length > 0 ? newName : null;
+      try {
+        db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(displayName, socket.user.id);
+      } catch (err) {
+        console.error('Display name update error:', err);
+        return socket.emit('error-msg', 'Failed to update display name');
+      }
+      socket.user.displayName = displayName;
+      for (const [code, users] of channelUsers) {
+        if (users.has(socket.user.id)) {
+          users.get(socket.user.id).displayName = displayName;
+          emitOnlineUsers(code);
+        }
+      }
+      socket.emit('display-name-updated', { displayName });
+      console.log(`✏️  ${socket.user.username} display name: ${displayName || '(cleared)'}`);
     });
 
     // ═══════════════ ADMIN: DELETE CHANNEL ═══════════════════
@@ -1619,21 +1643,18 @@ function setupSocketHandlers(io, db) {
       if (mode === 'none') {
         users = [];
       } else if (mode === 'all') {
-        // Show ALL registered users on the server, mark online ones
-        // Exclude banned users
         const allUsers = db.prepare(
-          'SELECT u.id, u.username FROM users u LEFT JOIN bans b ON u.id = b.user_id WHERE b.id IS NULL ORDER BY u.username'
+          'SELECT u.id, u.username, u.display_name FROM users u LEFT JOIN bans b ON u.id = b.user_id WHERE b.id IS NULL ORDER BY u.username'
         ).all();
         const onlineIds = room ? new Set(room.keys()) : new Set();
         users = allUsers.map(m => ({
-          id: m.id, username: m.username, online: onlineIds.has(m.id),
+          id: m.id, username: m.username, displayName: m.display_name || null, online: onlineIds.has(m.id),
           highScore: scores[m.id] || 0
         }));
       } else {
-        // 'online' — only currently online users
         if (!room) return;
         users = Array.from(room.values()).map(u => ({
-          id: u.id, username: u.username, online: true,
+          id: u.id, username: u.username, displayName: u.displayName || null, online: true,
           highScore: scores[u.id] || 0
         }));
       }

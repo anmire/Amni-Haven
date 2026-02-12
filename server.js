@@ -108,7 +108,17 @@ app.get('/api/auth/auto-login', authLimiter, (req, res) => {
   const admin = db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(adminName);
   if (!admin) return res.status(404).json({ error: 'Admin not registered yet' });
   const token = jwt.sign({ id: admin.id, username: admin.username, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '7d' });
-  res.json({ token, user: { id: admin.id, username: admin.username, isAdmin: true } });
+  res.json({ token, user: { id: admin.id, username: admin.username, displayName: admin.display_name || null, isAdmin: true } });
+});
+app.post('/api/user/display-name', express.json(), (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const name = typeof req.body.displayName === 'string' ? req.body.displayName.trim().slice(0, 32) : null;
+  if (name && (name.length < 1 || name.length > 32)) return res.status(400).json({ error: 'Display name must be 1-32 chars' });
+  const db = require('./src/database').getDb();
+  db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(name || null, user.id);
+  res.json({ displayName: name || null });
 });
 
 // ── Serve pages ──────────────────────────────────────────

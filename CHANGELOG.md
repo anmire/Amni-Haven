@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.3.5] — 2026-02-12
+
+### Added
+- **Display Names** — users can set a display name separate from login username
+  - Profile section in Settings with display name input
+  - Display names shown in chat messages, user list, typing indicator
+  - Socket handlers emit `displayName` alongside `username`
+  - REST endpoint `POST /api/user/display-name` for programmatic updates
+
+### Changed
+- **Triangle Morph Theme** — redesigned as single intuitive vibe triangle
+  - Three corners: Chill (cool blues), Heat (warm reds), Dream (purple mystique)
+  - Single draggable point blends HSL values across all theme variables
+  - Larger triangle with glowing handle that reflects current blend
+  - Removed separate Era triangle; all morphing in one control
+
+---
+
 ## [1.3.4] — 2026-02-12
 
 ### Added

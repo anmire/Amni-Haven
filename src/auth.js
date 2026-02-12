@@ -122,7 +122,7 @@ router.post('/register', async (req, res) => {
 
     res.json({
       token,
-      user: { id: result.lastInsertRowid, username, isAdmin: !!isAdmin }
+      user: { id: result.lastInsertRowid, username, displayName: null, isAdmin: !!isAdmin }
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -183,7 +183,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, isAdmin: !!user.is_admin }
+      user: { id: user.id, username: user.username, displayName: user.display_name || null, isAdmin: !!user.is_admin }
     });
   } catch (err) {
     console.error('Login error:', err);

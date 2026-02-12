@@ -190,6 +190,11 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_channel_perms_user ON channel_permissions(user_id);
     CREATE INDEX IF NOT EXISTS idx_channel_perms_channel ON channel_permissions(channel_id);
   `);
+  try {
+    db.prepare("SELECT display_name FROM users LIMIT 0").get();
+  } catch {
+    db.exec("ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT NULL");
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS high_scores (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

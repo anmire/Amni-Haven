@@ -99,7 +99,7 @@ class HavenApp {
     this.socket.emit('get-blocks');
     this.socket.emit('get-dms');
 
-    document.getElementById('current-user').textContent = this.user.username;
+    document.getElementById('current-user').textContent = this.user.displayName || this.user.username;
 
     if (this.user.isAdmin) {
       document.getElementById('admin-controls').style.display = 'block';
@@ -972,6 +972,20 @@ class HavenApp {
     document.getElementById('settings-modal').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
     });
+    const displayNameInput = document.getElementById('display-name-input');
+    if (displayNameInput) {
+      displayNameInput.value = this.user.displayName || '';
+      document.getElementById('save-display-name-btn').addEventListener('click', () => {
+        const name = displayNameInput.value.trim();
+        this.socket.emit('update-display-name', { displayName: name });
+      });
+    }
+    this.socket.on('display-name-updated', (data) => {
+      this.user.displayName = data.displayName;
+      const headerDisplay = document.getElementById('current-user');
+      if (headerDisplay) headerDisplay.textContent = data.displayName || this.user.username;
+      this._showToast(`Display name ${data.displayName ? `set to "${data.displayName}"` : 'cleared'}`, 'success');
+    });
 
     // Member visibility select (admin)
     const visSelect = document.getElementById('member-visibility-select');
@@ -1793,7 +1807,8 @@ class HavenApp {
     }
 
     const color = this._getUserColor(msg.username);
-    const initial = msg.username.charAt(0).toUpperCase();
+    const displayName = msg.displayName || msg.username;
+    const initial = displayName.charAt(0).toUpperCase();
     const msgContentHtml = msg.is_html ? msg.content : this._formatContent(msg.content);
 
     const el = document.createElement('div');
@@ -1808,7 +1823,7 @@ class HavenApp {
         <div class="message-avatar" style="background-color:${color}">${initial}</div>
         <div class="message-body">
           <div class="message-header">
-            <span class="message-author" style="color:${color}">${this._escapeHtml(msg.username)}</span>
+            <span class="message-author" style="color:${color}">${this._escapeHtml(displayName)}</span>
             <span class="message-time">${this._formatTime(msg.created_at)}</span>
             ${pinnedTag}
           </div>
@@ -1990,6 +2005,7 @@ class HavenApp {
   _renderUserItem(u, scoreLookup) {
     const onlineClass = u.online === false ? ' offline' : '';
     const score = scoreLookup[u.id] || 0;
+    const displayName = u.displayName || u.username;
     const scoreBadge = score > 0
       ? `<span class="user-score-badge" title="Flappy Container: ${score}">🚢${score}</span>`
       : '';
@@ -2005,7 +2021,7 @@ class HavenApp {
            <button class="user-action-btn" data-action="mute" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Mute">🔇</button>
            <button class="user-action-btn" data-action="ban" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Ban">⛔</button>
          </div>` : '';
-    return `<div class="user-item${onlineClass}"><span class="user-dot${u.online === false ? ' away' : ''}"></span><span class="user-item-name">${this._escapeHtml(u.username)}</span>${scoreBadge}${userBtns}${adminBtns}</div>`;
+    return `<div class="user-item${onlineClass}"><span class="user-dot${u.online === false ? ' away' : ''}"></span><span class="user-item-name">${this._escapeHtml(displayName)}</span>${scoreBadge}${userBtns}${adminBtns}</div>`;
   }
 
   _renderVoiceUsers(users) {
@@ -2017,11 +2033,12 @@ class HavenApp {
     el.innerHTML = users.map(u => {
       const savedVol = this._getVoiceVolume(u.id);
       const isSelf = u.id === this.user.id;
+      const displayName = u.displayName || u.username;
       const talking = this.voice && ((isSelf && this.voice.talkingState.get('self')) || this.voice.talkingState.get(u.id));
       return `
         <div class="user-item voice-user-item${talking ? ' talking' : ''}" data-user-id="${u.id}">
           <span class="user-dot voice"></span>
-          <span class="user-item-name">${this._escapeHtml(u.username)}</span>
+          <span class="user-item-name">${this._escapeHtml(displayName)}</span>
           ${!isSelf ? `<input type="range" class="volume-slider" min="0" max="200" value="${savedVol}" data-user-id="${u.id}" title="Volume: ${savedVol}%">` : '<span class="you-tag">you</span>'}
         </div>
       `;
