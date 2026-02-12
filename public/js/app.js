@@ -78,6 +78,8 @@ class HavenApp {
     this.socket = io({ auth: { token: this.token } });
     this.voice = new VoiceManager(this.socket);
     this.gameManager = new GameManager(this.socket, this.user.id, this.user.username);
+    this.spotifyPlayer = null;
+    this._spotifyReady = false;
     this._setupSocketListeners();
     this._setupUI();
     this._setupThemes();
@@ -86,6 +88,7 @@ class HavenApp {
     this._setupImageUpload();
     this._setupGifPicker();
     this._setupGameUI();
+    this._setupSpotify();
     this._startStatusBar();
     this._setupMobile();
 
@@ -692,11 +695,13 @@ class HavenApp {
     }
     const listenPlayPause = document.getElementById('listen-play-pause');
     if (listenPlayPause) {
-      listenPlayPause.addEventListener('click', () => {
+      listenPlayPause.addEventListener('click', async () => {
         if (!this._listenSession) return;
         this._listenSession.isPlaying = !this._listenSession.isPlaying;
         listenPlayPause.textContent = this._listenSession.isPlaying ? '⏸ Pause' : '▶ Play';
-        const iframe = document.querySelector('#listen-embed-container iframe');
+        if (this._spotifyReady && this.spotifyPlayer?.isPremium && this._isSpotifyUrl(this._listenSession.url)) {
+          this._listenSession.isPlaying ? await this.spotifyPlayer.resume() : await this.spotifyPlayer.pause();
+        }
         this.socket.emit('listen-sync', { isPlaying: this._listenSession.isPlaying, position: 0, channelCode: this.currentChannel });
       });
     }
@@ -1077,6 +1082,17 @@ class HavenApp {
       this.socket.emit('update-server-setting', { key: 'giphy_api_key', value: k });
       this._showToast('Giphy API key saved', 'success');
     });
+    const spotifyClientId = document.getElementById('spotify-client-id-input');
+    const spotifyClientSecret = document.getElementById('spotify-client-secret-input');
+    const spotifySave = document.getElementById('save-spotify-creds-btn');
+    if (spotifySave) spotifySave.addEventListener('click', () => {
+      const cid = spotifyClientId?.value.trim();
+      const sec = spotifyClientSecret?.value.trim();
+      if (!cid || !sec) return this._showToast('Both Client ID and Secret required', 'error');
+      this.socket.emit('update-server-setting', { key: 'spotify_client_id', value: cid });
+      this.socket.emit('update-server-setting', { key: 'spotify_client_secret', value: sec });
+      this._showToast('Spotify credentials saved', 'success');
+    });
     const viewBlocksBtn = document.getElementById('view-blocks-btn');
     if (viewBlocksBtn) viewBlocksBtn.addEventListener('click', () => {
       document.getElementById('block-list-modal').style.display = 'flex';
@@ -1392,6 +1408,66 @@ class HavenApp {
   _setupThemes() {
     initThemeSwitcher('theme-selector', this.socket);
   }
+  async _setupSpotify() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('spotify_linked') === '1') {
+      this._showToast('🎵 Spotify connected!', 'success');
+      history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('spotify_error')) {
+      this._showToast(`Spotify error: ${params.get('spotify_error')}`, 'error');
+      history.replaceState({}, '', window.location.pathname);
+    }
+    await this._updateSpotifyUI();
+    const connectBtn = document.getElementById('spotify-connect-btn');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', async () => {
+        if (!this.spotifyPlayer) this.spotifyPlayer = new SpotifyPlayer(() => {}, (e) => console.warn('Spotify:', e), (s) => this._onSpotifyState(s));
+        const url = await this.spotifyPlayer.getAuthUrl();
+        if (url) window.location.href = url;
+        else this._showToast('Spotify not configured by admin', 'error');
+      });
+    }
+    const volSlider = document.getElementById('spotify-volume');
+    if (volSlider) volSlider.addEventListener('input', () => { if (this.spotifyPlayer) this.spotifyPlayer.setVolume(volSlider.value / 100); });
+    const seekSlider = document.getElementById('spotify-seek');
+    if (seekSlider) seekSlider.addEventListener('change', () => { if (this.spotifyPlayer && this._spotifyDuration) this.spotifyPlayer.seek((seekSlider.value / 100) * this._spotifyDuration); });
+  }
+  async _updateSpotifyUI() {
+    const statusEl = document.getElementById('spotify-status');
+    const connectRow = document.getElementById('spotify-connect-row');
+    if (!this.spotifyPlayer) this.spotifyPlayer = new SpotifyPlayer(() => { this._spotifyReady = true; }, (e) => console.warn('Spotify:', e), (s) => this._onSpotifyState(s));
+    const status = await this.spotifyPlayer.checkStatus();
+    if (!status.configured) { if (connectRow) connectRow.style.display = 'none'; return; }
+    if (status.linked) {
+      if (statusEl) { statusEl.textContent = status.premium ? '✓ Premium' : '✓ Linked'; statusEl.className = 'spotify-status ' + (status.premium ? 'premium' : 'linked'); }
+      if (connectRow) connectRow.style.display = 'none';
+      if (status.premium && !this._spotifyReady) await this.spotifyPlayer.init();
+    } else {
+      if (statusEl) { statusEl.textContent = ''; statusEl.className = 'spotify-status'; }
+      if (connectRow) connectRow.style.display = 'flex';
+    }
+  }
+  _onSpotifyState(state) {
+    if (!state) return;
+    const track = state.track_window?.current_track;
+    if (track) {
+      const nameEl = document.getElementById('spotify-track-name');
+      const artistEl = document.getElementById('spotify-artist-name');
+      const artEl = document.getElementById('spotify-album-art');
+      if (nameEl) nameEl.textContent = track.name;
+      if (artistEl) artistEl.textContent = track.artists?.map(a => a.name).join(', ') || '';
+      if (artEl && track.album?.images?.[0]?.url) artEl.src = track.album.images[0].url;
+    }
+    this._spotifyDuration = state.duration;
+    const seekEl = document.getElementById('spotify-seek');
+    const curEl = document.getElementById('spotify-time-current');
+    const totEl = document.getElementById('spotify-time-total');
+    if (seekEl && state.duration) seekEl.value = (state.position / state.duration) * 100;
+    if (curEl) curEl.textContent = this._formatMs(state.position);
+    if (totEl) totEl.textContent = this._formatMs(state.duration);
+  }
+  _formatMs(ms) { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`; }
+  _isSpotifyUrl(url) { return /open\.spotify\.com\/(track|album|playlist)\//.test(url); }
 
   // ── Status Bar ────────────────────────────────────────
 
@@ -2235,12 +2311,15 @@ class HavenApp {
     const activeEl = document.getElementById('listen-active-session');
     const hostCtrl = document.getElementById('listen-host-controls');
     const embedCont = document.getElementById('listen-embed-container');
+    const sdkPlayer = document.getElementById('spotify-sdk-player');
     const playPause = document.getElementById('listen-play-pause');
     const stopBtn = document.getElementById('listen-stop-btn');
     if (!session) {
       activeEl.style.display = 'none';
       hostCtrl.style.display = 'block';
       embedCont.innerHTML = '';
+      if (sdkPlayer) sdkPlayer.style.display = 'none';
+      if (this.spotifyPlayer) this.spotifyPlayer.pause();
       return;
     }
     hostCtrl.style.display = 'none';
@@ -2251,6 +2330,17 @@ class HavenApp {
     playPause.style.display = isHost ? '' : 'none';
     stopBtn.style.display = isHost ? '' : 'none';
     playPause.textContent = session.isPlaying ? '⏸ Pause' : '▶ Play';
+    const isSpotify = this._isSpotifyUrl(session.url);
+    if (isSpotify && this._spotifyReady && this.spotifyPlayer?.isPremium) {
+      embedCont.style.display = 'none';
+      if (sdkPlayer) sdkPlayer.style.display = 'block';
+      const uri = this.spotifyPlayer.spotifyUrlToUri(session.url);
+      if (uri) this.spotifyPlayer.play(uri);
+      this._showToast(`🎵 ${session.hostName} started Listen Together`, 'info');
+      return;
+    }
+    embedCont.style.display = '';
+    if (sdkPlayer) sdkPlayer.style.display = 'none';
     const embedUrl = this._buildEmbedUrl(session.url);
     if (!embedUrl) return this._showToast('Unsupported media URL', 'error');
     embedCont.innerHTML = `<iframe src="${this._escapeHtml(embedUrl)}" width="100%" height="80" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation" allowfullscreen style="border-radius:8px"></iframe>`;
@@ -2266,6 +2356,9 @@ class HavenApp {
     document.getElementById('listen-active-session').style.display = 'none';
     document.getElementById('listen-host-controls').style.display = 'block';
     document.getElementById('listen-embed-container').innerHTML = '';
+    const sdkPlayer = document.getElementById('spotify-sdk-player');
+    if (sdkPlayer) sdkPlayer.style.display = 'none';
+    if (this.spotifyPlayer) this.spotifyPlayer.pause();
     this._showToast('🎵 Listen Together ended', 'info');
   }
 

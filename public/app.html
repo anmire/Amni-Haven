@@ -172,9 +172,16 @@
         <div id="listen-together-panel" class="listen-together-panel" style="display:none">
           <div class="listen-panel-header">
             <span id="listen-panel-title">🎵 Listen Together</span>
-            <button id="listen-panel-close" class="icon-btn small">&times;</button>
+            <div class="listen-header-right">
+              <span id="spotify-status" class="spotify-status"></span>
+              <button id="listen-panel-close" class="icon-btn small">&times;</button>
+            </div>
           </div>
           <div class="listen-panel-body">
+            <div id="spotify-connect-row" class="spotify-connect-row" style="display:none">
+              <span class="spotify-hint">Connect Spotify Premium for full playback</span>
+              <button id="spotify-connect-btn" class="btn-sm btn-spotify">🎵 Connect Spotify</button>
+            </div>
             <div id="listen-host-controls">
               <div class="input-row" style="gap:6px">
                 <input type="text" id="listen-url-input" class="settings-text-input" placeholder="Paste media URL (Spotify, YouTube, SoundCloud...)" style="flex:1">
@@ -188,6 +195,23 @@
                 <span id="listen-now-host" class="listen-host-tag"></span>
               </div>
               <div id="listen-embed-container" class="listen-embed-container"></div>
+              <div id="spotify-sdk-player" class="spotify-sdk-player" style="display:none">
+                <div class="spotify-track-info">
+                  <img id="spotify-album-art" class="spotify-album-art" src="" alt="">
+                  <div class="spotify-track-text">
+                    <span id="spotify-track-name">—</span>
+                    <span id="spotify-artist-name">—</span>
+                  </div>
+                </div>
+                <div class="spotify-progress">
+                  <input type="range" id="spotify-seek" class="spotify-seek" min="0" max="100" value="0">
+                  <div class="spotify-time"><span id="spotify-time-current">0:00</span> / <span id="spotify-time-total">0:00</span></div>
+                </div>
+                <div class="spotify-volume-row">
+                  <span>🔊</span>
+                  <input type="range" id="spotify-volume" class="spotify-volume" min="0" max="100" value="50">
+                </div>
+              </div>
               <div class="listen-controls">
                 <button id="listen-play-pause" class="btn-sm">⏸ Pause</button>
                 <button id="listen-stop-btn" class="btn-sm btn-danger">⏹ Stop</button>
@@ -571,6 +595,19 @@
           <small class="settings-hint">Get a free key at <a href="https://developers.giphy.com" target="_blank">developers.giphy.com</a></small>
         </div>
         <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+          <h5 class="settings-section-subtitle">🎵 Spotify Premium</h5>
+          <label class="select-row">
+            <span>Client ID</span>
+            <input type="text" id="spotify-client-id-input" placeholder="Spotify Client ID..." class="settings-text-input" maxlength="64">
+          </label>
+          <label class="select-row" style="margin-top:4px">
+            <span>Client Secret</span>
+            <input type="password" id="spotify-client-secret-input" placeholder="Spotify Client Secret..." class="settings-text-input" maxlength="64">
+          </label>
+          <button class="btn-sm" id="save-spotify-creds-btn" style="margin-top:4px">Save Spotify</button>
+          <small class="settings-hint">Create app at <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com</a> • Redirect URI: <code>/api/spotify/callback</code></small>
+        </div>
+        <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
           <h5 class="settings-section-subtitle">🤖 Bots</h5>
           <button class="btn-sm btn-full" id="manage-bots-btn">Manage Bots</button>
           <button class="btn-sm btn-full" id="view-blocks-btn" style="margin-top:4px;">🚫 Blocked Users</button>
@@ -635,6 +672,7 @@
   <script src="/js/notifications.js"></script>
   <script src="/js/servers.js"></script>
   <script src="/js/voice.js"></script>
+  <script src="/js/spotify.js"></script>
   <script src="/js/games.js"></script>
   <script src="/js/tutorial.js"></script>
   <script src="/js/app.js"></script>

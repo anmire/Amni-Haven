@@ -39,11 +39,11 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://cdn.emulatorjs.org"],
+      scriptSrc: ["'self'", "https://cdn.emulatorjs.org", "https://sdk.scdn.co"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.emulatorjs.org"],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
-      connectSrc: ["'self'", "wss:", "ws:", "https://cdn.emulatorjs.org"],
-      mediaSrc: ["'self'", "blob:"],
+      connectSrc: ["'self'", "wss:", "ws:", "https://cdn.emulatorjs.org", "https://api.spotify.com", "wss://dealer.spotify.com"],
+      mediaSrc: ["'self'", "blob:", "https://*.scdn.co", "https://*.spotifycdn.com"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -222,6 +222,87 @@ app.get('/api/gif/giphy/trending', (req, res) => {
     }));
     res.json({ results, provider: 'giphy' });
   }).catch(() => res.status(502).json({ error: 'Giphy API error' }));
+});
+function getSpotifyCredentials() {
+  try {
+    const { getDb } = require('./src/database');
+    const clientId = getDb().prepare("SELECT value FROM server_settings WHERE key = 'spotify_client_id'").get();
+    const clientSecret = getDb().prepare("SELECT value FROM server_settings WHERE key = 'spotify_client_secret'").get();
+    return { clientId: clientId?.value || process.env.SPOTIFY_CLIENT_ID || '', clientSecret: clientSecret?.value || process.env.SPOTIFY_CLIENT_SECRET || '' };
+  } catch { return { clientId: '', clientSecret: '' }; }
+}
+app.get('/api/spotify/auth-url', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { clientId } = getSpotifyCredentials();
+  if (!clientId) return res.status(501).json({ error: 'spotify_not_configured' });
+  const redirectUri = `${req.protocol}://${req.get('host')}/api/spotify/callback`;
+  const scopes = 'streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state';
+  const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now() })).toString('base64url');
+  const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${state}`;
+  res.json({ url: authUrl });
+});
+app.get('/api/spotify/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) return res.redirect('/app?spotify_error=' + encodeURIComponent(error));
+  if (!code || !state) return res.redirect('/app?spotify_error=missing_params');
+  let stateData;
+  try { stateData = JSON.parse(Buffer.from(state, 'base64url').toString()); } catch { return res.redirect('/app?spotify_error=invalid_state'); }
+  if (Date.now() - stateData.ts > 10 * 60 * 1000) return res.redirect('/app?spotify_error=expired');
+  const { clientId, clientSecret } = getSpotifyCredentials();
+  const redirectUri = `${req.protocol}://${req.get('host')}/api/spotify/callback`;
+  const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64') },
+    body: `grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(redirectUri)}`
+  }).catch(() => null);
+  if (!tokenRes || !tokenRes.ok) return res.redirect('/app?spotify_error=token_failed');
+  const tokens = await tokenRes.json();
+  const profileRes = await fetch('https://api.spotify.com/v1/me', { headers: { Authorization: `Bearer ${tokens.access_token}` } }).catch(() => null);
+  const profile = profileRes?.ok ? await profileRes.json() : {};
+  const { getDb } = require('./src/database');
+  const expiresAt = Math.floor(Date.now() / 1000) + (tokens.expires_in || 3600);
+  getDb().prepare(`INSERT INTO spotify_tokens (user_id, access_token, refresh_token, expires_at, product, display_name, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET access_token = excluded.access_token, refresh_token = excluded.refresh_token, expires_at = excluded.expires_at, product = excluded.product, display_name = excluded.display_name, updated_at = CURRENT_TIMESTAMP`).run(stateData.userId, tokens.access_token, tokens.refresh_token, expiresAt, profile.product || 'free', profile.display_name || '');
+  res.redirect('/app?spotify_linked=1');
+});
+app.get('/api/spotify/token', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { getDb } = require('./src/database');
+  const row = getDb().prepare('SELECT * FROM spotify_tokens WHERE user_id = ?').get(user.id);
+  if (!row) return res.status(404).json({ error: 'not_linked' });
+  const now = Math.floor(Date.now() / 1000);
+  if (row.expires_at <= now + 300) {
+    const { clientId, clientSecret } = getSpotifyCredentials();
+    const refreshRes = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64') },
+      body: `grant_type=refresh_token&refresh_token=${row.refresh_token}`
+    }).catch(() => null);
+    if (!refreshRes?.ok) return res.status(401).json({ error: 'refresh_failed' });
+    const newTokens = await refreshRes.json();
+    const newExpires = Math.floor(Date.now() / 1000) + (newTokens.expires_in || 3600);
+    getDb().prepare('UPDATE spotify_tokens SET access_token = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?').run(newTokens.access_token, newExpires, user.id);
+    return res.json({ accessToken: newTokens.access_token, expiresAt: newExpires, product: row.product, displayName: row.display_name });
+  }
+  res.json({ accessToken: row.access_token, expiresAt: row.expires_at, product: row.product, displayName: row.display_name });
+});
+app.delete('/api/spotify/unlink', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { getDb } = require('./src/database');
+  getDb().prepare('DELETE FROM spotify_tokens WHERE user_id = ?').run(user.id);
+  res.json({ success: true });
+});
+app.get('/api/spotify/status', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { getDb } = require('./src/database');
+  const row = getDb().prepare('SELECT product, display_name FROM spotify_tokens WHERE user_id = ?').get(user.id);
+  const { clientId } = getSpotifyCredentials();
+  res.json({ linked: !!row, premium: row?.product === 'premium', displayName: row?.display_name || null, configured: !!clientId });
 });
 app.get('/api/tunnel/status', (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];

@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.3.4] — 2026-02-12
+
+### Added
+- **Spotify Premium Integration**
+  - OAuth flow: users link their Spotify account via Settings
+  - Premium users get full playback in Listen Together via Web Playback SDK
+  - Admin panel: configure Spotify Client ID and Secret
+  - Visual player with album art, track name, seek bar, volume control
+  - Auto-refreshes access tokens; stores in `spotify_tokens` table
+  - Falls back to embed player for non-Premium or non-linked users
+- **Favicon** — SVG hexagon favicon for all pages
+
+### Changed
+- **CSP Headers** — added `sdk.scdn.co` (Spotify SDK), Spotify API and WebSocket endpoints
+
+---
+
 ## [1.3.3] — 2025-06-26
 
 ### Added

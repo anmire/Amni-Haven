@@ -261,6 +261,8 @@ function initDatabase() {
   insertSetting.run('cleanup_max_size_mb', '0');
   insertSetting.run('whitelist_enabled', 'false');
   insertSetting.run('giphy_api_key', '');
+  insertSetting.run('spotify_client_id', '');
+  insertSetting.run('spotify_client_secret', '');
   insertSetting.run('tunnel_enabled', 'false');
   insertSetting.run('tunnel_provider', 'localtunnel');
   db.exec(`
@@ -287,6 +289,17 @@ function initDatabase() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_listen_channel ON listen_sessions(channel_code);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS spotify_tokens (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      product TEXT DEFAULT 'free',
+      display_name TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }
