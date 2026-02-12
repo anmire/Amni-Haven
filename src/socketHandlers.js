@@ -12,6 +12,7 @@ function isInt(v) {
 }
 
 function setupSocketHandlers(io, db) {
+  const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
 
   // ── Socket connection rate limiting (per IP) ────────────
   const connTracker = new Map(); // ip → { count, resetTime }
@@ -52,6 +53,19 @@ function setupSocketHandlers(io, db) {
     if (ban) return next(new Error('You have been banned from this server'));
 
     socket.user = user;
+    try {
+      const uRow = db.prepare('SELECT display_name, is_admin, username FROM users WHERE id = ?').get(user.id);
+      socket.user.displayName = (uRow && uRow.display_name) ? uRow.display_name : user.username;
+      if (uRow) {
+        const shouldBeAdmin = uRow.username.toLowerCase() === ADMIN_USERNAME ? 1 : 0;
+        if (uRow.is_admin !== shouldBeAdmin) {
+          db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(shouldBeAdmin, user.id);
+        }
+        socket.user.isAdmin = !!shouldBeAdmin;
+      }
+    } catch {
+      socket.user.displayName = user.displayName || user.username;
+    }
     next();
   });
 
@@ -77,6 +91,12 @@ function setupSocketHandlers(io, db) {
 
     console.log(`✅ ${socket.user.username} connected`);
     socket.currentChannel = null;
+    socket.emit('session-info', {
+      id: socket.user.id,
+      username: socket.user.username,
+      isAdmin: socket.user.isAdmin,
+      displayName: socket.user.displayName
+    });
 
     // ── Per-socket flood protection ─────────────────────────
     const floodBuckets = { message: [], event: [] };
@@ -1461,15 +1481,21 @@ function setupSocketHandlers(io, db) {
       }
     });
     socket.on('block-user', (data) => {
-      if (!data || !isInt(data.userId)) return;
-      if (data.userId === socket.user.id) return socket.emit('error-msg', "Can't block yourself");
+      if (!data) return;
+      const uid = data.userId ?? data.targetUserId;
+      if (!isInt(uid)) return;
+      if (uid === socket.user.id) return socket.emit('error-msg', "Can't block yourself");
+      data.userId = uid;
       try {
         db.prepare('INSERT OR IGNORE INTO blocks (blocker_id, blocked_id) VALUES (?, ?)').run(socket.user.id, data.userId);
         socket.emit('block-updated', { userId: data.userId, blocked: true });
       } catch { socket.emit('error-msg', 'Failed to block user'); }
     });
     socket.on('unblock-user', (data) => {
-      if (!data || !isInt(data.userId)) return;
+      if (!data) return;
+      const uid = data.userId ?? data.targetUserId;
+      if (!isInt(uid)) return;
+      data.userId = uid;
       db.prepare('DELETE FROM blocks WHERE blocker_id = ? AND blocked_id = ?').run(socket.user.id, data.userId);
       socket.emit('block-updated', { userId: data.userId, blocked: false });
     });
@@ -1478,7 +1504,10 @@ function setupSocketHandlers(io, db) {
       socket.emit('blocks-list', blocks);
     });
     socket.on('create-dm', (data) => {
-      if (!data || !isInt(data.userId)) return;
+      if (!data) return;
+      const dmTarget = data.userId ?? data.targetUserId;
+      if (!isInt(dmTarget)) return;
+      data.userId = dmTarget;
       if (data.userId === socket.user.id) return;
       const blocked = db.prepare('SELECT 1 FROM blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)').get(data.userId, socket.user.id, socket.user.id, data.userId);
       if (blocked) return socket.emit('error-msg', 'Cannot DM this user');
@@ -1505,6 +1534,18 @@ function setupSocketHandlers(io, db) {
       `).all(socket.user.id, socket.user.id, socket.user.id, socket.user.id);
       socket.emit('dms-list', dms);
     });
+    socket.on('get-dm-messages', (data) => {
+      if (!data || typeof data.code !== 'string') return;
+      const dm = db.prepare('SELECT * FROM dm_channels WHERE channel_code = ?').get(data.code);
+      if (!dm) return;
+      if (dm.user1_id !== socket.user.id && dm.user2_id !== socket.user.id) return;
+      const msgs = db.prepare(`
+        SELECT m.id, m.content, m.created_at, u.username, u.display_name as displayName, m.user_id
+        FROM dm_messages m JOIN users u ON m.user_id = u.id
+        WHERE m.dm_channel_code = ? ORDER BY m.created_at DESC LIMIT 80
+      `).all(data.code);
+      socket.emit('dm-message-history', { code: data.code, messages: msgs.reverse() });
+    });
     socket.on('send-dm', (data) => {
       if (!data || typeof data.code !== 'string' || typeof data.content !== 'string') return;
       if (!data.content.trim() || data.content.length > 2000) return;
@@ -1514,7 +1555,8 @@ function setupSocketHandlers(io, db) {
       const blocked = db.prepare('SELECT 1 FROM blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)').get(dm.user1_id, dm.user2_id, dm.user2_id, dm.user1_id);
       if (blocked) return socket.emit('error-msg', 'Blocked');
       const otherId = dm.user1_id === socket.user.id ? dm.user2_id : dm.user1_id;
-      const msg = { id: Date.now(), content: data.content.trim(), username: socket.user.username, user_id: socket.user.id, created_at: new Date().toISOString(), dm_code: data.code };
+      const result = db.prepare('INSERT INTO dm_messages (dm_channel_code, user_id, content) VALUES (?, ?, ?)').run(data.code, socket.user.id, data.content.trim());
+      const msg = { id: result.lastInsertRowid, content: data.content.trim(), username: socket.user.username, user_id: socket.user.id, created_at: new Date().toISOString(), dm_code: data.code };
       socket.emit('dm-message', msg);
       for (const [, s] of io.sockets.sockets) {
         if (s.user && s.user.id === otherId) s.emit('dm-message', msg);

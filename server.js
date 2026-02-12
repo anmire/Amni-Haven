@@ -34,21 +34,20 @@ const { setupSocketHandlers } = require('./src/socketHandlers');
 const serverCipher = new PixelCipher(crypto.createHash('sha256').update(process.env.JWT_SECRET).digest());
 const app = express();
 
-// ── Security Headers (helmet) ────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://cdn.emulatorjs.org", "https://sdk.scdn.co"],
+      scriptSrc: ["'self'", "'unsafe-eval'", "'wasm-unsafe-eval'", "https://cdn.emulatorjs.org", "https://sdk.scdn.co"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.emulatorjs.org"],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
-      connectSrc: ["'self'", "wss:", "ws:", "https://cdn.emulatorjs.org", "https://api.spotify.com", "wss://dealer.spotify.com"],
+      connectSrc: ["'self'", "wss:", "ws:", "http:", "https:", "blob:", "https://cdn.emulatorjs.org", "https://api.spotify.com", "wss://dealer.spotify.com"],
       mediaSrc: ["'self'", "blob:", "https://*.scdn.co", "https://*.spotifycdn.com"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
-      frameSrc: ["'self'", "https://open.spotify.com", "https://www.youtube.com", "https://w.soundcloud.com", "https://player.vimeo.com"],
+      frameSrc: ["'self'", "https://open.spotify.com", "https://www.youtube.com", "https://www.youtube-nocookie.com", "https://w.soundcloud.com", "https://player.vimeo.com"],
       frameAncestors: ["'none'"],
       workerSrc: ["'self'", "blob:"],
     }
@@ -57,22 +56,21 @@ app.use(helmet({
   crossOriginOpenerPolicy: false,
 }));
 
-// Disable Express version disclosure
 app.disable('x-powered-by');
-
-// ── Body Parsing with size limits ────────────────────────
-app.use(express.json({ limit: '16kb' }));  // no reason for large JSON bodies
+app.use(express.json({ limit: '16kb' }));
 app.use(express.urlencoded({ extended: false, limit: '16kb' }));
-
-// ── Static files with caching ────────────────────────────
 app.use(express.static(path.join(__dirname, 'public'), {
-  dotfiles: 'deny',       // block .env, .git, etc.
-  maxAge: '1h',           // browser caching
+  dotfiles: 'deny',
+  etag: true,
+  lastModified: true,
+  maxAge: 0,
 }));
 
 // ── Serve uploads from external data directory ──────────
 app.use('/uploads', express.static(UPLOADS_DIR, {
   dotfiles: 'deny',
+  etag: true,
+  lastModified: true,
   maxAge: '1h',
 }));
 
@@ -134,13 +132,13 @@ app.get('/games/flappy', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'games', 'flappy.html'));
 });
 
-// ── Health check (CORS allowed for multi-server status pings) ──
+app.options('/api/health', (req, res) => {
+  res.set({'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Allow-Headers': 'Content-Type'});
+  res.sendStatus(204);
+});
 app.get('/api/health', (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
-  res.json({
-    status: 'online',
-    name: process.env.SERVER_NAME || 'Haven'
-  });
+  res.json({ status: 'online', name: process.env.SERVER_NAME || 'Haven' });
 });
 
 // ── Upload rate limiting ─────────────────────────────────
@@ -579,22 +577,41 @@ const HOST = process.env.HOST || '0.0.0.0';
 const protocol = useSSL ? 'https' : 'http';
 function getLocalIP() {
   const nets = require('os').networkInterfaces();
-  for (const iface of Object.values(nets)) {
+  const candidates = [];
+  for (const [name, iface] of Object.entries(nets)) {
     for (const cfg of iface) {
-      if (cfg.family === 'IPv4' && !cfg.internal) return cfg.address;
+      if (cfg.family === 'IPv4' && !cfg.internal) {
+        const ip = cfg.address;
+        const isLAN = ip.startsWith('192.168.') || ip.startsWith('10.') || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+        const isCGNAT = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip);
+        candidates.push({ ip, name, priority: isLAN ? 0 : isCGNAT ? 2 : 1 });
+      }
     }
   }
-  return '0.0.0.0';
+  candidates.sort((a, b) => a.priority - b.priority);
+  return candidates.length ? candidates[0].ip : '0.0.0.0';
+}
+async function getPublicIP() {
+  const services = ['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com'];
+  for (const url of services) {
+    try {
+      const res = await fetch(url, { timeout: 3000 });
+      if (res.ok) { const ip = (await res.text()).trim(); if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return ip; }
+    } catch {}
+  }
+  return null;
 }
 server.listen(PORT, HOST, async () => {
   const localIP = getLocalIP();
+  const publicIP = await getPublicIP();
   console.log(`
 ╔══════════════════════════════════════════╗
 ║       🏠  HAVEN is running               ║
 ╠══════════════════════════════════════════╣
 ║  Name:    ${(process.env.SERVER_NAME || 'Haven').padEnd(29)}║
 ║  Local:   ${protocol}://localhost:${PORT}             ║
-║  Network: ${(protocol + '://' + localIP + ':' + PORT).padEnd(31)}║
+║  LAN:     ${(protocol + '://' + localIP + ':' + PORT).padEnd(31)}║
+║  Public:  ${(publicIP ? protocol + '://' + publicIP + ':' + PORT : 'Could not detect').padEnd(31)}║
 ║  Admin:   ${(process.env.ADMIN_USERNAME || 'admin').padEnd(29)}║
 ║  Cipher:  PixelCipher-256-CBC (14 rounds)║
 ╚══════════════════════════════════════════╝

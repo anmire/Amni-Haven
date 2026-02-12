@@ -27,10 +27,11 @@ class HavenTutorial {
   _createOverlay() {
     this.overlay = document.createElement('div');
     this.overlay.className = 'tutorial-overlay';
-    this.overlay.innerHTML = '<div class="tutorial-backdrop"></div><div class="tutorial-spotlight"></div><div class="tutorial-tooltip"><div class="tutorial-header"><span class="tutorial-step-num"></span><h4 class="tutorial-title"></h4></div><p class="tutorial-desc"></p><div class="tutorial-actions"><label class="tutorial-skip-label"><input type="checkbox" id="tutorial-dont-show"> Don\u0027t show again</label><div class="tutorial-btns"><button class="tutorial-btn tutorial-prev">\u2190 Back</button><button class="tutorial-btn tutorial-next">Next \u2192</button></div></div></div>';
+    this.overlay.innerHTML = '<div class="tutorial-backdrop"></div><div class="tutorial-spotlight"></div><div class="tutorial-tooltip"><div class="tutorial-header"><span class="tutorial-step-num"></span><h4 class="tutorial-title"></h4></div><p class="tutorial-desc"></p><div class="tutorial-actions"><div class="tutorial-btns"><button class="tutorial-btn tutorial-skip">Skip All</button><button class="tutorial-btn tutorial-prev">\u2190 Back</button><button class="tutorial-btn tutorial-next">Next \u2192</button></div></div></div>';
     document.body.appendChild(this.overlay);
     this.overlay.querySelector('.tutorial-prev').onclick = () => this._prev();
     this.overlay.querySelector('.tutorial-next').onclick = () => this._next();
+    this.overlay.querySelector('.tutorial-skip').onclick = () => this.skip();
     this.overlay.querySelector('.tutorial-backdrop').onclick = () => this._next();
   }
   _findTarget(step) {
@@ -91,8 +92,7 @@ class HavenTutorial {
   }
   _prev() { if (this.currentStep > 0) this._showStep(this.currentStep - 1); }
   _finish() {
-    const cb = this.overlay?.querySelector('#tutorial-dont-show');
-    if (cb && cb.checked) localStorage.setItem(this.skipKey, '1');
+    localStorage.setItem(this.skipKey, '1');
     this._cleanup();
   }
   _cleanup() { if (this.overlay) { this.overlay.remove(); this.overlay = null; } }

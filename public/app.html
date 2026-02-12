@@ -56,21 +56,23 @@
 
         <div class="sidebar-section" id="admin-controls" style="display:none">
           <h5 class="section-label">Create Channel</h5>
-          <div class="input-row">
-            <input type="text" id="new-channel-name"
+          <div class="create-channel-form">
+            <input type="text" id="new-channel-name" class="create-channel-name"
                    placeholder="Channel name..." maxlength="50">
-            <select id="new-channel-type" class="channel-type-select">
-              <option value="both">Both</option>
-              <option value="text">Text</option>
-              <option value="voice">Voice</option>
-            </select>
-            <select id="new-channel-parent" class="channel-type-select" title="Parent channel (subchannel)">
-              <option value="">Top-level</option>
-            </select>
-            <label class="private-toggle" title="Admin-only channel">
-              <input type="checkbox" id="new-channel-private"> 🔒
-            </label>
-            <button id="create-channel-btn" class="btn-sm btn-accent">+</button>
+            <div class="create-channel-opts">
+              <select id="new-channel-type" class="channel-type-select">
+                <option value="both">Both</option>
+                <option value="text">Text</option>
+                <option value="voice">Voice</option>
+              </select>
+              <select id="new-channel-parent" class="channel-type-select" title="Parent channel (subchannel)">
+                <option value="">Top-level</option>
+              </select>
+              <label class="private-toggle" title="Admin-only channel">
+                <input type="checkbox" id="new-channel-private"> 🔒
+              </label>
+              <button id="create-channel-btn" class="btn-sm btn-accent">+</button>
+            </div>
           </div>
         </div>
 
@@ -99,7 +101,22 @@
             <button class="theme-btn" data-theme="bloodborne" title="Bloodborne"><span class="theme-icon">🩸</span></button>
             <button class="theme-btn" data-theme="ice" title="Ice"><span class="theme-icon">🧊</span></button>
             <button class="theme-btn" data-theme="abyss" title="Abyss"><span class="theme-icon">🌊</span></button>
+            <button class="theme-btn" data-theme="darksouls" title="Dark Souls"><span class="theme-icon">🔥</span></button>
+            <button class="theme-btn" data-theme="eldenring" title="Elden Ring"><span class="theme-icon">💍</span></button>
+            <button class="theme-btn" data-theme="minecraft" title="Minecraft"><span class="theme-icon">⛏️</span></button>
+            <button class="theme-btn" data-theme="ffx" title="FFX"><span class="theme-icon">⚔️</span></button>
+            <button class="theme-btn" data-theme="zelda" title="Zelda"><span class="theme-icon">🗡️</span></button>
             <button class="theme-btn" data-theme="triangle" title="Triangle"><span class="theme-icon">△</span></button>
+            <button class="theme-btn" data-theme="rgb" title="RGB Cycle"><span class="theme-icon">🌈</span></button>
+            <button class="theme-btn" data-theme="custom" title="Custom"><span class="theme-icon">🎨</span></button>
+          </div>
+          <div id="rgb-controls-panel" class="rgb-controls-panel" style="display:none">
+            <label class="volume-row"><span>Speed</span><input type="range" id="rgb-speed" min="1" max="20" value="5" class="slider-sm"></label>
+            <label class="volume-row"><span>Vibrancy</span><input type="range" id="rgb-vibrancy" min="20" max="100" value="70" class="slider-sm"></label>
+          </div>
+          <div id="custom-theme-panel" class="custom-theme-panel" style="display:none">
+            <label class="volume-row"><span>Hue</span><input type="range" id="custom-hue" min="0" max="360" value="200" class="slider-sm hue-slider"></label>
+            <label class="volume-row"><span>Vibrancy</span><input type="range" id="custom-vibrancy" min="20" max="100" value="65" class="slider-sm"></label>
           </div>
           <div id="triangle-morph-panel" class="triangle-morph-panel" style="display:none"></div>
           <button class="btn-game-sidebar" id="play-flappy-btn" title="Play Shippy Container">� Shippy Container</button>
@@ -109,6 +126,7 @@
       <!-- ─── Main Content ────────────────────────────── -->
       <main class="main">
         <header class="channel-header">
+          <button id="toggle-left-sidebar" class="sidebar-toggle-btn" title="Toggle channels panel">◀</button>
           <button id="mobile-menu-btn" class="mobile-menu-btn" title="Menu" aria-label="Menu">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <line x1="3" y1="6" x2="21" y2="6"/>
@@ -168,6 +186,7 @@
               🎮 Games
             </button>
           </div>
+          <button id="toggle-right-sidebar" class="sidebar-toggle-btn" title="Toggle members panel">▶</button>
         </header>
         <div id="listen-together-panel" class="listen-together-panel" style="display:none">
           <div class="listen-panel-header">
@@ -400,6 +419,18 @@
   <!-- Hidden audio container for voice streams -->
   <div id="audio-container" style="display:none"></div>
 
+  <!-- User context menu (right-click) -->
+  <div id="user-context-menu" class="context-menu" style="display:none">
+    <div class="context-menu-item" data-action="dm">💬 <span>Message</span></div>
+    <div class="context-menu-item" data-action="call">📞 <span>Call</span></div>
+    <div class="context-menu-divider" data-requires="not-self"></div>
+    <div class="context-menu-item" data-action="block" data-requires="not-self">🚫 <span>Block</span></div>
+    <div class="context-menu-divider" data-requires="admin"></div>
+    <div class="context-menu-item" data-action="kick" data-requires="admin">👢 <span>Kick</span></div>
+    <div class="context-menu-item" data-action="mute" data-requires="admin">🔇 <span>Mute</span></div>
+    <div class="context-menu-item context-menu-danger" data-action="ban" data-requires="admin">⛔ <span>Ban</span></div>
+  </div>
+
   <!-- Toast notifications -->
   <div id="toast-container"></div>
 
@@ -474,6 +505,46 @@
             <input type="text" id="display-name-input" placeholder="Same as username" maxlength="32" class="settings-text-input" style="width:140px">
           </label>
           <button id="save-display-name-btn" class="btn-sm">Save</button>
+        </div>
+        <div class="avatar-settings" style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border);">
+          <h5 class="settings-section-subtitle">Avatar Shape</h5>
+          <div class="avatar-shape-picker" id="avatar-shape-picker">
+            <button class="avatar-shape-btn active" data-shape="circle" title="Circle"><div class="shape-preview shape-circle"></div></button>
+            <button class="avatar-shape-btn" data-shape="rounded" title="Rounded"><div class="shape-preview shape-rounded"></div></button>
+            <button class="avatar-shape-btn" data-shape="hex" title="Hexagon"><div class="shape-preview shape-hex"></div></button>
+            <button class="avatar-shape-btn" data-shape="triangle" title="Triangle"><div class="shape-preview shape-triangle"></div></button>
+            <button class="avatar-shape-btn" data-shape="squircle" title="Squircle"><div class="shape-preview shape-squircle"></div></button>
+          </div>
+          <h5 class="settings-section-subtitle" style="margin-top:10px">Avatar Color</h5>
+          <div class="avatar-color-row">
+            <input type="range" id="avatar-hue-slider" min="0" max="360" value="200" class="slider-sm hue-slider" style="flex:1">
+            <div class="avatar-color-preview" id="avatar-color-preview"></div>
+            <button class="btn-sm" id="avatar-color-reset" title="Reset to default">↺</button>
+          </div>
+          <h5 class="settings-section-subtitle" style="margin-top:10px">Avatar Image</h5>
+          <div class="avatar-upload-row">
+            <div class="avatar-upload-preview" id="avatar-upload-preview"></div>
+            <button class="btn-sm" id="avatar-upload-btn">Upload</button>
+            <button class="btn-sm" id="avatar-clear-btn">Clear</button>
+            <input type="file" id="avatar-file-input" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none">
+          </div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h5 class="settings-section-title">📐 Layout Density</h5>
+        <div class="density-picker" id="density-picker">
+          <button class="density-btn" data-density="compact" title="Compact">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="6" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/></svg>
+            <span>Compact</span>
+          </button>
+          <button class="density-btn active" data-density="cozy" title="Cozy">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>
+            <span>Cozy</span>
+          </button>
+          <button class="density-btn" data-density="spacious" title="Spacious">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="0" width="14" height="4" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/><rect x="1" y="12" width="14" height="4" rx="1"/></svg>
+            <span>Spacious</span>
+          </button>
         </div>
       </div>
       <div class="settings-section">

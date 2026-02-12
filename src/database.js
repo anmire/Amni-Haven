@@ -235,6 +235,16 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_dm_channels_users ON dm_channels(user1_id, user2_id);
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS dm_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      dm_channel_code TEXT NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_dm_messages_channel ON dm_messages(dm_channel_code, created_at);
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS bots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,

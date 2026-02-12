@@ -6,7 +6,7 @@
 
 > **Your server. Your rules. No cloud. No accounts with Big Tech. No one reading your messages.**
 
-![Version](https://img.shields.io/badge/version-1.3.2-blue)
+![Version](https://img.shields.io/badge/version-1.3.6-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
@@ -36,7 +36,7 @@ You launch it, your friends connect to your IP address, and you have a private g
 | **Formatting** | **Bold**, *italic*, ~~strikethrough~~, `code`, \|\|spoilers\|\|, auto-linked URLs |
 | **Slash Commands** | `/shrug`, `/tableflip`, `/roll 2d20`, `/flip`, `/me`, `/spoiler`, `/tts`, and more — type `/` to see them all |
 | **Search** | Search messages in any channel with Ctrl+F |
-| **Themes** | 13 built-in themes + Triangle morphism sliders (barycentric Vibe/Era blend) |
+| **Themes** | 13 built-in themes + Triangle morphism with glassmorphism (barycentric Chill/Heat/Dream blend with backdrop-filter glass effects) |
 | **Multi-Server** | Add friends' Haven servers to your sidebar with live online/offline status |
 | **Listen Together** | Sync music/video (YouTube, Spotify, SoundCloud, Vimeo) with your channel |
 | **Game Together** | Retro emulator (NES, SNES, N64, PS1, PS2, GameCube, etc.) with multiplayer controller sharing |

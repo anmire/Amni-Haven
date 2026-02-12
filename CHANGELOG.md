@@ -6,6 +6,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.3.8] — 2025-02-12
+
+### Fixed (ported from upstream)
+- **SSL_ERROR_RX_RECORD_TOO_LONG on Windows** — `Start Haven.bat` always opened browser with `https://` even when server was running HTTP (no valid SSL certs). Bat file now detects actual protocol and opens correct URL. Fixed `%ERRORLEVEL%` parse-time expansion bug with `if errorlevel 1` (runtime-safe). Added cert existence check after generation. ([upstream #2](https://github.com/ancsemi/Haven/issues/2))
+- **Admin status & display name lost on reconnect** — socket auth middleware now refreshes both `is_admin` and `display_name` from database on every connection, instead of trusting stale JWT payload. Admin status synced from `.env ADMIN_USERNAME` on every socket connect. New `session-info` event pushes authoritative user data to client on every connect/reconnect (ported from upstream v1.4.2)
+- **Stale JS/CSS after server restart** — static file caching changed from 1h `maxAge` to always-revalidate with ETags, prevents stale commands and features appearing broken after deploy (ported from upstream v1.3.9)
+
+### Improved
+- **Mobile message actions — tap to reveal** — react, reply, pin, edit, and delete buttons are now hidden until you tap a message, reducing clutter on phone screens. Tap another message to move toolbar; tap empty space or input to dismiss (ported from upstream v1.3.9)
+
+---
+
+## [1.3.7] — 2025-02-12
+
+### Fixed
+- **GIF picker z-index** — added `z-index: 10` to `.message-input-area` so Giphy picker renders above chat messages
+- **Theme backgrounds invisible** — boosted opacity values on all 13 existing theme `messages::before` patterns (doubled from 0.04-0.12 to 0.10-0.22 range) and increased gradient color intensities
+- **Tunnel status 403** — added `Authorization: Bearer` header to `/api/tunnel/status` fetch (admin-only endpoint was rejecting unauthenticated requests)
+- **CORS health check URL** — `ServerManager.add()` now extracts origin from URLs via `new URL(url).origin`, preventing path fragments like `/app` from corrupting health check requests
+- **EmulatorJS cleanup crashes** — `_cleanup()` now fires `callEvent('exit')`, clears all EJS globals, removes loader script before wiping container DOM (prevents lingering AL/style errors)
+- **EmulatorJS wrong core names** — fixed all core identifiers to match actual libretro WASM names (e.g. `nes`→`fceumm`, `snes`→`snes9x`, `gb`→`gambatte`, `gba`→`mgba`, `n64`→`mupen64plus_next`, `psx`→`pcsx_rearmed`, `psp`→`ppsspp`, `segaMD`→`genesis_plus_gx`, `segaSaturn`→`yabause`, `nds`→`melonds`)
+
+### Added
+- **Dark Souls theme** — bonfire/ember palette, warm gold accents, ember particle background pattern
+- **Elden Ring theme** — erdtree gold palette, misty dark backgrounds, golden glow background pattern
+- **Minecraft theme** — blocky green palette, grid-pattern background in messages area
+- **FFX theme** — underwater blue/pyrefly palette, mana glow background pattern
+- **Zelda theme** — forest green palette, Triforce-hint background pattern with nature glow
+- Theme buttons for all 5 new themes in both app sidebar and login page
+- **Game library expanded to 32 systems** — added Virtual Boy, Sega Master System, Game Gear, Sega CD, 32X, Arcade (FBNeo/CPS1/CPS2/MAME), Atari 2600/5200/7800/Lynx/Jaguar, 3DO, PC Engine, PC-FX, Neo Geo Pocket, WonderSwan, ColecoVision, DOOM, DOS, Commodore 64, Amiga; alternate cores listed per system
+- **Unsupported console guard** — GameCube/PS2/Dreamcast/Xbox shown greyed-out as "Coming Soon" in dropdown, blocked from launching with clear error message
+- **Emulator load error handling** — `script.onerror` + 30s timeout catches failed core downloads and shows toast instead of silent crash
+
+---
+
+## [1.3.6] — 2025-02-12
+
+### Fixed
+- **Tutorial persistence** — tutorial now always marks complete on finish (removed checkbox, added Skip All button)
+- **YouTube error 153** — switched embeds to youtube-nocookie.com with enablejsapi=1 and origin param
+- **Emulator black boxes** — added 'wasm-unsafe-eval' to CSP scriptSrc, blob: to connectSrc for WASM loading
+- **Create channel compression** — split input-row into two-row layout (name on top, controls below)
+- **Spotify embed UX** — taller embed iframe (152px), added login hint with link to open.spotify.com, allow-popups in sandbox
+
+### Added
+- **Sidebar expand/collapse** — toggle buttons (◀/▶) in channel header for both sidebars, CSS transitions, localStorage persistence
+- **Dramatic vibe morph** — larger triangle (240x220), pulsing edge glow, vertex glow circles, outer ring, animated SVG filters
+- **Glassmorphism for Triangle theme** — backdrop-filter blur on sidebar/header/messages/modals/inputs, glass CSS variables (--glass-bg, --glass-border, --glass-blur, --glass-highlight, --vibe-shadow)
+- **Enhanced vibe ranges** — Chill (hue:200, sat:70), Heat (hue:5, sat:90), Dream (hue:275, sat:65) with glass/blur params per vibe
+
+---
+
 ## [1.3.5] — 2026-02-12
 
 ### Added

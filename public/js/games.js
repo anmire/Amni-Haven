@@ -29,6 +29,7 @@ class GameManager {
   async startGame(consoleId, romFile, channelCode) {
     const console = this.getConsole(consoleId);
     if (!console) throw new Error('Unknown console');
+    if (console.unsupported) throw new Error(`${console.name} requires server-side emulation (coming soon!)`);
     this.isHost = true;
     this.currentSession = { consoleId, romName: romFile.name, channelCode, hostId: this.userId, hostName: this.username, players: [{ id: this.userId, name: this.username, controller: 1 }], state: 'loading' };
     this.socket.emit('game-start', { consoleId, romName: romFile.name, channelCode, maxPlayers: console.maxPlayers });
@@ -39,13 +40,16 @@ class GameManager {
   async _loadEmulator(console, romFile) {
     const container = document.getElementById('game-container');
     if (!container) throw new Error('Game container not found');
-    container.innerHTML = '';
+    container.innerHTML = '<div class="game-placeholder">Loading emulator...</div>';
+    ['EJS_emulator','EJS_player','EJS_core','EJS_gameUrl','EJS_gameID','EJS_pathtodata','EJS_startOnLoaded','EJS_color','EJS_defaultControls','EJS_Buttons','EJS_biosUrl','EJS_onGameStart','EJS_onSaveState','EJS_onLoadState'].forEach(k => delete window[k]);
     const romUrl = URL.createObjectURL(romFile);
     window.EJS_player = '#game-container';
     window.EJS_core = console.core;
     window.EJS_gameUrl = romUrl;
     window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
     window.EJS_startOnLoaded = true;
+    window.EJS_color = '#7289da';
+    window.EJS_gameID = romFile.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
     window.EJS_defaultControls = true;
     window.EJS_Buttons = { playPause: true, restart: true, mute: true, settings: true, fullscreen: true, saveState: true, loadState: true, screenRecord: false, gamepad: true, cheat: false, volume: true, saveSavFiles: true, loadSavFiles: true, quickSave: true, quickLoad: true, screenshot: true, cacheManager: false };
     if (console.needsBios) window.EJS_biosUrl = `/games/bios/${console.id}/`;
@@ -58,8 +62,20 @@ class GameManager {
     script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
     script.async = true;
     document.body.appendChild(script);
-    return new Promise((resolve) => {
-      script.onload = () => { setTimeout(resolve, 500); };
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      script.onload = () => { settled = true; setTimeout(resolve, 500); };
+      script.onerror = () => {
+        settled = true;
+        container.innerHTML = '<div class="game-placeholder">Failed to load emulator core</div>';
+        reject(new Error(`Core "${console.core}" failed to load — check your connection or try a different console`));
+      };
+      setTimeout(() => {
+        if (!settled) {
+          container.innerHTML = '<div class="game-placeholder">Emulator timed out</div>';
+          reject(new Error('Emulator loader timed out — check your connection'));
+        }
+      }, 30000);
     });
   }
   _onGameStarted() {
@@ -117,11 +133,16 @@ class GameManager {
     this.spectators.clear();
     this.controllerMap.clear();
     this.netplayEnabled = false;
-    const container = document.getElementById('game-container');
-    if (container) container.innerHTML = '<div class="game-placeholder">Select a game to play</div>';
     if (window.EJS_emulator) {
       try { window.EJS_emulator.pause(); } catch {}
+      try { window.EJS_emulator.callEvent?.('exit'); } catch {}
+      try { window.EJS_emulator.elements?.buttons?.forEach?.(b => b?.removeEventListener?.('click', b._handler)); } catch {}
     }
+    ['EJS_emulator','EJS_player','EJS_core','EJS_gameUrl','EJS_gameID','EJS_pathtodata','EJS_startOnLoaded','EJS_color','EJS_defaultControls','EJS_Buttons','EJS_biosUrl','EJS_onGameStart','EJS_onSaveState','EJS_onLoadState'].forEach(k => { try { delete window[k]; } catch {} });
+    const oldScript = document.querySelector('script[src*="emulatorjs"]');
+    if (oldScript) oldScript.remove();
+    const container = document.getElementById('game-container');
+    if (container) container.innerHTML = '<div class="game-placeholder">Select a game to play</div>';
     this.emulator = null;
   }
   _setupSocketListeners() {

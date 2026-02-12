@@ -23,8 +23,8 @@ class ServerManager {
   add(name, url) {
     url = url.replace(/\/+$/, '');
     if (!/^https?:\/\//.test(url)) url = 'https://' + url;
+    try { url = new URL(url).origin; } catch {}
     if (this.servers.find(s => s.url === url)) return false;
-
     this.servers.push({ name, url, addedAt: Date.now() });
     this._save();
     this.checkServer(url);

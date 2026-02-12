@@ -85,6 +85,9 @@ class HavenApp {
     this._setupThemes();
     this._setupServerBar();
     this._setupNotifications();
+    this._setupContextMenu();
+    this._setupAvatarSettings();
+    this._setupDensitySettings();
     this._setupImageUpload();
     this._setupGifPicker();
     this._setupGameUI();
@@ -111,6 +114,23 @@ class HavenApp {
   // ── Socket Event Listeners ────────────────────────────
 
   _setupSocketListeners() {
+    this.socket.on('session-info', (data) => {
+      this.user = { ...this.user, ...data };
+      localStorage.setItem('haven_user', JSON.stringify(this.user));
+      const nameEl = document.getElementById('display-name');
+      if (nameEl) nameEl.textContent = this.user.displayName || this.user.username;
+      const loginEl = document.getElementById('login-name');
+      if (loginEl) loginEl.textContent = `@${this.user.username}`;
+      const adminCtrl = document.getElementById('admin-controls');
+      const adminMod = document.getElementById('admin-mod-panel');
+      if (this.user.isAdmin) {
+        if (adminCtrl) adminCtrl.style.display = 'block';
+        if (adminMod) adminMod.style.display = 'block';
+      } else {
+        if (adminCtrl) adminCtrl.style.display = 'none';
+        if (adminMod) adminMod.style.display = 'none';
+      }
+    });
     this.socket.on('connect', () => {
       this._setLed('connection-led', 'on');
       this._setLed('status-server-led', 'on');
@@ -482,6 +502,11 @@ class HavenApp {
       } else {
         this.notifications.playDirect('dm_notify');
         this._showToast(`DM from ${data.username}`, 'info');
+      }
+    });
+    this.socket.on('dm-message-history', (data) => {
+      if (this.currentDm === data.code) {
+        this._renderMessages(data.messages);
       }
     });
     this.socket.on('incoming-call', (data) => {
@@ -1116,6 +1141,25 @@ class HavenApp {
     if (manageBotsBtn) manageBotsBtn.addEventListener('click', () => {
       this._showToast('Bot management coming soon!', 'info');
     });
+    this._setupSidebarToggles();
+  }
+  _setupSidebarToggles() {
+    const leftSidebar = document.querySelector('.sidebar');
+    const rightSidebar = document.querySelector('.right-sidebar');
+    const leftBtn = document.getElementById('toggle-left-sidebar');
+    const rightBtn = document.getElementById('toggle-right-sidebar');
+    if (localStorage.getItem('haven_left_collapsed') === '1' && leftSidebar) { leftSidebar.classList.add('collapsed'); if (leftBtn) leftBtn.textContent = '▶'; }
+    if (localStorage.getItem('haven_right_collapsed') === '1' && rightSidebar) { rightSidebar.classList.add('collapsed'); if (rightBtn) rightBtn.textContent = '◀'; }
+    leftBtn?.addEventListener('click', () => {
+      const c = leftSidebar.classList.toggle('collapsed');
+      leftBtn.textContent = c ? '▶' : '◀';
+      localStorage.setItem('haven_left_collapsed', c ? '1' : '0');
+    });
+    rightBtn?.addEventListener('click', () => {
+      const c = rightSidebar.classList.toggle('collapsed');
+      rightBtn.textContent = c ? '◀' : '▶';
+      localStorage.setItem('haven_right_collapsed', c ? '1' : '0');
+    });
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1325,6 +1369,26 @@ class HavenApp {
         this._closeMobilePanels();
       }
     }, { passive: true });
+    const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    if (isTouchDevice) {
+      const messagesEl = document.getElementById('messages');
+      messagesEl.addEventListener('click', (e) => {
+        if (e.target.closest('.msg-toolbar') || e.target.closest('a') ||
+            e.target.closest('img') || e.target.closest('.reaction-badge') ||
+            e.target.closest('.spoiler') || e.target.closest('.reply-banner')) return;
+        const msgEl = e.target.closest('.message, .message-compact');
+        if (!msgEl) {
+          messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
+          return;
+        }
+        const wasSelected = msgEl.classList.contains('msg-selected');
+        messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
+        if (!wasSelected) msgEl.classList.add('msg-selected');
+      });
+      document.getElementById('message-input').addEventListener('focus', () => {
+        messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
+      });
+    }
   }
 
   _closeMobilePanels() {
@@ -1676,7 +1740,7 @@ class HavenApp {
   _sendMessage() {
     const input = document.getElementById('message-input');
     const content = input.value.trim();
-    if (!content || !this.currentChannel) return;
+    if (!content || (!this.currentChannel && !this.currentDm)) return;
 
     // Client-side slash commands (not sent to server)
     if (content.startsWith('/')) {
@@ -1701,6 +1765,17 @@ class HavenApp {
           return;
         }
       }
+    }
+
+    // DM mode — send via send-dm
+    if (this.currentDm) {
+      this.socket.emit('send-dm', { code: this.currentDm, content });
+      input.value = '';
+      input.style.height = 'auto';
+      input.focus();
+      this._hideMentionDropdown();
+      this._hideSlashDropdown();
+      return;
     }
 
     const payload = { code: this.currentChannel, content };
@@ -1806,10 +1881,16 @@ class HavenApp {
       return el;
     }
 
-    const color = this._getUserColor(msg.username);
+    const isSelf = msg.user_id === this.user.id;
+    const customColor = isSelf && this._avatarColor ? `hsl(${this._avatarColor}, 65%, 50%)` : null;
+    const color = customColor || this._getUserColor(msg.username);
     const displayName = msg.displayName || msg.username;
     const initial = displayName.charAt(0).toUpperCase();
     const msgContentHtml = msg.is_html ? msg.content : this._formatContent(msg.content);
+    const shapeClass = 'avatar-' + (this._avatarShape || 'circle');
+    const avatarContent = (isSelf && this._avatarImg)
+      ? `<img src="${this._avatarImg}" alt="${initial}" style="width:100%;height:100%;object-fit:cover;">`
+      : initial;
 
     const el = document.createElement('div');
     el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '');
@@ -1820,7 +1901,7 @@ class HavenApp {
     el.innerHTML = `
       ${replyHtml}
       <div class="message-row">
-        <div class="message-avatar" style="background-color:${color}">${initial}</div>
+        <div class="message-avatar ${shapeClass}" style="background-color:${color}">${avatarContent}</div>
         <div class="message-body">
           <div class="message-header">
             <span class="message-author" style="color:${color}">${this._escapeHtml(displayName)}</span>
@@ -1987,19 +2068,6 @@ class HavenApp {
     }
 
     el.innerHTML = html;
-
-    // Bind admin action buttons
-    if (this.user.isAdmin) {
-      el.querySelectorAll('.user-action-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const action = btn.dataset.action;
-          const userId = parseInt(btn.dataset.uid);
-          const username = btn.dataset.uname;
-          this._showAdminActionModal(action, userId, username);
-        });
-      });
-    }
   }
 
   _renderUserItem(u, scoreLookup) {
@@ -2009,19 +2077,7 @@ class HavenApp {
     const scoreBadge = score > 0
       ? `<span class="user-score-badge" title="Flappy Container: ${score}">🚢${score}</span>`
       : '';
-    const userBtns = u.id !== this.user.id
-      ? `<div class="user-quick-actions">
-           <button class="uqa-btn" onclick="app._startDm(${u.id})" title="DM">💬</button>
-           <button class="uqa-btn" onclick="app._initiateCall(${u.id},'audio')" title="Call">📞</button>
-           <button class="uqa-btn" onclick="app._toggleBlock(${u.id})" title="${this.blockedUsers.has(u.id) ? 'Unblock' : 'Block'}">${this.blockedUsers.has(u.id) ? '🔓' : '🚫'}</button>
-         </div>` : '';
-    const adminBtns = this.user.isAdmin && u.id !== this.user.id
-      ? `<div class="user-admin-actions">
-           <button class="user-action-btn" data-action="kick" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Kick">👢</button>
-           <button class="user-action-btn" data-action="mute" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Mute">🔇</button>
-           <button class="user-action-btn" data-action="ban" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Ban">⛔</button>
-         </div>` : '';
-    return `<div class="user-item${onlineClass}"><span class="user-dot${u.online === false ? ' away' : ''}"></span><span class="user-item-name">${this._escapeHtml(displayName)}</span>${scoreBadge}${userBtns}${adminBtns}</div>`;
+    return `<div class="user-item${onlineClass}" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot${u.online === false ? ' away' : ''}"></span><span class="user-item-name">${this._escapeHtml(displayName)}</span>${scoreBadge}</div>`;
   }
 
   _renderVoiceUsers(users) {
@@ -2317,7 +2373,7 @@ class HavenApp {
   }
   _buildEmbedUrl(url) {
     let m;
-    if ((m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/))) return `https://www.youtube.com/embed/${m[1]}?autoplay=1`;
+    if ((m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/))) return `https://www.youtube-nocookie.com/embed/${m[1]}?autoplay=1&enablejsapi=1&rel=0&origin=${encodeURIComponent(window.location.origin)}`;
     if ((m = url.match(/open\.spotify\.com\/(track|album|playlist)\/([\w]+)/))) return `https://open.spotify.com/embed/${m[1]}/${m[2]}?utm_source=generator&theme=0`;
     if ((m = url.match(/soundcloud\.com\/.+/))) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&auto_play=true&visual=true`;
     if ((m = url.match(/vimeo\.com\/(\d+)/))) return `https://player.vimeo.com/video/${m[1]}?autoplay=1`;
@@ -2360,7 +2416,7 @@ class HavenApp {
     if (sdkPlayer) sdkPlayer.style.display = 'none';
     const embedUrl = this._buildEmbedUrl(session.url);
     if (!embedUrl) return this._showToast('Unsupported media URL', 'error');
-    embedCont.innerHTML = `<iframe src="${this._escapeHtml(embedUrl)}" width="100%" height="80" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation" allowfullscreen style="border-radius:8px"></iframe>`;
+    embedCont.innerHTML = `<iframe src="${this._escapeHtml(embedUrl)}" width="100%" height="${embedUrl.includes('spotify') ? '152' : '80'}" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" allowfullscreen style="border-radius:8px"></iframe>${embedUrl.includes('spotify') ? '<div class="spotify-embed-hint">Tip: Log into <a href="https://open.spotify.com" target="_blank" rel="noopener">open.spotify.com</a> in your browser first for full playback, or use Connect Spotify above</div>' : ''}`;
     this._showToast(`🎵 ${session.hostName} started Listen Together`, 'info');
   }
   _onListenSync(data) {
@@ -2714,7 +2770,8 @@ class HavenApp {
     consoles.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c.id;
-      opt.textContent = c.name;
+      opt.textContent = c.unsupported ? `${c.name} (Coming Soon)` : c.name;
+      if (c.unsupported) { opt.disabled = true; opt.style.color = '#666'; }
       consoleSelect.appendChild(opt);
     });
     gameBtn.addEventListener('click', () => {
@@ -3035,7 +3092,7 @@ class HavenApp {
     if (tunnelProv && this.serverSettings.tunnel_provider) tunnelProv.value = this.serverSettings.tunnel_provider;
     if (this.user && this.user.isAdmin) {
       this.socket.emit('get-whitelist');
-      fetch('/api/tunnel/status').then(r => r.json()).then(s => {
+      fetch('/api/tunnel/status', { headers: { 'Authorization': `Bearer ${this.token}` } }).then(r => r.json()).then(s => {
         const disp = document.getElementById('tunnel-status-display');
         if (disp) disp.textContent = s.active ? `Active: ${s.url}` : 'Inactive';
       }).catch(() => {});
@@ -3276,13 +3333,18 @@ class HavenApp {
         item.classList.add('active');
         document.querySelectorAll('.channel-item').forEach(c => c.classList.remove('active'));
         document.getElementById('messages').innerHTML = '';
-        document.getElementById('channel-title').textContent = `DM — ${item.querySelector('.dm-user').textContent}`;
+        const dmName = item.querySelector('.dm-user').textContent;
+        document.getElementById('channel-header-name').textContent = `DM — ${dmName}`;
+        document.getElementById('no-channel-msg').style.display = 'none';
+        document.getElementById('message-area').style.display = 'flex';
+        // Load DM history
+        this.socket.emit('get-dm-messages', { code: this.currentDm });
       });
     });
   }
   _startDm(userId) {
     if (!userId || userId === this.user.id) return;
-    this.socket.emit('create-dm', { targetUserId: userId });
+    this.socket.emit('create-dm', { userId });
   }
   _initiateCall(userId, type = 'audio') {
     if (!userId || userId === this.user.id) return;
@@ -3299,8 +3361,214 @@ class HavenApp {
   _toggleBlock(userId) {
     if (!userId) return;
     const action = this.blockedUsers.has(userId) ? 'unblock-user' : 'block-user';
-    this.socket.emit(action, { targetUserId: userId });
+    this.socket.emit(action, { userId });
   }
+  _setupAvatarSettings() {
+    // Avatar shape
+    const shapePicker = document.getElementById('avatar-shape-picker');
+    const savedShape = localStorage.getItem('haven_avatar_shape') || 'circle';
+    this._avatarShape = savedShape;
+    if (shapePicker) {
+      shapePicker.querySelectorAll('.avatar-shape-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.shape === savedShape);
+        btn.addEventListener('click', () => {
+          shapePicker.querySelectorAll('.avatar-shape-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this._avatarShape = btn.dataset.shape;
+          localStorage.setItem('haven_avatar_shape', btn.dataset.shape);
+          this._applyAvatarShape();
+        });
+      });
+    }
+    this._applyAvatarShape();
+
+    // Avatar color
+    const hueSlider = document.getElementById('avatar-hue-slider');
+    const colorPreview = document.getElementById('avatar-color-preview');
+    const savedColor = localStorage.getItem('haven_avatar_color');
+    if (savedColor && hueSlider) hueSlider.value = savedColor;
+    this._avatarColor = savedColor || null;
+    if (hueSlider) {
+      const updatePreview = () => {
+        const hue = hueSlider.value;
+        if (colorPreview) colorPreview.style.background = `hsl(${hue}, 65%, 50%)`;
+      };
+      updatePreview();
+      hueSlider.addEventListener('input', () => {
+        updatePreview();
+        this._avatarColor = hueSlider.value;
+        localStorage.setItem('haven_avatar_color', hueSlider.value);
+      });
+    }
+    const colorReset = document.getElementById('avatar-color-reset');
+    if (colorReset) {
+      colorReset.addEventListener('click', () => {
+        this._avatarColor = null;
+        localStorage.removeItem('haven_avatar_color');
+        if (hueSlider) hueSlider.value = 200;
+        if (colorPreview) colorPreview.style.background = '';
+      });
+    }
+
+    // Avatar image upload
+    const uploadBtn = document.getElementById('avatar-upload-btn');
+    const clearBtn = document.getElementById('avatar-clear-btn');
+    const fileInput = document.getElementById('avatar-file-input');
+    const preview = document.getElementById('avatar-upload-preview');
+    this._avatarImg = localStorage.getItem('haven_avatar_img') || null;
+    if (this._avatarImg && preview) {
+      preview.innerHTML = `<img src="${this._avatarImg}" alt="avatar">`;
+    }
+    if (uploadBtn && fileInput) {
+      uploadBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        if (file.size > 256 * 1024) {
+          this._showToast('Image too large (max 256KB)', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const size = Math.min(128, img.width, img.height);
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const sx = (img.width - size) / 2;
+            const sy = (img.height - size) / 2;
+            ctx.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+            const dataUrl = canvas.toDataURL('image/webp', 0.8);
+            this._avatarImg = dataUrl;
+            localStorage.setItem('haven_avatar_img', dataUrl);
+            if (preview) preview.innerHTML = `<img src="${dataUrl}" alt="avatar">`;
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+        fileInput.value = '';
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        this._avatarImg = null;
+        localStorage.removeItem('haven_avatar_img');
+        if (preview) preview.innerHTML = '';
+      });
+    }
+  }
+
+  _applyAvatarShape() {
+    const shapeClass = 'avatar-' + (this._avatarShape || 'circle');
+    document.querySelectorAll('.message-avatar').forEach(el => {
+      el.classList.remove('avatar-circle', 'avatar-rounded', 'avatar-hex', 'avatar-triangle', 'avatar-squircle');
+      el.classList.add(shapeClass);
+    });
+  }
+
+  _setupDensitySettings() {
+    const picker = document.getElementById('density-picker');
+    const saved = localStorage.getItem('haven_layout_density') || 'cozy';
+    document.documentElement.setAttribute('data-density', saved);
+    if (picker) {
+      picker.querySelectorAll('.density-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.density === saved);
+        btn.addEventListener('click', () => {
+          picker.querySelectorAll('.density-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const density = btn.dataset.density;
+          document.documentElement.setAttribute('data-density', density);
+          localStorage.setItem('haven_layout_density', density);
+        });
+      });
+    }
+  }
+
+  _setupContextMenu() {
+    const menu = document.getElementById('user-context-menu');
+    if (!menu) return;
+    let ctxUserId = null;
+    let ctxUsername = null;
+
+    // Right-click on user items
+    document.addEventListener('contextmenu', (e) => {
+      const userItem = e.target.closest('.user-item[data-user-id]');
+      if (!userItem) return;
+      e.preventDefault();
+      ctxUserId = parseInt(userItem.dataset.userId);
+      ctxUsername = userItem.dataset.username;
+      const isSelf = ctxUserId === this.user.id;
+      const isAdmin = this.user.isAdmin;
+      const isBlocked = this.blockedUsers.has(ctxUserId);
+
+      // Show/hide items based on context
+      menu.querySelectorAll('[data-requires="not-self"]').forEach(el => {
+        el.style.display = isSelf ? 'none' : '';
+      });
+      menu.querySelectorAll('[data-requires="admin"]').forEach(el => {
+        el.style.display = (!isSelf && isAdmin) ? '' : 'none';
+      });
+      // Hide DM/Call for self
+      const dmItem = menu.querySelector('[data-action="dm"]');
+      const callItem = menu.querySelector('[data-action="call"]');
+      if (dmItem) dmItem.style.display = isSelf ? 'none' : '';
+      if (callItem) callItem.style.display = isSelf ? 'none' : '';
+      // Update block label
+      const blockItem = menu.querySelector('[data-action="block"]');
+      if (blockItem) {
+        blockItem.innerHTML = isBlocked ? '🔓 <span>Unblock</span>' : '🚫 <span>Block</span>';
+      }
+
+      // Position the menu
+      const x = Math.min(e.clientX, window.innerWidth - 180);
+      const y = Math.min(e.clientY, window.innerHeight - 250);
+      menu.style.left = x + 'px';
+      menu.style.top = y + 'px';
+      menu.style.display = 'block';
+    });
+
+    // Long-press support for touch devices
+    let longPressTimer = null;
+    document.addEventListener('touchstart', (e) => {
+      const userItem = e.target.closest('.user-item[data-user-id]');
+      if (!userItem) return;
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        const touch = e.touches[0];
+        userItem.dispatchEvent(new MouseEvent('contextmenu', {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          bubbles: true
+        }));
+      }, 500);
+    }, { passive: true });
+    document.addEventListener('touchend', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }, { passive: true });
+    document.addEventListener('touchmove', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }, { passive: true });
+
+    // Close context menu
+    const closeMenu = () => { menu.style.display = 'none'; };
+    document.addEventListener('click', closeMenu);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+
+    // Handle context menu actions
+    menu.addEventListener('click', (e) => {
+      const item = e.target.closest('.context-menu-item');
+      if (!item || !ctxUserId) return;
+      const action = item.dataset.action;
+      switch (action) {
+        case 'dm': this._startDm(ctxUserId); break;
+        case 'call': this._initiateCall(ctxUserId, 'audio'); break;
+        case 'block': this._toggleBlock(ctxUserId); break;
+        case 'kick': this._showAdminActionModal('kick', ctxUserId, ctxUsername); break;
+        case 'mute': this._showAdminActionModal('mute', ctxUserId, ctxUsername); break;
+        case 'ban': this._showAdminActionModal('ban', ctxUserId, ctxUsername); break;
+      }
+      closeMenu();
+    });
+  }
+
   _renderBlockList() {
     const el = document.getElementById('block-list-content');
     if (!el) return;
