@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.5.0] — 2025-02-12
+
+### Added
+- **Glassmorphism system** — new CSS variables (`--glass-bg`, `--glass-blur`, `--glass-border`, `--glass-shadow`, `--glow-sm/md/lg`, `--input-glow`, `--depth-1/2/3`) power translucent backdrop-blur panels across sidebar, header, right sidebar, server bar, status bar, message input, modals, toasts, and context menus
+- **Micro-interactions** — spring cubic-bezier transitions on all interactive elements; `scale()` hover transforms on buttons, server icons, and avatars; `welcomeFloat` animation on welcome icon; `badgePulse` on unread badges; `modalOverlayIn` + `modalSlideIn` entrance animations
+- **Floating message input** — message-input-area rendered as an elevated glassmorphic card with margin inset, rounded corners, depth-2 shadow, and accent glow on focus-within
+- **Accent glow effects** — hover/focus states emit colored box-shadow glow on buttons, inputs, voice controls, channel badges, active channels, server icons, and send/upload/emoji/GIF buttons
+- **Pill-shaped controls** — voice buttons (border-radius 20px), send/upload/emoji buttons (border-radius 50%), toast notifications (border-radius 20px) for modern rounded aesthetic
+
+### Changed
+- **Layout compacted ~20-30%** — sidebar 250→230px, right sidebar 220→200px, server bar 56→50px (icons 40→36px), channel header min-height 52→44px, status bar 28→24px, message avatars 36→32px, all section paddings/gaps/font-sizes reduced proportionally to minimize cursor travel
+- **Brand identity** — sidebar brand `⬡ HAVEN` → `◆ AMNI` (15px, 3px letter-spacing, accent drop-shadow on logo); welcome screen updated to `◆ Welcome to Amni-Haven`; modal text updated to Amni branding
+- **Modal system** — overlay blur 4→8px with fadeIn animation; modal body uses blur(24px) glassmorphic background with spring slideIn animation; tighter padding 28→24px
+- **Server bar** — glassmorphic background; icons hover to scale(1.08) with accent glow box-shadow
+- **Status bar** — glassmorphic with glass-bg/blur; compact 3px padding, 10px font
+- **Toast notifications** — glassmorphic with pill radius 20px, spring animation
+- **Responsive breakpoints** — tablet/phone sizes adjusted to match new compact component dimensions (header 40px, voice buttons 11px, welcome icon 40px on phone)
+
+---
+
 ## [1.4.0] — 2025-02-12
 
 ### Added
