@@ -17,6 +17,7 @@ const multer = require('multer');
 const { PixelCipher } = require('./src/pixelCipher');
 const { startTunnel, stopTunnel, getTunnelStatus } = require('./src/tunnel');
 const { router: botRoutes } = require('./src/botApi');
+const os = require('os');
 console.log(`Data directory: ${DATA_DIR}`);
 
 if (process.env.JWT_SECRET === 'change-me-to-something-random-and-long' || !process.env.JWT_SECRET) {
@@ -96,6 +97,17 @@ const upload = multer({
 // ── API routes (rate-limited) ────────────────────────────
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/bot', express.json(), botRoutes);
+app.get('/api/auth/auto-login', (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || '';
+  const isLocal = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
+  if (!isLocal) return res.status(403).json({ error: 'Auto-login only from localhost' });
+  const { JWT_SECRET, ADMIN_USERNAME } = require('./src/auth');
+  const db = require('./src/database').getDb();
+  const admin = db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(ADMIN_USERNAME);
+  if (!admin) return res.status(404).json({ error: 'Admin not registered yet' });
+  const token = jwt.sign({ id: admin.id, username: admin.username, isAdmin: true }, JWT_SECRET, { expiresIn: '7d' });
+  res.json({ token, user: { id: admin.id, username: admin.username, isAdmin: true } });
+});
 
 // ── Serve pages ──────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -511,15 +523,24 @@ global.runAutoCleanup = runAutoCleanup;
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const protocol = useSSL ? 'https' : 'http';
-
+function getLocalIP() {
+  const nets = require('os').networkInterfaces();
+  for (const iface of Object.values(nets)) {
+    for (const cfg of iface) {
+      if (cfg.family === 'IPv4' && !cfg.internal) return cfg.address;
+    }
+  }
+  return '0.0.0.0';
+}
 server.listen(PORT, HOST, async () => {
+  const localIP = getLocalIP();
   console.log(`
 ╔══════════════════════════════════════════╗
 ║       🏠  HAVEN is running               ║
 ╠══════════════════════════════════════════╣
 ║  Name:    ${(process.env.SERVER_NAME || 'Haven').padEnd(29)}║
 ║  Local:   ${protocol}://localhost:${PORT}             ║
-║  Network: ${protocol}://YOUR_IP:${PORT}              ║
+║  Network: ${(protocol + '://' + localIP + ':' + PORT).padEnd(31)}║
 ║  Admin:   ${(process.env.ADMIN_USERNAME || 'admin').padEnd(29)}║
 ║  Cipher:  PixelCipher-256-CBC (14 rounds)║
 ╚══════════════════════════════════════════╝

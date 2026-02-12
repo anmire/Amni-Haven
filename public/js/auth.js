@@ -1,10 +1,20 @@
 // ── Auth Page Logic (with theme support) ─────────────────
 
 (function () {
-  // If already logged in, redirect to app
   if (localStorage.getItem('haven_token')) {
     window.location.href = '/app';
     return;
+  }
+  if (['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)) {
+    fetch('/api/auth/auto-login').then(r => r.json()).then(data => {
+      if (data.token) {
+        localStorage.setItem('haven_token', data.token);
+        localStorage.setItem('haven_user', JSON.stringify(data.user));
+        localStorage.setItem('haven_eula_accepted', '1.0');
+        window.location.href = '/app';
+        return;
+      }
+    }).catch(() => {});
   }
 
   // ── Theme switching ───────────────────────────────────
