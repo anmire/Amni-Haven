@@ -61,6 +61,8 @@ class ServerManager {
           online: true,
           name: data.name || url,
           version: data.version,
+          users: data.users || [],
+          onlineUsers: data.onlineUsers || 0,
           checkedAt: Date.now()
         });
       } else {
@@ -69,6 +71,16 @@ class ServerManager {
     } catch {
       this.statusCache.set(url, { online: false, checkedAt: Date.now() });
     }
+  }
+  async sendPing(serverUrl, toUserId, fromUser, message) {
+    try {
+      const res = await fetch(`${serverUrl}/api/ping`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromServer: window.location.origin, fromUser, toUserId, message: message || 'pinged you!' })
+      });
+      return res.ok ? await res.json() : { delivered: false };
+    } catch { return { delivered: false }; }
   }
 
   async checkAll() {

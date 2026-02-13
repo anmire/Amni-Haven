@@ -9,8 +9,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <title>Amni-Haven</title>
-  <link rel="stylesheet" href="/css/themes.css?v=1.5.1">
-  <link rel="stylesheet" href="/css/style.css?v=1.5.1">
+  <link rel="stylesheet" href="/css/themes.css?v=1.6.0">
+  <link rel="stylesheet" href="/css/style.css?v=1.6.0">
   <script src="/js/theme-init.js"></script>
 </head>
 <body>
@@ -158,7 +158,7 @@
             <button id="delete-channel-btn" class="icon-btn small danger" title="Delete channel"
                     style="display:none">🗑️</button>
           </div>
-          <div class="voice-controls">
+          <div class="header-actions">
             <div class="search-container" id="search-container" style="display:none">
               <input type="text" id="search-input" class="search-input" placeholder="Search messages..." maxlength="100">
               <button id="search-close-btn" class="icon-btn small" title="Close search">&times;</button>
@@ -172,30 +172,6 @@
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
-            </button>
-            <button id="voice-join-btn" class="btn-voice" style="display:none">
-              🎤 Join Voice
-            </button>
-            <button id="voice-mute-btn" class="btn-voice" style="display:none">
-              🔇 Mute
-            </button>
-            <button id="voice-deafen-btn" class="btn-voice" style="display:none">
-              🔇 Deafen
-            </button>
-            <button id="screen-share-btn" class="btn-voice" style="display:none" title="Share Screen">
-              🖥️ Share
-            </button>
-            <button id="voice-leave-btn" class="btn-voice btn-danger" style="display:none">
-              📞 Leave
-            </button>
-            <button id="noise-suppress-btn" class="btn-voice" style="display:none" title="Noise Suppression">
-              🧭 Filter
-            </button>
-            <button id="listen-together-btn" class="btn-voice" style="display:none" title="Listen Together">
-              🎵 Listen
-            </button>
-            <button id="game-together-btn" class="btn-voice" style="display:none" title="Game Together">
-              🎮 Games
             </button>
           </div>
           <button id="toggle-right-sidebar" class="sidebar-toggle-btn" title="Toggle members panel">▶</button>
@@ -391,8 +367,16 @@
       <!-- Mobile overlay (click to close sidebars) -->
       <div id="mobile-overlay" class="mobile-overlay"></div>
     </div>
-
-    <!-- ─── Status Bar (bottom) ───────────────────────── -->
+    <div class="voice-toolbar" id="voice-toolbar">
+      <button id="voice-join-btn" class="btn-voice" style="display:none">🎤 Join Voice</button>
+      <button id="voice-mute-btn" class="btn-voice" style="display:none">🔇 Mute</button>
+      <button id="voice-deafen-btn" class="btn-voice" style="display:none">🔇 Deafen</button>
+      <button id="screen-share-btn" class="btn-voice" style="display:none" title="Share Screen">🖥️ Share</button>
+      <button id="noise-suppress-btn" class="btn-voice" style="display:none" title="Noise Suppression">🧭 Filter</button>
+      <button id="listen-together-btn" class="btn-voice" style="display:none" title="Listen Together">🎵 Listen</button>
+      <button id="game-together-btn" class="btn-voice" style="display:none" title="Game Together">🎮 Games</button>
+      <button id="voice-leave-btn" class="btn-voice btn-danger" style="display:none">📞 Leave</button>
+    </div>
     <div class="status-bar" id="status-bar">
       <div class="status-item">
         <span class="led on" id="status-server-led"></span>

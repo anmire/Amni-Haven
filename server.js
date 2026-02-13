@@ -138,7 +138,32 @@ app.options('/api/health', (req, res) => {
 });
 app.get('/api/health', (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
-  res.json({ status: 'online', name: process.env.SERVER_NAME || 'Haven' });
+  const onlineUsers = global.havenIO ? global.havenIO.engine.clientsCount : 0;
+  const userList = [];
+  if (global.havenIO) {
+    for (const [, s] of global.havenIO.sockets.sockets) {
+      if (s.user?.username) userList.push({ id: s.user.id, username: s.user.displayName || s.user.username });
+    }
+  }
+  res.json({ status: 'online', name: process.env.SERVER_NAME || 'Haven', onlineUsers, users: userList });
+});
+app.options('/api/ping', (req, res) => {
+  res.set({'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'Content-Type'});
+  res.sendStatus(204);
+});
+app.post('/api/ping', express.json(), (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  const { fromServer, fromUser, toUserId, message } = req.body || {};
+  if (!fromUser || !toUserId) return res.status(400).json({ error: 'Missing fromUser or toUserId' });
+  if (!global.havenIO) return res.status(503).json({ error: 'Server not ready' });
+  let delivered = false;
+  for (const [, s] of global.havenIO.sockets.sockets) {
+    if (String(s.user?.id) === String(toUserId)) {
+      s.emit('cross-server-ping', { fromServer: fromServer || 'Unknown', fromUser, message: message || 'pinged you!' });
+      delivered = true;
+    }
+  }
+  res.json({ delivered });
 });
 
 // ── Upload rate limiting ─────────────────────────────────

@@ -284,6 +284,10 @@ class HavenApp {
         document.getElementById('status-ping').textContent = latency;
       }
     });
+    this.socket.on('cross-server-ping', (data) => {
+      this.notifications.playDirect('mention');
+      this._showToast(`📡 ${data.fromUser} from ${data.fromServer}: ${data.message}`, 'info', 8000);
+    });
 
     // ── Reactions ──────────────────────────────────────
     this.socket.on('reactions-updated', (data) => {
@@ -761,6 +765,11 @@ class HavenApp {
 
     // Wire up the voice manager's video callback
     this.voice.onScreenStream = (userId, stream) => this._handleScreenStream(userId, stream);
+    this.voice.onScreenShareStopped = () => {
+      document.getElementById('screen-share-btn').textContent = '🖥️ Share';
+      document.getElementById('screen-share-btn').classList.remove('sharing');
+    };
+    this.voice._localUserId = this.user.id;
 
     // Wire up voice join/leave audio cues
     this.voice.onVoiceJoin = (userId, username) => {
@@ -1148,6 +1157,10 @@ class HavenApp {
     const rightSidebar = document.querySelector('.right-sidebar');
     const leftBtn = document.getElementById('toggle-left-sidebar');
     const rightBtn = document.getElementById('toggle-right-sidebar');
+    const savedLeftW = localStorage.getItem('haven_left_width');
+    const savedRightW = localStorage.getItem('haven_right_width');
+    if (savedLeftW && leftSidebar) leftSidebar.style.width = savedLeftW + 'px';
+    if (savedRightW && rightSidebar) rightSidebar.style.width = savedRightW + 'px';
     if (localStorage.getItem('haven_left_collapsed') === '1' && leftSidebar) { leftSidebar.classList.add('collapsed'); if (leftBtn) leftBtn.textContent = '▶'; }
     if (localStorage.getItem('haven_right_collapsed') === '1' && rightSidebar) { rightSidebar.classList.add('collapsed'); if (rightBtn) rightBtn.textContent = '◀'; }
     leftBtn?.addEventListener('click', () => {
@@ -1160,6 +1173,48 @@ class HavenApp {
       rightBtn.textContent = c ? '◀' : '▶';
       localStorage.setItem('haven_right_collapsed', c ? '1' : '0');
     });
+    this._setupSidebarResize(leftSidebar, 'left');
+    this._setupSidebarResize(rightSidebar, 'right');
+  }
+  _setupSidebarResize(sidebar, side) {
+    if (!sidebar) return;
+    const handle = document.createElement('div');
+    handle.className = 'sidebar-resize-handle';
+    sidebar.appendChild(handle);
+    let startX, startW;
+    const onMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const delta = side === 'left' ? clientX - startX : startX - clientX;
+      const newW = Math.min(400, Math.max(side === 'left' ? 160 : 140, startW + delta));
+      sidebar.style.width = newW + 'px';
+    };
+    const onUp = () => {
+      handle.classList.remove('active');
+      sidebar.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const key = side === 'left' ? 'haven_left_width' : 'haven_right_width';
+      localStorage.setItem(key, parseInt(sidebar.style.width));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+    };
+    const onDown = (e) => {
+      e.preventDefault();
+      startX = e.touches ? e.touches[0].clientX : e.clientX;
+      startW = sidebar.getBoundingClientRect().width;
+      handle.classList.add('active');
+      sidebar.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      document.addEventListener('touchmove', onMove, { passive: true });
+      document.addEventListener('touchend', onUp);
+    };
+    handle.addEventListener('mousedown', onDown);
+    handle.addEventListener('touchstart', onDown, { passive: false });
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1246,7 +1301,39 @@ class HavenApp {
         }
         window.open(el.dataset.url, '_blank', 'noopener');
       });
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showServerPingMenu(el.dataset.url, e.clientX, e.clientY);
+      });
     });
+  }
+  _showServerPingMenu(url, x, y) {
+    document.querySelectorAll('.server-ping-menu').forEach(m => m.remove());
+    const status = this.serverManager.statusCache.get(url);
+    if (!status?.online) return this._showToast('Server is offline', 'error');
+    const users = status.users || [];
+    const menu = document.createElement('div');
+    menu.className = 'context-menu server-ping-menu';
+    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:9999;`;
+    if (!users.length) {
+      menu.innerHTML = '<div class="ctx-item disabled" style="opacity:0.5">No users online</div>';
+    } else {
+      menu.innerHTML = `<div class="ctx-header" style="padding:6px 12px;font-size:11px;color:var(--text-muted);font-weight:600">${status.name} — ${users.length} online</div>` +
+        users.map(u => `<div class="ctx-item server-ping-user" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" style="cursor:pointer;padding:6px 12px;display:flex;align-items:center;gap:6px"><span style="color:var(--accent)">📡</span> ${this._escapeHtml(u.username)}</div>`).join('');
+    }
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+    if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+    menu.querySelectorAll('.server-ping-user').forEach(item => {
+      item.addEventListener('click', async () => {
+        const result = await this.serverManager.sendPing(url, item.dataset.uid, this.user.username);
+        this._showToast(result.delivered ? `Pinged ${item.dataset.uname}!` : `Could not reach ${item.dataset.uname}`, result.delivered ? 'success' : 'error');
+        menu.remove();
+      });
+    });
+    const dismiss = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', dismiss); } };
+    setTimeout(() => document.addEventListener('click', dismiss), 10);
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1606,6 +1693,7 @@ class HavenApp {
     document.getElementById('listen-together-panel').style.display = 'none';
     document.getElementById('game-together-btn').style.display = 'inline-flex';
     document.getElementById('game-together-panel').style.display = 'none';
+    this._updateToolbarVisibility();
     this.socket.emit('listen-get', { channelCode: code });
     this.socket.emit('game-get', { channelCode: code });
 
@@ -1657,6 +1745,7 @@ class HavenApp {
     document.getElementById('game-together-btn').style.display = 'none';
     document.getElementById('game-together-panel').style.display = 'none';
     document.getElementById('status-channel').textContent = 'None';
+    this._updateToolbarVisibility();
     document.getElementById('status-online-count').textContent = '0';
   }
 
@@ -2201,6 +2290,7 @@ class HavenApp {
     document.getElementById('screen-share-btn').style.display = inVoice ? 'inline-flex' : 'none';
     const nsBtnUp = document.getElementById('noise-suppress-btn');
     if (nsBtnUp) nsBtnUp.style.display = inVoice ? 'inline-flex' : 'none';
+    this._updateToolbarVisibility();
 
     if (!inVoice) {
       document.getElementById('voice-mute-btn').textContent = '🔇 Mute';
@@ -2221,6 +2311,12 @@ class HavenApp {
       this._setLed('status-voice-led', 'off');
       document.getElementById('status-voice-text').textContent = 'Off';
     }
+  }
+  _updateToolbarVisibility() {
+    const tb = document.getElementById('voice-toolbar');
+    if (!tb) return;
+    const hasVisible = Array.from(tb.querySelectorAll('.btn-voice')).some(b => b.style.display !== 'none');
+    tb.classList.toggle('active', hasVisible);
   }
 
   // ── Screen Share ──────────────────────────────────────
@@ -2326,7 +2422,11 @@ class HavenApp {
         closeBtn.title = (userId === null || userId === this.user.id) ? 'Stop sharing' : 'Dismiss stream';
         closeBtn.textContent = '✕';
         closeBtn.addEventListener('click', () => {
-          (userId === null || userId === this.user.id) ? this._toggleScreenShare() : this._handleScreenStream(userId, null);
+          if (userId === null || userId === this.user.id) {
+            this.voice.isScreenSharing ? this._toggleScreenShare() : this._handleScreenStream(userId, null);
+          } else {
+            this._handleScreenStream(userId, null);
+          }
         });
         tile.appendChild(closeBtn);
         grid.appendChild(tile);
@@ -2363,10 +2463,20 @@ class HavenApp {
 
   _hideScreenShare() {
     if (this.voice?.isScreenSharing) {
-      this._toggleScreenShare();
+      this.voice.stopScreenShare();
+      document.getElementById('screen-share-btn').textContent = '🖥️ Share';
+      document.getElementById('screen-share-btn').classList.remove('sharing');
+      this._handleScreenStream(this.user.id, null);
+      this._showToast('Stopped screen sharing', 'info');
       return;
     }
     const container = document.getElementById('screen-share-container');
+    const grid = document.getElementById('screen-share-grid');
+    if (grid.children.length === 0) {
+      container.style.display = 'none';
+      container.classList.remove('screen-collapsed');
+      return;
+    }
     const collapsed = container.classList.toggle('screen-collapsed');
     const btn = document.getElementById('screen-share-close');
     btn.textContent = collapsed ? '▸' : '▾';
@@ -2574,13 +2684,13 @@ class HavenApp {
     }
   }
 
-  _showToast(message, type = 'info') {
+  _showToast(message, type = 'info', duration = 4000) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
     container.appendChild(toast);
-    setTimeout(() => toast.remove(), 4000);
+    setTimeout(() => toast.remove(), duration);
   }
 
   // ═══════════════════════════════════════════════════════

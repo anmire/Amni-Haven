@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.6.0] — 2025-02-13
+
+### Added
+- **Cross-server ping** — right-click any connected server icon to see online users and send a ping; recipient sees an 8-second toast with sender info + message; new `/api/ping` POST endpoint + enhanced `/api/health` returning online user list
+- **Resizable sidebars** — drag handles on left and right sidebars (160–400px / 140–360px); width persisted to localStorage; disabled on mobile
+- **Bottom voice toolbar** — all voice/media buttons (join, mute, deafen, share, filter, listen, games, leave) relocated from header to a glassmorphic bottom toolbar that auto-shows/hides based on channel context
+
+### Fixed
+- **Screen share "stop sharing" bug** — clicking the browser's native "Stop sharing" button now properly closes the share tile and resets the UI button; root cause: `stopScreenShare()` passed `null` userId instead of actual user ID, and `_hideScreenShare()` called `_toggleScreenShare()` which re-started sharing
+- **ROM/game overflow** — game-together and listen-together panels now constrained with `max-height` + `overflow-y: auto` so they never overflow the main window
+- **Mobile layout** — panel constraints at 768px/480px/360px breakpoints; voice toolbar compact mode; overflow prevention on main container; sidebar resize handles hidden on mobile
+
+### Changed
+- Header `.voice-controls` → `.header-actions` (search + toggles only)
+- Cache-bust version → `?v=1.6.0`
+
+---
+
 ## [1.5.1] — 2025-02-12
 
 ### Added

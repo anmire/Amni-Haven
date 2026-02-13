@@ -293,8 +293,8 @@ class VoiceManager {
     this.isScreenSharing = false;
 
     this.socket.emit('screen-share-stopped', { code: this.currentChannel });
-    // Notify local UI
-    if (this.onScreenStream) this.onScreenStream(null, null);
+    if (this.onScreenShareStopped) this.onScreenShareStopped();
+    if (this.onScreenStream) this.onScreenStream(this._localUserId, null);
   }
 
   async _renegotiate(userId, connection) {
