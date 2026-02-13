@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" opacity="0.3">
+<polygon points="300,120 200,300 400,300" fill="none" stroke="#44bb44" stroke-width="2.5" opacity="0.35"/>
+<polygon points="250,300 200,390 300,390" fill="none" stroke="#44bb44" stroke-width="2" opacity="0.25"/>
+<polygon points="350,300 300,390 400,390" fill="none" stroke="#44bb44" stroke-width="2" opacity="0.25"/>
+<polygon points="300,210 250,300 350,300" fill="none" stroke="#44bb44" stroke-width="1.5" opacity="0.2"/>
+<polygon points="300,120 200,300 400,300" fill="#44bb44" opacity="0.04"/>
+<polygon points="250,300 200,390 300,390" fill="#44bb44" opacity="0.03"/>
+<polygon points="350,300 300,390 400,390" fill="#44bb44" opacity="0.03"/>
+<polygon points="300,210 250,300 350,300" fill="#e8c030" opacity="0.05"/>
+<rect x="296" y="410" width="8" height="120" rx="2" fill="#aaa" opacity="0.2"/>
+<polygon points="300,400 280,420 320,420" fill="#aaa" opacity="0.2"/>
+<polygon points="285,430 315,430 312,445 288,445" fill="#e8c030" opacity="0.15"/>
+<line x1="300" y1="440" x2="330" y2="470" stroke="#aaa" stroke-width="4" opacity="0.12" stroke-linecap="round"/>
+<line x1="300" y1="440" x2="270" y2="470" stroke="#aaa" stroke-width="4" opacity="0.12" stroke-linecap="round"/>
+<circle cx="300" cy="260" r="6" fill="#e8c030" opacity="0.15"/>
+<circle cx="150" cy="500" r="2" fill="#44bb44" opacity="0.15"/>
+<circle cx="450" cy="480" r="2" fill="#e8c030" opacity="0.12"/>
+<circle cx="100" cy="200" r="1.5" fill="#44bb44" opacity="0.1"/>
+<circle cx="500" cy="150" r="1.5" fill="#44bb44" opacity="0.1"/>
+</svg>

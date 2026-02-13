@@ -244,7 +244,8 @@ class VoiceManager {
     try {
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: { cursor: 'always' },
-        audio: true // capture tab/system audio if available
+        audio: true,
+        surfaceSwitching: 'exclude'
       });
 
       this.isScreenSharing = true;

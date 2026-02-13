@@ -6,6 +6,156 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.7.7] — 2025-06-24
+
+### Security (ported from upstream v1.5.0)
+- **HSTS + referrerPolicy** — helmet now enforces HSTS (1 yr max-age) and strict-origin-when-cross-origin referrer policy
+- **Permissions-Policy + nosniff** — new middleware blocks camera/geolocation/payment APIs and prevents MIME sniffing
+- **Upload force-download** — non-image uploads now served with Content-Disposition: attachment (prevents XSS via uploaded HTML/SVG)
+- **Magic bytes validation** — image uploads now validate JPEG/PNG/GIF/WEBP magic bytes (don't trust MIME alone)
+- **SSRF protection** — link preview now blocks private IPs (localhost, 10.x, 192.168.x, 172.16-31.x, 169.254.169.254, .local, .internal) + DNS rebinding defense via resolve check
+- **Link preview rate limit** — 30 requests/min per IP with auto-cleanup
+- **GIF endpoint auth** — /api/gif/giphy/search and /trending now require JWT authentication
+- **GIF rate limit** — 30 GIF requests/min per IP
+- **SSL redirect hardened** — uses hardcoded localhost (no open redirect via req.hostname), CRLF sanitization, rate limiting (60/min), Slowloris timeouts (5s headers/request)
+- **Anti-Slowloris** — main server gets headersTimeout=15s, requestTimeout=30s, keepAliveTimeout=65s, timeout=120s
+
+### Added
+- **Avatar upload endpoint** — POST /api/upload-avatar with magic bytes validation, 2MB limit, stores URL in users table
+- **Avatar DB migration** — users table gets `avatar TEXT DEFAULT NULL` column via safe ALTER TABLE migration
+- **Avatar in session-info** — server sends avatar field on socket connect; auth middleware fetches avatar from DB
+
+### Fixed
+- **Voice reconnect** — _resyncState now emits voice-rejoin when user was in a voice channel before disconnect
+- **Screen share double picker** — getDisplayMedia now passes surfaceSwitching:'exclude' to prevent Chrome's second picker dialog
+
+## [1.7.6] — 2026-02-12
+
+### Added
+- **Robust reconnection** — on socket reconnect, full state re-sync (channels, messages, online users, DMs, preferences, blocks); re-enters current channel/DM automatically
+- **Connection banner** — animated danger/warn banner appears at top of main content when connection is lost, with pulsing dot and clear messaging; auto-hides on reconnect with slide-out animation
+- **Visibility sync** — when tab is refocused after 30+ seconds, triggers state re-sync to catch missed events
+- **Message slide-in animation** — all messages (regular, compact, system) now animate in with a subtle slide-up fade
+
+### Changed
+- **Online buttons accented** — status bar "Online" label/count now green (#43b581) with hover glow + caret indicator; sidebar bottom online count now has green border accent, pulsing dot glow, and hover highlight to clearly signal clickability
+- **Toasts enhanced** — larger font, bolder borders (2px for error/success), info type gets accent-colored border, higher z-index (11000) above all overlays, wider max-width
+- **Reconnect toast** — shows "🔄 Reconnected to server" success toast after recovery from disconnect
+
+---
+
+## [1.7.5] — 2025-06-24
+
+### Fixed
+- **Offline users not showing** — changed default member_visibility from 'online' to 'all'; sidebar "Members" section now displays both online and offline users with proper grouping and dimmed styling for offline
+- **Private message button does nothing** — dm-opened handler now auto-navigates to the new DM conversation (sets currentDm, loads messages, highlights sidebar item)
+- **DM-DM display text** — server create-dm handler now includes other_username in dm-opened response; get-dms query now returns display_name via COALESCE; context menu header shows actual username
+- **Glassy theme z-index issues** — bumped online-overlay z-index from 999 to 10500, context-menu from 9000 to 10600; both now render above glassy sidebar backdrop-filter stacking context
+
+### Changed
+- Sidebar "Online" section renamed to "Members" showing all users (online + offline) with group labels and counts
+- Sidebar bottom online count is now a clickable button that scrolls to/expands the Members section
+- Context menu now shows username header above action items
+- DM list items display other user's display_name when available
+
+---
+
+## [1.7.4] — 2025-06-23
+
+### Added
+- **Distributable EXE build** — `build-exe.bat` compiles Haven into a standalone `AmniHaven.exe` via @yao-pkg/pkg (node18-win-x64, GZip compression); bundles public/, src/, config/, copies better-sqlite3 native binding; falls back to portable launcher .bat if pkg compilation fails
+- **First-run setup wizard** — web-based 4-step wizard (`src/setupWizard.js`) guides new users through Server Identity (name, admin, port), Network & Access (LAN/port-forward/tunnel, SSL mode with auto-generated self-signed certs), Features (tunnel auto-start, Spotify, GIF, Flash, ROM toggles), and Review & Launch; generates .env automatically; wizard middleware redirects all requests to `/setup` until complete
+- **Donate button** — heart icon in sidebar bottom bar linking to Ko-fi (between mod-mode toggle and online counter); pink accent with hover glow animation
+- **Screenshot generator** — `scripts/screenshots.js` captures login, main chat, setup wizard, and 5 theme variants via puppeteer-core + local Chrome
+
+### Changed
+- `server.js` — integrated setupWizard routes and middleware (wizard intercepts all requests until first-run setup completes)
+
+---
+
+## [1.7.3] — 2025-06-22
+
+### Added
+- **Mod Mode** — drag-and-drop sidebar section reordering (channels, DMs, online, voice, voice-actions); layout persists in localStorage across sessions; toggle via 🔧 button in sidebar bottom bar or Settings → Layout; reset button in settings
+- **ModMode class** (`public/js/modmode.js`) — HTML5 DnD-based section reordering with visual indicators (dashed borders, drop zones, drag handles), toast notifications, layout persistence
+
+### Fixed
+- **Flash games (Ruffle) black box** — added `https://unpkg.com` to CSP `scriptSrc`, `connectSrc`, `workerSrc` so Ruffle CDN loads correctly; previously CSP blocked the Ruffle script entirely
+- **Ruffle timeout** — `_loadFlashGame` now has 15s timeout with clear error message instead of infinite polling
+- **EmulatorJS rendering** — removed `display:flex` / `align-items:center` / `justify-content:center` from `.game-container` that interfered with Ruffle and EmulatorJS rendering; container CSS now resets to `display:block` before game init, restores defaults on cleanup
+- **Game panel z-index** — raised `.game-together-panel` from z-index 5 → 15 with `position:relative`; game controls now use `position:sticky; bottom:0` so spectate/player dropdown and fullscreen buttons are always visible above messages
+- **Game placeholder centering** — placeholder text now uses absolute positioning for self-centering without breaking game render elements
+
+### Changed
+- Sidebar sections wrapped in `sidebar-mod-container` with `data-mod-id` attributes for drag-and-drop reordering
+
+---
+
+## [1.7.2] — 2025-06-21
+
+### Changed
+- **Right sidebar eliminated** — all elements migrated to left sidebar; layout is now server-bar + sidebar + main (two-panel)
+- **Theme selector moved to Settings modal** — new "🎨 Theme" section in settings with all 27 themes + RGB/Custom/Triangle panels
+- **Voice users panel** moved from right sidebar to left sidebar as collapsible "🔊 Voice" section
+- **Sidebar bottom bar** — compact action bar at sidebar bottom with messages bubble, online count indicator, and gear-only settings button
+- **Messages bubble** moved from header actions to sidebar bottom bar
+- **Settings gear** — icon-only button in sidebar bottom bar; opens same full settings modal
+
+### Removed
+- Right sidebar (`<aside class="right-sidebar">`) deleted entirely
+- `#toggle-right-sidebar` button removed from header
+- `#mobile-users-btn` removed from header (no longer needed)
+- All `mobile-right-open` mobile logic and swipe-from-right gesture
+- All `.right-sidebar` CSS (main styles + 7 theme overrides + 4 responsive breakpoints)
+- `.sidebar-settings-panel` and `.btn-settings-popout` CSS (replaced by `.sidebar-bottom-btn`)
+- Theme selector sidebar sections (`.theme-sidebar-section`, `.theme-sidebar-section-content`) replaced by settings modal section
+
+### Fixed
+- Tutorial steps updated to reference new sidebar layout (voice section + bottom bar)
+
+---
+
+## [1.7.1] — 2025-06-20
+
+### Added
+- **Flash game support via Ruffle** — integrated Ruffle.js CDN for in-browser Flash SWF playback; 8 Flash games added: Bubble Tanks 3, Tanks (Flash), Super Smash Flash 2, Super Smash Bros Flash, Learn to Fly 3, Learn to Fly, Learn to Fly (Classic), Flight
+- **Status bar online overlay** — "Online #" in status bar is now clickable; opens a popup overlay showing all online/offline users with close button and click-outside-to-dismiss
+- **Sidebar voice actions** — Voice, Listen, and Games buttons moved from bottom toolbar to left sidebar bottom for always-visible access
+
+### Changed
+- Removed Shippy Container minigame and all flappy score references
+- Replaced canvas-based Bubble Tanks with actual Flash Bubble Tanks 3 SWF via Ruffle
+- Online users panel removed from right sidebar (now in status bar overlay + left sidebar presence)
+- Voice toolbar now only shows active-call controls (Mute, Deafen, Share, Filter, Leave)
+- Game grid now shows both HTML5 canvas games and Flash games with ⚡ badge
+- CSS version bumped to `?v=1.7.1`
+
+### Removed
+- Shippy Container button, flappy.js/flappy.html references, high score system for flappy
+- Canvas-based `_gameBubbleTanks` engine (replaced by Flash SWF)
+- `.btn-game-sidebar` CSS (replaced by `.btn-voice-sidebar` and `.sidebar-voice-actions`)
+- Online users panel from right sidebar
+
+---
+
+## [1.7.0] — 2025-06-20
+
+### Added
+- **N64 emulator fix** — rewrote emulator loader with WebGL2/SharedArrayBuffer detection, mupen64plus_next → parallel_n64 core fallback chain, COOP/COEP headers for /games route, 45s timeout with DOM element checks
+- **HTML5 games** — 6 built-in canvas games (Tanks, Bubble Tanks, Snake Battle, Tetris Battle, Asteroids, Breakout) with game grid UI and tabbed interface (Games / ROMs)
+- **Overlay create/join channel** — inline forms replaced with overlay modal dialogs for cleaner sidebar; modals close on backdrop click or cancel
+- **Collapsible sidebar sections** — Channels, Direct Messages, Online, and Theme sections collapsible via click with arrow indicators; state persisted to localStorage
+- **Sidebar presence** — online users mirrored to left sidebar with compact user list and count badge
+- **Messages bubble icon** — header notification icon with unread count badge; click expands DM section and opens left sidebar if collapsed
+- **Themed background images** — SVG artwork motifs for 11 media themes (Matrix, Tron, Halo, LoTR, Cyberpunk, Dark Souls, Elden Ring, Zelda, Bloodborne, Minecraft, FFX) rendered subtly behind message area via `::after` pseudo-elements
+
+### Changed
+- Admin controls references updated from `admin-controls` div to `create-channel-overlay-btn` button show/hide
+- Game panel restructured with tabbed HTML5 Games / ROM Loader interface
+- CSS version bumped to `?v=1.7.0`
+
+---
+
 ## [1.6.0] — 2025-02-13
 
 ### Added

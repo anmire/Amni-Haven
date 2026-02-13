@@ -12,11 +12,13 @@ const { createServer } = require('http');
 const { createServer: createHttpsServer } = require('https');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const multer = require('multer');
-const { PixelCipher } = require('./src/pixelCipher');
+const { PixelCipher } = require('./src/pixelCipherLoader');
 const { startTunnel, stopTunnel, getTunnelStatus } = require('./src/tunnel');
 const { router: botRoutes } = require('./src/botApi');
+const { setupWizardRoutes, wizardMiddleware } = require('./src/setupWizard');
 const os = require('os');
 console.log(`Data directory: ${DATA_DIR}`);
 
@@ -38,10 +40,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-eval'", "'wasm-unsafe-eval'", "https://cdn.emulatorjs.org", "https://sdk.scdn.co"],
+      scriptSrc: ["'self'", "'unsafe-eval'", "'wasm-unsafe-eval'", "https://cdn.emulatorjs.org", "https://sdk.scdn.co", "https://unpkg.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.emulatorjs.org"],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
-      connectSrc: ["'self'", "wss:", "ws:", "http:", "https:", "blob:", "https://cdn.emulatorjs.org", "https://api.spotify.com", "wss://dealer.spotify.com"],
+      connectSrc: ["'self'", "wss:", "ws:", "http:", "https:", "blob:", "https://cdn.emulatorjs.org", "https://api.spotify.com", "wss://dealer.spotify.com", "https://unpkg.com"],
       mediaSrc: ["'self'", "blob:", "https://*.scdn.co", "https://*.spotifycdn.com"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
@@ -49,13 +51,24 @@ app.use(helmet({
       formAction: ["'self'"],
       frameSrc: ["'self'", "https://open.spotify.com", "https://www.youtube.com", "https://www.youtube-nocookie.com", "https://w.soundcloud.com", "https://player.vimeo.com"],
       frameAncestors: ["'none'"],
-      workerSrc: ["'self'", "blob:"],
+      workerSrc: ["'self'", "blob:", "https://unpkg.com"],
     }
   },
   crossOriginEmbedderPolicy: false,
   crossOriginOpenerPolicy: false,
+  hsts: { maxAge: 31536000, includeSubDomains: false },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
-
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=()');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
+app.use('/games', (req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  next();
+});
 app.disable('x-powered-by');
 app.use(express.json({ limit: '16kb' }));
 app.use(express.urlencoded({ extended: false, limit: '16kb' }));
@@ -65,6 +78,8 @@ app.use(express.static(path.join(__dirname, 'public'), {
   lastModified: true,
   maxAge: 0,
 }));
+setupWizardRoutes(app);
+app.use(wizardMiddleware);
 
 // ── Serve uploads from external data directory ──────────
 app.use('/uploads', express.static(UPLOADS_DIR, {
@@ -72,6 +87,12 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
   etag: true,
   lastModified: true,
   maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (!['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+      res.setHeader('Content-Disposition', 'attachment');
+    }
+  }
 }));
 
 // ── File uploads (images, max 5 MB) ─────────────────────
@@ -196,8 +217,18 @@ app.post('/api/upload', uploadLimiter, (req, res) => {
   upload.single('image')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-    // Force safe extension based on validated mimetype (prevent HTML/SVG upload)
+    try {
+      const fd = fs.openSync(req.file.path, 'r');
+      const hdr = Buffer.alloc(12);
+      fs.readSync(fd, hdr, 0, 12, 0);
+      fs.closeSync(fd);
+      let validMagic = false;
+      if (req.file.mimetype === 'image/jpeg') validMagic = hdr[0] === 0xFF && hdr[1] === 0xD8 && hdr[2] === 0xFF;
+      else if (req.file.mimetype === 'image/png') validMagic = hdr[0] === 0x89 && hdr[1] === 0x50 && hdr[2] === 0x4E && hdr[3] === 0x47;
+      else if (req.file.mimetype === 'image/gif') validMagic = hdr.slice(0, 6).toString().startsWith('GIF8');
+      else if (req.file.mimetype === 'image/webp') validMagic = hdr.slice(0, 4).toString() === 'RIFF' && hdr.slice(8, 12).toString() === 'WEBP';
+      if (!validMagic) { fs.unlinkSync(req.file.path); return res.status(400).json({ error: 'File content does not match image type' }); }
+    } catch { try { fs.unlinkSync(req.file.path); } catch {} return res.status(400).json({ error: 'Failed to validate file' }); }
     const mimeToExt = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
     const safeExt = mimeToExt[req.file.mimetype];
     if (!safeExt) {
@@ -216,8 +247,33 @@ app.post('/api/upload', uploadLimiter, (req, res) => {
     res.json({ url: `/uploads/${req.file.filename}` });
   });
 });
+app.post('/api/upload-avatar', uploadLimiter, (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  upload.single('image')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (req.file.size > 2 * 1024 * 1024) { fs.unlinkSync(req.file.path); return res.status(400).json({ error: 'Avatar must be under 2 MB' }); }
+    try {
+      const fd = fs.openSync(req.file.path, 'r');
+      const hdr = Buffer.alloc(12);
+      fs.readSync(fd, hdr, 0, 12, 0);
+      fs.closeSync(fd);
+      let validMagic = false;
+      if (req.file.mimetype === 'image/jpeg') validMagic = hdr[0] === 0xFF && hdr[1] === 0xD8 && hdr[2] === 0xFF;
+      else if (req.file.mimetype === 'image/png') validMagic = hdr[0] === 0x89 && hdr[1] === 0x50 && hdr[2] === 0x4E && hdr[3] === 0x47;
+      else if (req.file.mimetype === 'image/gif') validMagic = hdr.slice(0, 6).toString().startsWith('GIF8');
+      else if (req.file.mimetype === 'image/webp') validMagic = hdr.slice(0, 4).toString() === 'RIFF' && hdr.slice(8, 12).toString() === 'WEBP';
+      if (!validMagic) { fs.unlinkSync(req.file.path); return res.status(400).json({ error: 'Invalid image' }); }
+    } catch { try { fs.unlinkSync(req.file.path); } catch {} return res.status(400).json({ error: 'Failed to validate' }); }
+    const avatarUrl = `/uploads/${req.file.filename}`;
+    const { getDb } = require('./src/database');
+    getDb().prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatarUrl, user.id);
+    res.json({ url: avatarUrl });
+  });
+});
 
-// ── GIF search proxy (Giphy API — keeps key server-side) ──
 function getGiphyKey() {
   try {
     const { getDb } = require('./src/database');
@@ -226,7 +282,24 @@ function getGiphyKey() {
   } catch {}
   return process.env.GIPHY_API_KEY || '';
 }
-app.get('/api/gif/giphy/search', (req, res) => {
+const gifLimitStore = new Map();
+function gifLimiter(req, res, next) {
+  const ip = req.ip || req.socket.remoteAddress;
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxReqs = 30;
+  if (!gifLimitStore.has(ip)) gifLimitStore.set(ip, []);
+  const stamps = gifLimitStore.get(ip).filter(t => now - t < windowMs);
+  gifLimitStore.set(ip, stamps);
+  if (stamps.length >= maxReqs) return res.status(429).json({ error: 'Rate limited' });
+  stamps.push(now);
+  next();
+}
+setInterval(() => { const now = Date.now(); for (const [ip, t] of gifLimitStore) { const f = t.filter(x => now - x < 60000); if (!f.length) gifLimitStore.delete(ip); else gifLimitStore.set(ip, f); } }, 5 * 60 * 1000);
+app.get('/api/gif/giphy/search', gifLimiter, (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
   const key = getGiphyKey();
   if (!key) return res.status(501).json({ error: 'giphy_not_configured' });
   const q = (req.query.q || '').trim().slice(0, 100);
@@ -242,7 +315,10 @@ app.get('/api/gif/giphy/search', (req, res) => {
     res.json({ results, provider: 'giphy' });
   }).catch(() => res.status(502).json({ error: 'Giphy API error' }));
 });
-app.get('/api/gif/giphy/trending', (req, res) => {
+app.get('/api/gif/giphy/trending', gifLimiter, (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
   const key = getGiphyKey();
   if (!key) return res.status(501).json({ error: 'giphy_not_configured' });
   const limit = Math.min(parseInt(req.query.limit) || 20, 50);
@@ -349,30 +425,59 @@ app.get('/api/cipher/status', (req, res) => {
   res.json({ active: true, algorithm: 'PixelCipher-CBC', status: 'operational' });
 });
 const linkPreviewCache = new Map();
-const PREVIEW_CACHE_TTL = 30 * 60 * 1000; // 30 min
-const PREVIEW_MAX_SIZE = 256 * 1024; // only read first 256 KB of page
-
-app.get('/api/link-preview', async (req, res) => {
+const PREVIEW_CACHE_TTL = 30 * 60 * 1000;
+const PREVIEW_MAX_SIZE = 256 * 1024;
+const dns = require('dns');
+const { promisify } = require('util');
+const dnsResolve = promisify(dns.resolve4);
+const previewLimitStore = new Map();
+function previewLimiter(req, res, next) {
+  const ip = req.ip || req.socket.remoteAddress;
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxReqs = 30;
+  if (!previewLimitStore.has(ip)) previewLimitStore.set(ip, []);
+  const stamps = previewLimitStore.get(ip).filter(t => now - t < windowMs);
+  previewLimitStore.set(ip, stamps);
+  if (stamps.length >= maxReqs) return res.status(429).json({ error: 'Rate limited' });
+  stamps.push(now);
+  next();
+}
+setInterval(() => { const now = Date.now(); for (const [ip, t] of previewLimitStore) { const f = t.filter(x => now - x < 60000); if (!f.length) previewLimitStore.delete(ip); else previewLimitStore.set(ip, f); } }, 5 * 60 * 1000);
+function isPrivateIP(ip) {
+  if (!ip) return true;
+  return ip === '127.0.0.1' || ip === '0.0.0.0' || ip === '::1' || ip === '::' ||
+    ip.startsWith('10.') || ip.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    ip.startsWith('169.254.') || ip.startsWith('fc00:') || ip.startsWith('fd') ||
+    ip.startsWith('fe80:');
+}
+app.get('/api/link-preview', previewLimiter, async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   const user = token ? verifyToken(token) : null;
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
   const url = (req.query.url || '').trim();
   if (!url) return res.status(400).json({ error: 'Missing url param' });
-
-  // Only allow http(s) URLs
+  let parsed;
   try {
-    const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return res.status(400).json({ error: 'Only http/https URLs allowed' });
+    parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Only http/https URLs allowed' });
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' ||
+        host === '::1' || host === '[::1]' ||
+        host.startsWith('10.') || host.startsWith('192.168.') ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+        host === '169.254.169.254' ||
+        host.endsWith('.local') || host.endsWith('.internal')) {
+      return res.status(400).json({ error: 'Private addresses not allowed' });
     }
   } catch { return res.status(400).json({ error: 'Invalid URL' }); }
-
-  // Cache check
+  try {
+    const addresses = await dnsResolve(parsed.hostname);
+    if (addresses.some(isPrivateIP)) return res.status(400).json({ error: 'Private addresses not allowed' });
+  } catch {}
   const cached = linkPreviewCache.get(url);
-  if (cached && Date.now() - cached.ts < PREVIEW_CACHE_TTL) {
-    return res.json(cached.data);
-  }
+  if (cached && Date.now() - cached.ts < PREVIEW_CACHE_TTL) return res.json(cached.data);
 
   try {
     const controller = new AbortController();
@@ -476,11 +581,29 @@ if (useSSL) {
 
     // Also start an HTTP server that redirects to HTTPS
     const httpRedirect = express();
-    httpRedirect.all('*', (req, res) => {
-      res.redirect(`https://${req.hostname}:${process.env.PORT || 3000}${req.url}`);
+    httpRedirect.disable('x-powered-by');
+    const redirectHits = new Map();
+    httpRedirect.use((req, res, next) => {
+      const ip = req.ip || req.socket.remoteAddress;
+      const now = Date.now();
+      if (!redirectHits.has(ip)) redirectHits.set(ip, []);
+      const stamps = redirectHits.get(ip).filter(t => now - t < 60000);
+      redirectHits.set(ip, stamps);
+      if (stamps.length > 60) return res.status(429).end('Rate limited');
+      stamps.push(now);
+      next();
     });
-    const HTTP_REDIRECT_PORT = parseInt(process.env.PORT || 3000) + 1; // 3001
-    createServer(httpRedirect).listen(HTTP_REDIRECT_PORT, process.env.HOST || '0.0.0.0', () => {
+    setInterval(() => { const now = Date.now(); for (const [ip, t] of redirectHits) { const f = t.filter(x => now - x < 60000); if (!f.length) redirectHits.delete(ip); else redirectHits.set(ip, f); } }, 5 * 60 * 1000);
+    const safePort = parseInt(process.env.PORT || 3000);
+    httpRedirect.all('*', (req, res) => {
+      const safePath = (req.url || '/').replace(/[\r\n]/g, '');
+      res.redirect(301, `https://localhost:${safePort}${safePath}`);
+    });
+    const HTTP_REDIRECT_PORT = safePort + 1;
+    const httpRedirectServer = createServer(httpRedirect);
+    httpRedirectServer.headersTimeout = 5000;
+    httpRedirectServer.requestTimeout = 5000;
+    httpRedirectServer.listen(HTTP_REDIRECT_PORT, process.env.HOST || '0.0.0.0', () => {
       console.log(`↪️  HTTP redirect running on port ${HTTP_REDIRECT_PORT} → HTTPS`);
     });
   } catch (err) {
@@ -600,6 +723,10 @@ global.runAutoCleanup = runAutoCleanup;
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const protocol = useSSL ? 'https' : 'http';
+server.headersTimeout = 15000;
+server.requestTimeout = 30000;
+server.keepAliveTimeout = 65000;
+server.timeout = 120000;
 function getLocalIP() {
   const nets = require('os').networkInterfaces();
   const candidates = [];

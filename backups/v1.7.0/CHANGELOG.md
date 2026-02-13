@@ -1,0 +1,551 @@
+# Changelog
+
+All notable changes to Haven are documented here.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Semantic Versioning](https://semver.org/).
+
+---
+
+## [1.7.0] — 2025-06-20
+
+### Added
+- **N64 emulator fix** — rewrote emulator loader with WebGL2/SharedArrayBuffer detection, mupen64plus_next → parallel_n64 core fallback chain, COOP/COEP headers for /games route, 45s timeout with DOM element checks
+- **HTML5 games** — 6 built-in canvas games (Tanks, Bubble Tanks, Snake Battle, Tetris Battle, Asteroids, Breakout) with game grid UI and tabbed interface (Games / ROMs)
+- **Overlay create/join channel** — inline forms replaced with overlay modal dialogs for cleaner sidebar; modals close on backdrop click or cancel
+- **Collapsible sidebar sections** — Channels, Direct Messages, Online, and Theme sections collapsible via click with arrow indicators; state persisted to localStorage
+- **Sidebar presence** — online users mirrored to left sidebar with compact user list and count badge
+- **Messages bubble icon** — header notification icon with unread count badge; click expands DM section and opens left sidebar if collapsed
+- **Themed background images** — SVG artwork motifs for 11 media themes (Matrix, Tron, Halo, LoTR, Cyberpunk, Dark Souls, Elden Ring, Zelda, Bloodborne, Minecraft, FFX) rendered subtly behind message area via `::after` pseudo-elements
+
+### Changed
+- Admin controls references updated from `admin-controls` div to `create-channel-overlay-btn` button show/hide
+- Game panel restructured with tabbed HTML5 Games / ROM Loader interface
+- CSS version bumped to `?v=1.7.0`
+
+---
+
+## [1.6.0] — 2025-02-13
+
+### Added
+- **Cross-server ping** — right-click any connected server icon to see online users and send a ping; recipient sees an 8-second toast with sender info + message; new `/api/ping` POST endpoint + enhanced `/api/health` returning online user list
+- **Resizable sidebars** — drag handles on left and right sidebars (160–400px / 140–360px); width persisted to localStorage; disabled on mobile
+- **Bottom voice toolbar** — all voice/media buttons (join, mute, deafen, share, filter, listen, games, leave) relocated from header to a glassmorphic bottom toolbar that auto-shows/hides based on channel context
+
+### Fixed
+- **Screen share "stop sharing" bug** — clicking the browser's native "Stop sharing" button now properly closes the share tile and resets the UI button; root cause: `stopScreenShare()` passed `null` userId instead of actual user ID, and `_hideScreenShare()` called `_toggleScreenShare()` which re-started sharing
+- **ROM/game overflow** — game-together and listen-together panels now constrained with `max-height` + `overflow-y: auto` so they never overflow the main window
+- **Mobile layout** — panel constraints at 768px/480px/360px breakpoints; voice toolbar compact mode; overflow prevention on main container; sidebar resize handles hidden on mobile
+
+### Changed
+- Header `.voice-controls` → `.header-actions` (search + toggles only)
+- Cache-bust version → `?v=1.6.0`
+
+---
+
+## [1.5.1] — 2025-02-12
+
+### Added
+- **Win95 theme** — authentic Windows 95 aesthetic: `#c0c0c0` gray panels, `#008080` teal desktop, 3D inset/outset borders, blue titlebar gradient, MS Sans Serif font, 0px radius everywhere, no transitions/glow/glass, groove/outset borders, sunken message area
+- **WinXP theme** — Luna blue sidebar gradient (`#2b72d0→#1a4ca0`), `#ece9d8` beige panels, Tahoma font, 3px radius, XP-style blue titlebar on modals, orange badges, gradient buttons
+- **Win7 theme** — Aero glass: semi-transparent `rgba(20,40,80,0.75)` panels, `backdrop-filter: blur(20px)`, frosted glass modals, Segoe UI thin, inset white highlight lines, blue gradient backgrounds
+- **Retro theme group** in sidebar selector (Win95 🖥️ / WinXP 🪟 / Win7 🪟)
+
+### Changed
+- **Light theme overhaul** — accent `#2563eb`, purple secondary `#7c3aed`, gradient brand text (blue→purple), gradient active indicators, 12px radius, glassmorphism vars, gradient backgrounds on sidebar/header/main, floating shadows, blue-purple gradient send button + badges
+- Cache-bust version → `?v=1.5.1`
+
+---
+
+## [1.5.0] — 2025-02-12
+
+### Added
+- **Glassmorphism system** — new CSS variables (`--glass-bg`, `--glass-blur`, `--glass-border`, `--glass-shadow`, `--glow-sm/md/lg`, `--input-glow`, `--depth-1/2/3`) power translucent backdrop-blur panels across sidebar, header, right sidebar, server bar, status bar, message input, modals, toasts, and context menus
+- **Micro-interactions** — spring cubic-bezier transitions on all interactive elements; `scale()` hover transforms on buttons, server icons, and avatars; `welcomeFloat` animation on welcome icon; `badgePulse` on unread badges; `modalOverlayIn` + `modalSlideIn` entrance animations
+- **Floating message input** — message-input-area rendered as an elevated glassmorphic card with margin inset, rounded corners, depth-2 shadow, and accent glow on focus-within
+- **Accent glow effects** — hover/focus states emit colored box-shadow glow on buttons, inputs, voice controls, channel badges, active channels, server icons, and send/upload/emoji/GIF buttons
+- **Pill-shaped controls** — voice buttons (border-radius 20px), send/upload/emoji buttons (border-radius 50%), toast notifications (border-radius 20px) for modern rounded aesthetic
+
+### Changed
+- **Layout compacted ~20-30%** — sidebar 250→230px, right sidebar 220→200px, server bar 56→50px (icons 40→36px), channel header min-height 52→44px, status bar 28→24px, message avatars 36→32px, all section paddings/gaps/font-sizes reduced proportionally to minimize cursor travel
+- **Brand identity** — sidebar brand `⬡ HAVEN` → `◆ AMNI` (15px, 3px letter-spacing, accent drop-shadow on logo); welcome screen updated to `◆ Welcome to Amni-Haven`; modal text updated to Amni branding
+- **Modal system** — overlay blur 4→8px with fadeIn animation; modal body uses blur(24px) glassmorphic background with spring slideIn animation; tighter padding 28→24px
+- **Server bar** — glassmorphic background; icons hover to scale(1.08) with accent glow box-shadow
+- **Status bar** — glassmorphic with glass-bg/blur; compact 3px padding, 10px font
+- **Toast notifications** — glassmorphic with pill radius 20px, spring animation
+- **Responsive breakpoints** — tablet/phone sizes adjusted to match new compact component dimensions (header 40px, voice buttons 11px, welcome icon 40px on phone)
+
+---
+
+## [1.4.0] — 2025-02-12
+
+### Added
+- **Amni default theme** — new teal/cyan identity (`#22d3ee` accent, Inter font, 10px radius, JetBrains Mono for code) replaces Haven purple as default; Haven preserved as selectable option
+- **3 light themes** — Light (clean blue), Solarized Light (warm parchment), Sakura (pink pastel) with proper scrollbar, sidebar shadow, and modal overlay overrides for light backgrounds
+- **Theme group labels** — Dark / Light / Dynamic section labels in sidebar theme selector
+- **CSS module split** — monolithic `style.css` (4522 lines) split into `themes.css` (theme variables + overrides) and `style.css` (layout + components)
+
+### Changed
+- **Branding** — login page updated: `⬡` → `◆` logo, `HAVEN` → `AMNI-HAVEN` heading, new tagline "your server · your arcade · your rules"
+- **Default theme fallback** — `theme.js` falls back to `amni` instead of `haven` for new users
+- **Root directory cleaned** — moved `ARCHITECTURE.md`, `GUIDE.md`, `SECURITY_AUDIT.md`, `GAME_FEATURE_DESIGN.md`, and all `checklist_*.md` files into `docs/`
+
+---
+
+## [1.3.9] — 2025-02-12
+
+### Fixed
+- **Screen share close buttons don't stop stream** — tile close button only collapsed/expanded visually; container close button only toggled minimize. Neither actually stopped the MediaStream. Tile close now calls `stopScreenShare()` for own tile or dismisses remote tiles. Container close stops your stream if sharing, otherwise minimizes.
+- **ROM emulator renders into hidden container** — `game-active-session` had `display:none` when EmulatorJS bootstrapped into `#game-container`, causing 0×0 canvas. Container is now shown BEFORE `startGame()` so EmulatorJS initializes with correct dimensions. Error recovery re-shows host controls on failure.
+- **ROM file picker too restrictive** — `accept` filter expanded from 20 to 40+ extensions covering all 32 supported consoles (added `.a26`, `.a78`, `.lnx`, `.pce`, `.ws`, `.wsc`, `.vb`, `.ngp`, `.32x`, `.col`, `.zip`, `.7z`, `.chd`, etc.)
+
+---
+
+## [1.3.8] — 2025-02-12
+
+### Fixed (ported from upstream)
+- **SSL_ERROR_RX_RECORD_TOO_LONG on Windows** — `Start Haven.bat` always opened browser with `https://` even when server was running HTTP (no valid SSL certs). Bat file now detects actual protocol and opens correct URL. Fixed `%ERRORLEVEL%` parse-time expansion bug with `if errorlevel 1` (runtime-safe). Added cert existence check after generation. ([upstream #2](https://github.com/ancsemi/Haven/issues/2))
+- **Admin status & display name lost on reconnect** — socket auth middleware now refreshes both `is_admin` and `display_name` from database on every connection, instead of trusting stale JWT payload. Admin status synced from `.env ADMIN_USERNAME` on every socket connect. New `session-info` event pushes authoritative user data to client on every connect/reconnect (ported from upstream v1.4.2)
+- **Stale JS/CSS after server restart** — static file caching changed from 1h `maxAge` to always-revalidate with ETags, prevents stale commands and features appearing broken after deploy (ported from upstream v1.3.9)
+
+### Improved
+- **Mobile message actions — tap to reveal** — react, reply, pin, edit, and delete buttons are now hidden until you tap a message, reducing clutter on phone screens. Tap another message to move toolbar; tap empty space or input to dismiss (ported from upstream v1.3.9)
+
+---
+
+## [1.3.7] — 2025-02-12
+
+### Fixed
+- **GIF picker z-index** — added `z-index: 10` to `.message-input-area` so Giphy picker renders above chat messages
+- **Theme backgrounds invisible** — boosted opacity values on all 13 existing theme `messages::before` patterns (doubled from 0.04-0.12 to 0.10-0.22 range) and increased gradient color intensities
+- **Tunnel status 403** — added `Authorization: Bearer` header to `/api/tunnel/status` fetch (admin-only endpoint was rejecting unauthenticated requests)
+- **CORS health check URL** — `ServerManager.add()` now extracts origin from URLs via `new URL(url).origin`, preventing path fragments like `/app` from corrupting health check requests
+- **EmulatorJS cleanup crashes** — `_cleanup()` now fires `callEvent('exit')`, clears all EJS globals, removes loader script before wiping container DOM (prevents lingering AL/style errors)
+- **EmulatorJS wrong core names** — fixed all core identifiers to match actual libretro WASM names (e.g. `nes`→`fceumm`, `snes`→`snes9x`, `gb`→`gambatte`, `gba`→`mgba`, `n64`→`mupen64plus_next`, `psx`→`pcsx_rearmed`, `psp`→`ppsspp`, `segaMD`→`genesis_plus_gx`, `segaSaturn`→`yabause`, `nds`→`melonds`)
+
+### Added
+- **Dark Souls theme** — bonfire/ember palette, warm gold accents, ember particle background pattern
+- **Elden Ring theme** — erdtree gold palette, misty dark backgrounds, golden glow background pattern
+- **Minecraft theme** — blocky green palette, grid-pattern background in messages area
+- **FFX theme** — underwater blue/pyrefly palette, mana glow background pattern
+- **Zelda theme** — forest green palette, Triforce-hint background pattern with nature glow
+- Theme buttons for all 5 new themes in both app sidebar and login page
+- **Game library expanded to 32 systems** — added Virtual Boy, Sega Master System, Game Gear, Sega CD, 32X, Arcade (FBNeo/CPS1/CPS2/MAME), Atari 2600/5200/7800/Lynx/Jaguar, 3DO, PC Engine, PC-FX, Neo Geo Pocket, WonderSwan, ColecoVision, DOOM, DOS, Commodore 64, Amiga; alternate cores listed per system
+- **Unsupported console guard** — GameCube/PS2/Dreamcast/Xbox shown greyed-out as "Coming Soon" in dropdown, blocked from launching with clear error message
+- **Emulator load error handling** — `script.onerror` + 30s timeout catches failed core downloads and shows toast instead of silent crash
+
+---
+
+## [1.3.6] — 2025-02-12
+
+### Fixed
+- **Tutorial persistence** — tutorial now always marks complete on finish (removed checkbox, added Skip All button)
+- **YouTube error 153** — switched embeds to youtube-nocookie.com with enablejsapi=1 and origin param
+- **Emulator black boxes** — added 'wasm-unsafe-eval' to CSP scriptSrc, blob: to connectSrc for WASM loading
+- **Create channel compression** — split input-row into two-row layout (name on top, controls below)
+- **Spotify embed UX** — taller embed iframe (152px), added login hint with link to open.spotify.com, allow-popups in sandbox
+
+### Added
+- **Sidebar expand/collapse** — toggle buttons (◀/▶) in channel header for both sidebars, CSS transitions, localStorage persistence
+- **Dramatic vibe morph** — larger triangle (240x220), pulsing edge glow, vertex glow circles, outer ring, animated SVG filters
+- **Glassmorphism for Triangle theme** — backdrop-filter blur on sidebar/header/messages/modals/inputs, glass CSS variables (--glass-bg, --glass-border, --glass-blur, --glass-highlight, --vibe-shadow)
+- **Enhanced vibe ranges** — Chill (hue:200, sat:70), Heat (hue:5, sat:90), Dream (hue:275, sat:65) with glass/blur params per vibe
+
+---
+
+## [1.3.5] — 2026-02-12
+
+### Added
+- **Display Names** — users can set a display name separate from login username
+  - Profile section in Settings with display name input
+  - Display names shown in chat messages, user list, typing indicator
+  - Socket handlers emit `displayName` alongside `username`
+  - REST endpoint `POST /api/user/display-name` for programmatic updates
+
+### Changed
+- **Triangle Morph Theme** — redesigned as single intuitive vibe triangle
+  - Three corners: Chill (cool blues), Heat (warm reds), Dream (purple mystique)
+  - Single draggable point blends HSL values across all theme variables
+  - Larger triangle with glowing handle that reflects current blend
+  - Removed separate Era triangle; all morphing in one control
+
+---
+
+## [1.3.4] — 2026-02-12
+
+### Added
+- **Spotify Premium Integration**
+  - OAuth flow: users link their Spotify account via Settings
+  - Premium users get full playback in Listen Together via Web Playback SDK
+  - Admin panel: configure Spotify Client ID and Secret
+  - Visual player with album art, track name, seek bar, volume control
+  - Auto-refreshes access tokens; stores in `spotify_tokens` table
+  - Falls back to embed player for non-Premium or non-linked users
+- **Favicon** — SVG hexagon favicon for all pages
+
+### Changed
+- **CSP Headers** — added `sdk.scdn.co` (Spotify SDK), Spotify API and WebSocket endpoints
+
+---
+
+## [1.3.3] — 2025-06-26
+
+### Added
+- **Interactive Tutorial System**
+  - 11-step guided onboarding tour with robust element detection
+  - Spotlight highlighting with animated transitions
+  - Viewport-clamped tooltip positioning
+  - "Don't show again" checkbox stored in localStorage
+  - Fallback comma-separated selectors + getBoundingClientRect dimension checks
+- **Discord-Compatible Webhook API**
+  - Accepts Discord embed format (`embeds` array with fields, color, footer)
+  - Rich HTML rendering for bot messages in channels
+  - `is_html` flag for messages table
+  - Custom username support in webhook payloads
+- **Azno Bot Integration**
+  - `HavenNotifier` class for Python (`core/haven_notifier.py`)
+  - Bridge config template: `config/azno-bridge.json`
+  - Same API as DiscordNotifier: `send_trade()`, `send_signal()`, `send_portfolio()`
+- **Triangular Morphism Theme Sliders**
+  - Two interactive ternary/barycentric coordinate triangles for Triangle theme
+  - Vibe triangle: Serene / Fierce / Mystic — controls accent, background, text hues
+  - Era triangle: Retro / Cyber / Organic — controls radius, glow, saturation
+  - Draggable SVG point constrained inside triangle, real-time CSS variable interpolation
+  - State persisted to localStorage, reset button to restore defaults
+  - Panel auto-shows/hides when Triangle theme toggled
+- **Noise Suppression LED Indicator** — inline on/off LED dot with glow on noise filter button
+
+### Changed
+- **GIF Provider: Giphy Only** — removed deprecated Tenor API entirely (client + server routes); Giphy is sole provider
+- **Screen Share UX** — close button changed to collapse/expand toggle (▾/▸); streams preserved on hide
+- **Stop Streaming** — button now properly cleans up screen tile via explicit `_handleScreenStream(userId, null)`
+- **CSP Headers** — added `frame-src` (Spotify, YouTube, SoundCloud, Vimeo), `script-src` (EmulatorJS CDN), `worker-src` (blob:), `connect-src` (EmulatorJS CDN)
+
+---
+
+## [1.3.2-audit] — 2026-02-11
+
+### Security
+- **Listen Together XSS fix** — URL whitelist (YouTube, Spotify, SoundCloud, Vimeo only), sandbox iframe, empty fallback for unrecognized URLs
+- **Full security audit** — documented in SECURITY_AUDIT.md
+- **Git history clean** — verified no secrets, keys, or proprietary code in tracked history
+
+### Added
+- **Channel Permissions System**
+  - Private channels (🔒) visible only to authorized users + admins
+  - Admin UI to add/remove users from channels (👥 Manage Members)
+  - Users can leave public channels (🚪 Leave button)
+  - `channel_permissions` table for explicit access control
+  - Subscription model: users see only channels they've joined
+  - Seed script for trading channels: `scripts/seed-trading-channels.js`
+- **Game Together** — Retro console emulator with multiplayer support
+  - EmulatorJS integration for NES, SNES, N64, GB, GBC, GBA, NDS, GameCube, Genesis, Saturn, Dreamcast, PS1, PS2, PSP, Xbox
+  - Host loads ROM, others join as players or spectators
+  - Controller assignment UI (P1-P4) with real-time slot management
+  - Input sync over WebSocket for netplay
+  - Fullscreen mode, save state support
+  - 🎮 Games button in channel header
+  - BYOROM (Bring Your Own ROM) — no ROMs included
+- **Game Together design doc** — roadmap for Flash/retro emulation features (Ruffle + EmulatorJS)
+- **ROM gitignore** — `/games/roms/` excluded to prevent accidental copyright issues
+
+---
+
+## [1.3.2-sc] — 2025-06-26
+
+### Added — Stream Controls, Subchannels, Listen Together
+
+#### Stream Viewer Controls
+- **Fullscreen/maximize** button on each screen-share tile via Fullscreen API
+- **Volume slider** per tile — unmute screen audio and adjust level independently
+- **Resolution selector** per tile — switch playback quality (Auto/1080p/720p/480p/360p) via `applyConstraints()`
+- Toolbar appears on hover, persists in fullscreen mode
+
+#### Subchannels (Nested Channel Hierarchy)
+- **parent_id** column added to channels table with CASCADE delete
+- Create-channel UI has parent selector dropdown (Top-level or under existing channel)
+- Channel list renders as collapsible tree with indent, toggle arrows, and `└` prefix for children
+- Socket handlers updated: `create-channel` accepts `parentId`, `get-channels` returns `parent_id`
+
+#### Listen Together (Media Sync)
+- **listen_sessions** table for persistent session tracking per channel
+- Host starts a session by pasting any media URL (YouTube, Spotify, SoundCloud, Vimeo)
+- Auto-embeds via oEmbed iframes (Spotify embed, YouTube embed, SoundCloud player, Vimeo player)
+- Play/pause/stop host controls broadcast sync state to all channel participants
+- Panel accessible via 🎵 Listen button in channel header
+- Socket events: `listen-start`, `listen-sync`, `listen-stop`, `listen-get`, `listen-session`, `listen-sync-update`, `listen-ended`
+
+---
+
+## [1.3.2] — 2025-06-25
+
+### Added — 13 New Features
+
+#### Pixel-GPU Pipeline Encryption
+- **PixelCipher-256-CBC** — AES-like cipher ported from Amni-miner's RGB pixel pipeline. 14 rounds, 256-bit key, key-dependent S-box via Fisher-Yates shuffle, GF(2^8) arithmetic, CBC mode, PKCS7 padding. Server displays cipher status in startup banner.
+
+#### Giphy GIF Support
+- **Dual GIF provider** — search and send GIFs via Tenor or Giphy with tabbed provider switching in the GIF picker. Admin can configure Giphy API key in settings.
+
+#### Secure Tunneling
+- **No-port-forward hosting** via localtunnel or cloudflared. Toggle tunnel on/off in admin settings, pick provider, view active URL. Auto-starts on server boot if enabled.
+
+#### Triangle Theme
+- **New theme: Triangle** — pink/magenta palette with clip-path polygon morphism on avatars, sidebars, and message bubbles. Total themes now: 13.
+
+#### AIM/Retro Sounds + DMs
+- **5 new sounds**: aim_receive, aim_send, flip_sms, flip_ring, dm_notify (Web Audio synthesized). Direct Messages with sidebar DM section, per-user DM initiation.
+
+#### Voice Users Global Visibility
+- Voice user list now broadcasts globally via `io.emit` so all connected users see who's in voice, regardless of channel.
+
+#### GIF Reactions
+- Reactions now support `gif_url` — enables GIF-based reaction badges on messages.
+
+#### Bot/Webhook Support
+- REST API at `/api/bots` — CRUD for bots with auto-generated tokens. `botApi.js` module with Express router + socket handlers. Bots table in database.
+
+#### Noise Suppression
+- Toggle-able Web Audio noise gate using FFT analysis. Auto-applies on voice join if enabled. Button in voice controls toggles active state.
+
+#### Private Voice/Video Calls
+- Initiate private audio/video calls to any user. Call modal with accept/reject/end buttons. Socket events: initiate-call, accept-call, reject-call, end-call, call-signal. Private call records stored in database.
+
+#### Block Users
+- Block/unblock any user. Blocked users list in settings. Quick-action block button on user items. Socket events + database table for persistent blocks.
+
+#### On-Demand Channel Types
+- Channels can be typed as text, voice, or both. Channel type selector in create-channel modal. Type icons displayed in channel list.
+
+### Changed
+- CSP headers updated to allow Giphy domains (giphy.com, gstatic.com)
+- `_sendGifMessage` payload fixed to use `code` key matching server expectations
+- `HavenApp` instance exposed globally as `window.app` for onclick handlers
+
+---
+
+## [1.1.0] — 2026-02-11
+
+### 🔒 Data Isolation
+
+All user data now lives **outside** the Haven code directory, making it physically impossible to accidentally commit or share personal data.
+
+### Changed
+- **Database, .env, certs, and uploads** are now stored in:
+  - **Windows:** `%APPDATA%\Haven\`
+  - **Linux / macOS:** `~/.haven/`
+- **SSL certificates are auto-detected** — if certs exist in the data directory, HTTPS enables automatically without needing to edit `.env`.
+- **Start Haven.bat** and **start.sh** generate certs and bootstrap `.env` in the external data directory.
+- **Automatic one-time migration** — existing data in the old project-directory locations is moved to the new data directory on first launch.
+
+### Added
+- New `src/paths.js` module — single source of truth for all data directory paths.
+- `HAVEN_DATA_DIR` environment variable — override where data is stored.
+
+### Updated
+- README.md, GUIDE.md, and .env.example updated to reflect new data locations.
+
+---
+
+## [1.0.0] — 2026-02-10
+
+### 🎉 First Public Release
+
+Haven is now ready for public use. This release includes all features from the alpha series plus security hardening and polish for distribution.
+
+### Added — Slash Command Autocomplete
+- **Type `/`** and a Discord-style tooltip dropdown appears with all available commands.
+- **Keyboard navigation** — Arrow keys to browse, Tab to select, Escape to dismiss.
+- **Descriptions & argument hints** for every command.
+
+### Added — New Slash Commands
+- `/roll [NdN]` — Roll dice (e.g. `/roll 2d20`). Defaults to 1d6.
+- `/flip` — Flip a coin (heads or tails).
+- `/hug <@user>` — Send a hug.
+- `/wave` — Wave at the chat.
+- `/nick <name>` — Change your username.
+- `/clear` — Clear your chat view (local only).
+
+### Added — Message Search
+- **Ctrl+F** or 🔍 button opens a search bar in the channel header.
+- Results panel with highlighted matches.
+- Click a result to scroll to that message with a flash animation.
+
+### Added — 6 New Themes
+- **Cyberpunk** — Neon pink and electric yellow
+- **Nord** — Arctic blue and frost
+- **Dracula** — Deep purple and blood red
+- **Bloodborne** — Gothic crimson and ash
+- **Ice** — Pale blue and white
+- **Abyss** — Deep ocean darkness
+
+### Fixed — Security
+- **Privilege escalation via rename** — Users can no longer gain admin by renaming to the admin username.
+- **Upload extension bypass** — Server now forces file extensions based on validated MIME type.
+- **Banned user upload bypass** — Banned users can no longer upload images via the REST API.
+- **Upload rate limiting** — 10 uploads per minute per IP.
+- **Spoiler CSP violation** — Spoiler click handler moved from inline to delegated (CSP-safe).
+- **postMessage origin check** — Game score listener validates origin before accepting.
+- **Event listener leak** — Game score listener registered once, not per button click.
+
+### Changed
+- Version bumped to 1.0.0 for public release.
+- README rewritten as user-facing documentation.
+- All personal data scrubbed from codebase.
+- Added MIT LICENSE file.
+- 12 themes total (6 new added to the original 6).
+
+---
+
+## [0.6.0-alpha] — 2026-02-10
+
+### Added — Emoji Picker
+- **Emoji button** in the message input bar — click to open a 40-emoji palette.
+- **Insert at cursor** — emojis are inserted at the current cursor position, not appended.
+- **Curated set** — 40 of the most useful emojis across smileys, gestures, objects, and symbols.
+
+### Added — Message Reactions
+- **Hover toolbar** — hover any message to see React 😀 and Reply ↩️ buttons.
+- **Quick-pick palette** — click React to get a fast 8-emoji picker (👍👎😂❤️🔥💯😮😢).
+- **Toggle reactions** — click an existing reaction badge to add/remove your own reaction.
+- **"Own" highlight** — reactions you've placed are visually highlighted with accent color.
+- **Persistent** — reactions stored in database (`reactions` table) and survive restarts.
+- **Real-time sync** — all users in the channel see reactions update instantly.
+
+### Added — @Mentions with Autocomplete
+- **Type `@`** in the message input to trigger an autocomplete dropdown.
+- **Live filtering** — as you type, the dropdown narrows to matching usernames.
+- **Keyboard nav** — Arrow keys to navigate, Enter/Tab to select, Escape to dismiss.
+- **Click to select** — click any suggestion to insert `@username` into your message.
+- **Visual highlight** — `@mentions` render with accent-colored pill styling in chat.
+- **Self-highlight** — mentions of your own username are extra-bold for visibility.
+- **Channel-aware** — only members of the current channel appear in suggestions.
+
+### Added — Reply to Messages
+- **Reply button** — hover any message and click ↩️ to reply.
+- **Reply bar** — preview bar appears above the input showing who/what you're replying to.
+- **Cancel reply** — click ✕ on the reply bar to clear.
+- **Reply context** — replied messages show a colored banner above them linking back to the original.
+- **Threaded feel** — replies group visually with the parent message's author color.
+- **Persistent** — `reply_to` column in messages table; reply context survives reloads.
+
+### Changed — Database
+- Added `reply_to` column to `messages` table (auto-migrated on existing databases).
+- New `reactions` table with unique constraint per (message, user, emoji).
+- Safe migration: existing databases are upgraded without data loss.
+
+### Changed — Backend
+- `get-messages` now returns reactions and reply context for each message.
+- `send-message` accepts optional `replyTo` field.
+- New socket events: `add-reaction`, `remove-reaction`, `get-channel-members`.
+- `reactions-updated` broadcast to all channel members on any reaction change.
+- `channel-members` event returns member list for @mention autocomplete.
+- Emoji validation: only actual emoji characters accepted (regex unicode property check).
+
+---
+
+## [0.5.0-alpha] — 2026-02-10
+
+### Added — Multi-Server Sidebar
+- **Server bar** (far left) — Discord-style vertical strip showing all your Haven servers.
+- **Live status lights** — Green (online), grey (offline), yellow (checking) status dots on each server icon.
+- **Add/remove servers** — Modal dialog to add friends' Haven servers by name + URL.
+- **Health check API** — `GET /api/health` returns server name, status, and version. CORS-enabled for cross-server pings.
+- **One-click connect** — Click any server icon to open it in a new tab.
+- **`ServerManager` class** (`servers.js`) — Client-side server list stored in `localStorage` with 30-second polling.
+
+### Added — Image Sharing
+- **Image upload** — Upload button in message input area. Max 5 MB (jpg, png, gif, webp).
+- **Clipboard paste** — Paste images directly from clipboard into chat.
+- **Drag & drop** — Drag image files onto the chat area to upload.
+- **Inline rendering** — Uploaded images and image URLs render as clickable inline images in chat.
+- **Server-side handling** — Multer middleware with random filenames, MIME type validation, size limits.
+- **Upload authentication** — JWT token required for uploads.
+
+### Added — Voice Volume Control
+- **Per-user volume sliders** — Range inputs (0–200%) below each voice user in the panel.
+- **Persistent settings** — Volume preferences saved in `localStorage` per user ID.
+- **Auto-applied** — Saved volumes automatically applied when peers connect.
+- **"you" tag** — Your own entry in voice shows a label instead of a slider.
+
+### Added — Notification Tones
+- **Web Audio API engine** — Zero-dependency synthesized notification sounds.
+- **5 built-in tones** — Ping, Chime, Blip, Bell, Drop.
+- **Configurable** — Choose which sound plays for messages (right sidebar panel).
+- **Enable/disable toggle** — Master on/off switch for all notifications.
+- **Volume slider** — Independent notification volume control.
+- **Event triggers** — Sounds on new message (from others) and user join.
+
+### Added — Cross-Platform Support
+- **`start.sh`** — Linux/macOS launcher with: Node.js detection, auto dependency install, auto SSL cert generation, process management, clean shutdown on Ctrl+C, browser auto-open.
+- **`.env.example`** — Template configuration file with full documentation.
+- **`SERVER_NAME`** — New `.env` variable for naming your Haven instance.
+
+### Fixed — Security
+- **JWT timing bug** — `JWT_SECRET` auto-generation now runs *before* `auth.js` is loaded, fixing a race condition where the first boot used a different secret than subsequent boots.
+- **JWT fallback removed** — `auth.js` no longer has a hardcoded fallback secret. If `JWT_SECRET` is missing, the server exits with a clear error.
+- **Channel membership enforcement** — `enter-channel` and `voice-join` now verify the user is actually a member before granting access.
+- **Atomic channel deletion** — `delete-channel` now wrapped in a SQLite transaction for data integrity.
+
+### Changed
+- **`server.js`** — Restructured require order (JWT auto-gen before auth load), added multer, health endpoint, upload endpoint, SERVER_NAME in banner.
+- **`package.json`** — Version bumped to 0.5.0, added multer dependency.
+- **`public/app.html`** — Added server bar, image upload button, file input, notification settings panel, add-server modal.
+- **`public/js/app.js`** — Full rewrite with ServerManager, NotificationManager, image upload/paste/drag-drop, volume sliders, server bar rendering.
+- **`public/js/voice.js`** — Added `setVolume()`, `_getSavedVolume()` methods, auto-apply saved volume on stream play.
+- **`public/css/style.css`** — Added 7 new CSS sections: server bar, modal, chat images, upload button, volume sliders, notification settings, drag-over state.
+- **`.gitignore`** — Added `public/uploads/*`, `haven.db-shm`, `haven.db-wal`.
+- **`Start Haven.bat`** — Made generic (no hardcoded IP), increased startup timeout.
+- **`README.md`** — Full rewrite with updated features, cross-platform install, expanded roadmap.
+
+---
+
+## [0.4.0-alpha] — 2026-02-10
+
+### Added — Security Hardening
+- **Helmet security headers** — CSP, X-Content-Type-Options, X-Frame-Options, HSTS, no X-Powered-By.
+- **API rate limiting** — 20 requests per 15 minutes per IP on auth endpoints.
+- **Socket connection rate limiting** — Max 15 connections per minute per IP.
+- **Socket event flood protection** — Per-connection: max 60 events/10s, max 10 messages/10s.
+- **Input validation on all socket events** — Type checks, string length bounds, regex for channel codes, integer checks.
+- **Body size limits** — Express JSON parsing capped at 16KB.
+- **Static file hardening** — `dotfiles: 'deny'`.
+- **CORS lockdown** — Socket.IO CORS set to `origin: false`.
+- **Auto-generated JWT secret** — 48-byte random secret on first run.
+- **Safe URL regex (client)** — Tightened URL matching, `nofollow`, URL constructor validation.
+- **User Guide** — `GUIDE.md` created.
+
+---
+
+## [0.3.0-alpha] — 2026-02-10
+
+### Added
+- **HTTPS / SSL support** — Self-signed certificate, auto-detection from `.env`.
+- **HTTP → HTTPS redirect** — Secondary listener on port 3001.
+
+---
+
+## [0.2.0-alpha] — 2026-02-10
+
+### Added
+- **6 UI themes** — Haven, Discord, Matrix, Tron, HALO, Lord of the Rings.
+- **Status bar** — LEDs, ping, channel name, online count, clock.
+- **`Start Haven.bat`** — Windows one-click launcher.
+- **Unread badges** — Channel list badges.
+- **Message grouping** — Compact mode for consecutive messages.
+
+### Fixed
+- **App crash** — `initThemeSwitcher()` extracted to shared `theme.js`.
+
+---
+
+## [0.1.0-alpha] — 2026-02-10
+
+### Added
+- Core server (Express + Socket.IO).
+- User authentication (bcrypt + JWT).
+- Secret channels with invite codes.
+- Real-time text chat with history.
+- Voice chat (WebRTC).
+- Admin controls.
+- SQLite database.
+- `.env` configuration.

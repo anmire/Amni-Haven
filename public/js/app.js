@@ -25,14 +25,14 @@ class HavenApp {
     this.mentionStart = -1;        // cursor position of the '@'
     this.editingMsgId = null;      // message currently being edited
     this.serverSettings = {};      // server-wide settings
-    this.adminActionTarget = null; // { userId, username, action } for modal
-    this.highScores = {};          // { flappy: [{user_id, username, score}] }
+    this.adminActionTarget = null;
     this.blockedUsers = new Set();
     this.dms = [];
     this.currentDm = null;
     this.activeCall = null;
     this.gifProvider = 'giphy';
     this.gameManager = null;
+    this._wasConnected = false;
 
     // Slash command definitions for autocomplete
     this.slashCommands = [
@@ -94,21 +94,25 @@ class HavenApp {
     this._setupSpotify();
     this._startStatusBar();
     this._setupMobile();
+    this._setupVisibilitySync();
 
     this.socket.emit('get-channels');
     this.socket.emit('get-server-settings');
     this.socket.emit('get-preferences');
-    this.socket.emit('get-high-scores', { game: 'flappy' });
     this.socket.emit('get-blocks');
     this.socket.emit('get-dms');
 
     document.getElementById('current-user').textContent = this.user.displayName || this.user.username;
 
     if (this.user.isAdmin) {
-      document.getElementById('admin-controls').style.display = 'block';
+      document.getElementById('create-channel-overlay-btn').style.display = '';
       document.getElementById('admin-mod-panel').style.display = 'block';
     }
     setTimeout(() => new HavenTutorial().start(), 500);
+    this.modMode = new ModMode();
+    this.modMode.init();
+    const modSettingsToggle = document.getElementById('mod-mode-settings-toggle');
+    modSettingsToggle?.addEventListener('click', () => this.modMode.toggle());
   }
 
   // ── Socket Event Listeners ────────────────────────────
@@ -121,13 +125,13 @@ class HavenApp {
       if (nameEl) nameEl.textContent = this.user.displayName || this.user.username;
       const loginEl = document.getElementById('login-name');
       if (loginEl) loginEl.textContent = `@${this.user.username}`;
-      const adminCtrl = document.getElementById('admin-controls');
+      const createBtn = document.getElementById('create-channel-overlay-btn');
       const adminMod = document.getElementById('admin-mod-panel');
       if (this.user.isAdmin) {
-        if (adminCtrl) adminCtrl.style.display = 'block';
+        if (createBtn) createBtn.style.display = '';
         if (adminMod) adminMod.style.display = 'block';
       } else {
-        if (adminCtrl) adminCtrl.style.display = 'none';
+        if (createBtn) createBtn.style.display = 'none';
         if (adminMod) adminMod.style.display = 'none';
       }
     });
@@ -136,6 +140,12 @@ class HavenApp {
       this._setLed('status-server-led', 'on');
       document.getElementById('status-server-text').textContent = 'Connected';
       this._startPingMonitor();
+      this._hideConnectionBanner();
+      if (this._wasConnected) {
+        this._showToast('🔄 Reconnected to server', 'success');
+        this._resyncState();
+      }
+      this._wasConnected = true;
     });
 
     this.socket.on('disconnect', () => {
@@ -143,6 +153,7 @@ class HavenApp {
       this._setLed('status-server-led', 'danger pulse');
       document.getElementById('status-server-text').textContent = 'Disconnected';
       document.getElementById('status-ping').textContent = '--';
+      this._showConnectionBanner('Connection lost — reconnecting...', 'danger');
     });
 
     this.socket.on('connect_error', (err) => {
@@ -154,6 +165,7 @@ class HavenApp {
       this._setLed('connection-led', 'danger');
       this._setLed('status-server-led', 'danger');
       document.getElementById('status-server-text').textContent = 'Error';
+      this._showConnectionBanner('Cannot reach server — retrying...', 'danger');
     });
 
     this.socket.on('channels-list', (channels) => {
@@ -235,8 +247,12 @@ class HavenApp {
       if (data.channelCode === this.currentChannel) {
         this.onlineCount = data.users.length;
         this._renderOnlineUsers(data.users);
-        document.getElementById('status-online-count').textContent = data.users.length;
       }
+    });
+    this.socket.on('global-online-count', (count) => {
+      document.getElementById('status-online-count').textContent = count;
+      const sidebarCount = document.getElementById('sidebar-bottom-online-count');
+      if (sidebarCount) sidebarCount.textContent = count;
     });
 
     this.socket.on('voice-users-update', (data) => {
@@ -313,13 +329,13 @@ class HavenApp {
       this._showToast(`You are now "${data.user.username}"`, 'success');
       // Refresh admin UI in case admin status changed
       if (data.user.isAdmin) {
-        document.getElementById('admin-controls').style.display = 'block';
+        document.getElementById('create-channel-overlay-btn').style.display = '';
         document.getElementById('admin-mod-panel').style.display = 'block';
         if (this.currentChannel) {
           document.getElementById('delete-channel-btn').style.display = 'inline-flex';
         }
       } else {
-        document.getElementById('admin-controls').style.display = 'none';
+        document.getElementById('create-channel-overlay-btn').style.display = 'none';
         document.getElementById('admin-mod-panel').style.display = 'none';
         document.getElementById('delete-channel-btn').style.display = 'none';
       }
@@ -476,13 +492,6 @@ class HavenApp {
       });
     });
 
-    // ── High Scores ──────────────────────────────────
-    this.socket.on('high-scores', (data) => {
-      this.highScores[data.game] = data.leaderboard;
-      if (this._lastOnlineUsers) {
-        this._renderOnlineUsers(this._lastOnlineUsers);
-      }
-    });
     this.socket.on('blocks-list', (data) => {
       this.blockedUsers = new Set(data.map(b => b.userId));
     });
@@ -495,9 +504,32 @@ class HavenApp {
       this._renderDMs();
     });
     this.socket.on('dm-opened', (data) => {
-      if (!this.dms.find(d => d.channel_code === data.channel_code)) {
+      const exists = this.dms.find(d => d.channel_code === data.channel_code);
+      if (!exists) {
         this.dms.push(data);
         this._renderDMs();
+      } else if (data.other_username && !exists.other_username) {
+        exists.other_username = data.other_username;
+        this._renderDMs();
+      }
+      this.currentDm = data.channel_code;
+      this.currentChannel = null;
+      document.querySelectorAll('.dm-item').forEach(i => i.classList.remove('active'));
+      document.querySelectorAll('.channel-item').forEach(c => c.classList.remove('active'));
+      const dmEl = document.querySelector(`.dm-item[data-dm="${data.channel_code}"]`);
+      if (dmEl) dmEl.classList.add('active');
+      const dmName = data.other_username || data.username || 'DM';
+      document.getElementById('channel-header-name').textContent = `DM — ${dmName}`;
+      document.getElementById('no-channel-msg').style.display = 'none';
+      document.getElementById('message-area').style.display = 'flex';
+      document.getElementById('messages').innerHTML = '';
+      this.socket.emit('get-dm-messages', { code: data.channel_code });
+      const dmSection = document.querySelector('.dm-section');
+      const dmList = document.getElementById('dm-list');
+      if (dmList?.classList.contains('collapsed')) {
+        dmList.classList.remove('collapsed');
+        dmSection?.querySelector('.collapsible-label')?.classList.remove('collapsed');
+        localStorage.setItem('haven_collapse_dm-list', '0');
       }
     });
     this.socket.on('dm-message', (data) => {
@@ -614,17 +646,21 @@ class HavenApp {
     });
 
     document.getElementById('send-btn').addEventListener('click', () => this._sendMessage());
-
-    // Join channel
     const joinBtn = document.getElementById('join-channel-btn');
     const codeInput = document.getElementById('channel-code-input');
+    const joinModal = document.getElementById('join-channel-modal');
+    const createModal = document.getElementById('create-channel-modal');
+    document.getElementById('join-channel-overlay-btn')?.addEventListener('click', () => { joinModal.style.display = 'flex'; codeInput.focus(); });
+    document.getElementById('cancel-join-btn')?.addEventListener('click', () => { joinModal.style.display = 'none'; });
+    joinModal?.addEventListener('click', (e) => { if (e.target === joinModal) joinModal.style.display = 'none'; });
     joinBtn.addEventListener('click', () => {
       const code = codeInput.value.trim();
-      if (code) { this.socket.emit('join-channel', { code }); codeInput.value = ''; }
+      if (code) { this.socket.emit('join-channel', { code }); codeInput.value = ''; joinModal.style.display = 'none'; }
     });
     codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinBtn.click(); });
-
-    // Create channel (admin)
+    document.getElementById('create-channel-overlay-btn')?.addEventListener('click', () => { createModal.style.display = 'flex'; document.getElementById('new-channel-name')?.focus(); });
+    document.getElementById('cancel-create-btn')?.addEventListener('click', () => { createModal.style.display = 'none'; });
+    createModal?.addEventListener('click', (e) => { if (e.target === createModal) createModal.style.display = 'none'; });
     const createBtn = document.getElementById('create-channel-btn');
     const nameInput = document.getElementById('new-channel-name');
     if (createBtn) {
@@ -636,7 +672,7 @@ class HavenApp {
         const parentId = parentEl && parentEl.value ? parseInt(parentEl.value) : null;
         const privateEl = document.getElementById('new-channel-private');
         const isPrivate = privateEl ? privateEl.checked : false;
-        if (name) { this.socket.emit('create-channel', { name, type, parentId, isPrivate }); nameInput.value = ''; if (privateEl) privateEl.checked = false; }
+        if (name) { this.socket.emit('create-channel', { name, type, parentId, isPrivate }); nameInput.value = ''; if (privateEl) privateEl.checked = false; createModal.style.display = 'none'; }
       });
       nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createBtn.click(); });
     }
@@ -856,21 +892,33 @@ class HavenApp {
       window.location.href = '/';
     });
 
-    // Flappy Container game (sidebar button) — single delegated listener with origin check
-    if (!this._gameScoreListenerAdded) {
-      window.addEventListener('message', (e) => {
-        if (e.origin !== window.location.origin) return; // reject cross-origin
-        if (e.data && e.data.type === 'flappy-score' && typeof e.data.score === 'number') {
-          this.socket.emit('submit-high-score', { game: 'flappy', score: e.data.score });
-        }
-      });
-      this._gameScoreListenerAdded = true;
-    }
-    document.getElementById('play-flappy-btn')?.addEventListener('click', () => {
-      window.open('/games/flappy', '_blank', 'noopener,width=520,height=760');
+    document.getElementById('status-online-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const ov = document.getElementById('online-overlay');
+      ov.style.display = ov.style.display === 'none' ? 'flex' : 'none';
+    });
+    document.getElementById('online-overlay-close')?.addEventListener('click', () => {
+      document.getElementById('online-overlay').style.display = 'none';
+    });
+    document.addEventListener('click', (e) => {
+      const ov = document.getElementById('online-overlay');
+      const btn = document.getElementById('status-online-btn');
+      if (ov && ov.style.display !== 'none' && !ov.contains(e.target) && !btn.contains(e.target)) ov.style.display = 'none';
     });
 
-    // Image click + spoiler click delegation (CSP-safe — no inline handlers)
+    document.getElementById('sidebar-bottom-online-btn')?.addEventListener('click', () => {
+      const section = document.querySelector('.presence-section');
+      const list = document.getElementById('sidebar-online-users');
+      if (section && list) {
+        if (list.classList.contains('collapsed')) {
+          list.classList.remove('collapsed');
+          section.querySelector('.collapsible-label')?.classList.remove('collapsed');
+          localStorage.setItem('haven_collapse_sidebar-online-users', '0');
+        }
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+
     document.getElementById('messages').addEventListener('click', (e) => {
       if (e.target.classList.contains('chat-image')) {
         window.open(e.target.src, '_blank');
@@ -1154,27 +1202,66 @@ class HavenApp {
   }
   _setupSidebarToggles() {
     const leftSidebar = document.querySelector('.sidebar');
-    const rightSidebar = document.querySelector('.right-sidebar');
     const leftBtn = document.getElementById('toggle-left-sidebar');
-    const rightBtn = document.getElementById('toggle-right-sidebar');
     const savedLeftW = localStorage.getItem('haven_left_width');
-    const savedRightW = localStorage.getItem('haven_right_width');
     if (savedLeftW && leftSidebar) leftSidebar.style.width = savedLeftW + 'px';
-    if (savedRightW && rightSidebar) rightSidebar.style.width = savedRightW + 'px';
     if (localStorage.getItem('haven_left_collapsed') === '1' && leftSidebar) { leftSidebar.classList.add('collapsed'); if (leftBtn) leftBtn.textContent = '▶'; }
-    if (localStorage.getItem('haven_right_collapsed') === '1' && rightSidebar) { rightSidebar.classList.add('collapsed'); if (rightBtn) rightBtn.textContent = '◀'; }
     leftBtn?.addEventListener('click', () => {
       const c = leftSidebar.classList.toggle('collapsed');
       leftBtn.textContent = c ? '▶' : '◀';
       localStorage.setItem('haven_left_collapsed', c ? '1' : '0');
     });
-    rightBtn?.addEventListener('click', () => {
-      const c = rightSidebar.classList.toggle('collapsed');
-      rightBtn.textContent = c ? '◀' : '▶';
-      localStorage.setItem('haven_right_collapsed', c ? '1' : '0');
-    });
     this._setupSidebarResize(leftSidebar, 'left');
-    this._setupSidebarResize(rightSidebar, 'right');
+    this._setupCollapsibles();
+    this._setupMessagesBubble();
+  }
+  _setupCollapsibles() {
+    document.querySelectorAll('.collapsible-label').forEach(label => {
+      const targetId = label.dataset.target;
+      if (!targetId) return;
+      const saved = localStorage.getItem('haven_collapse_' + targetId);
+      if (saved === '1') {
+        const t = document.getElementById(targetId);
+        if (t) t.classList.add('collapsed');
+        label.classList.add('collapsed');
+      }
+      label.addEventListener('click', () => {
+        const t = document.getElementById(targetId);
+        if (!t) return;
+        const c = t.classList.toggle('collapsed');
+        label.classList.toggle('collapsed', c);
+        localStorage.setItem('haven_collapse_' + targetId, c ? '1' : '0');
+      });
+    });
+  }
+  _setupMessagesBubble() {
+    const btn = document.getElementById('messages-bubble-btn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const dmSection = document.querySelector('.dm-section');
+      const leftSidebar = document.querySelector('.sidebar');
+      if (leftSidebar?.classList.contains('collapsed')) {
+        leftSidebar.classList.remove('collapsed');
+        const leftBtn = document.getElementById('toggle-left-sidebar');
+        if (leftBtn) leftBtn.textContent = '◀';
+        localStorage.setItem('haven_left_collapsed', '0');
+      }
+      if (dmSection) {
+        const dmList = document.getElementById('dm-list');
+        if (dmList?.classList.contains('collapsed')) {
+          dmList.classList.remove('collapsed');
+          dmSection.querySelector('.collapsible-label')?.classList.remove('collapsed');
+          localStorage.setItem('haven_collapse_dm-list', '0');
+        }
+        dmSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  }
+  _updateMsgBubbleBadge(count) {
+    const badge = document.getElementById('msg-bubble-badge');
+    if (!badge) return;
+    badge.style.display = count > 0 ? '' : 'none';
+    badge.textContent = count > 99 ? '99+' : count;
   }
   _setupSidebarResize(sidebar, side) {
     if (!sidebar) return;
@@ -1394,65 +1481,33 @@ class HavenApp {
 
   _setupMobile() {
     const menuBtn = document.getElementById('mobile-menu-btn');
-    const usersBtn = document.getElementById('mobile-users-btn');
     const overlay = document.getElementById('mobile-overlay');
     const appBody = document.getElementById('app-body');
-
-    // Hamburger — toggle left sidebar
     menuBtn.addEventListener('click', () => {
       const isOpen = appBody.classList.toggle('mobile-sidebar-open');
-      appBody.classList.remove('mobile-right-open');
-      if (isOpen) overlay.classList.add('active');
-      else overlay.classList.remove('active');
+      isOpen ? overlay.classList.add('active') : overlay.classList.remove('active');
     });
-
-    // Users button — toggle right sidebar
-    usersBtn.addEventListener('click', () => {
-      const isOpen = appBody.classList.toggle('mobile-right-open');
-      appBody.classList.remove('mobile-sidebar-open');
-      if (isOpen) overlay.classList.add('active');
-      else overlay.classList.remove('active');
-    });
-
-    // Overlay click — close everything
     overlay.addEventListener('click', () => this._closeMobilePanels());
-
-    // Close sidebar when switching channels on mobile
     const origSwitch = this.switchChannel.bind(this);
     this.switchChannel = (code) => {
       origSwitch(code);
       this._closeMobilePanels();
     };
-
-    // Swipe gesture support (touch)
     let touchStartX = 0;
     let touchStartY = 0;
     const SWIPE_THRESHOLD = 60;
-
     document.addEventListener('touchstart', (e) => {
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
     }, { passive: true });
-
     document.addEventListener('touchend', (e) => {
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
-      // Only process horizontal swipes (not scrolling)
       if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dy) > Math.abs(dx)) return;
-
       if (dx > 0 && touchStartX < 40) {
-        // Swipe right from left edge → open left sidebar
         appBody.classList.add('mobile-sidebar-open');
-        appBody.classList.remove('mobile-right-open');
-        overlay.classList.add('active');
-      } else if (dx < 0 && touchStartX > window.innerWidth - 40) {
-        // Swipe left from right edge → open right sidebar
-        appBody.classList.add('mobile-right-open');
-        appBody.classList.remove('mobile-sidebar-open');
         overlay.classList.add('active');
       } else if (dx < 0 && appBody.classList.contains('mobile-sidebar-open')) {
-        this._closeMobilePanels();
-      } else if (dx > 0 && appBody.classList.contains('mobile-right-open')) {
         this._closeMobilePanels();
       }
     }, { passive: true });
@@ -1477,11 +1532,10 @@ class HavenApp {
       });
     }
   }
-
   _closeMobilePanels() {
     const appBody = document.getElementById('app-body');
     const overlay = document.getElementById('mobile-overlay');
-    appBody.classList.remove('mobile-sidebar-open', 'mobile-right-open');
+    appBody.classList.remove('mobile-sidebar-open');
     overlay.classList.remove('active');
   }
 
@@ -1668,6 +1722,53 @@ class HavenApp {
     if (!el) return;
     el.className = 'led ' + state;
   }
+  _resyncState() {
+    this.socket.emit('get-channels');
+    this.socket.emit('get-server-settings');
+    this.socket.emit('get-preferences');
+    this.socket.emit('get-blocks');
+    this.socket.emit('get-dms');
+    if (this.currentChannel) {
+      this.socket.emit('enter-channel', { code: this.currentChannel });
+      this.socket.emit('get-messages', { code: this.currentChannel });
+      this.socket.emit('get-channel-members', { code: this.currentChannel });
+    }
+    if (this.currentDm) {
+      this.socket.emit('get-dm-messages', { code: this.currentDm });
+    }
+    if (this.voice?.inVoice && this.voice.currentChannel) {
+      this.socket.emit('voice-rejoin', { code: this.voice.currentChannel });
+    }
+  }
+  _showConnectionBanner(text, type) {
+    let banner = document.getElementById('connection-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'connection-banner';
+      const main = document.querySelector('.main-content') || document.body;
+      main.prepend(banner);
+    }
+    banner.className = 'connection-banner ' + type;
+    banner.innerHTML = `<span class="connection-banner-dot"></span>${text}`;
+    banner.style.display = 'flex';
+  }
+  _hideConnectionBanner() {
+    const banner = document.getElementById('connection-banner');
+    if (banner) {
+      banner.classList.add('hide');
+      setTimeout(() => { banner.style.display = 'none'; banner.classList.remove('hide'); }, 400);
+    }
+  }
+  _setupVisibilitySync() {
+    let lastHidden = 0;
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        lastHidden = Date.now();
+      } else if (this.socket?.connected && Date.now() - lastHidden > 30000) {
+        this._resyncState();
+      }
+    });
+  }
 
   // ── Channel Management ────────────────────────────────
 
@@ -1686,12 +1787,12 @@ class HavenApp {
     document.getElementById('channel-header-name').textContent = channel ? `# ${channel.name}` : code;
     document.getElementById('channel-code-display').textContent = code;
     document.getElementById('copy-code-btn').style.display = 'inline-flex';
-    document.getElementById('voice-join-btn').style.display = 'inline-flex';
+    document.getElementById('voice-join-btn').style.display = 'inline-block';
     document.getElementById('search-toggle-btn').style.display = 'inline-flex';
     document.getElementById('pinned-toggle-btn').style.display = 'inline-flex';
-    document.getElementById('listen-together-btn').style.display = 'inline-flex';
+    document.getElementById('listen-together-btn').style.display = 'inline-block';
     document.getElementById('listen-together-panel').style.display = 'none';
-    document.getElementById('game-together-btn').style.display = 'inline-flex';
+    document.getElementById('game-together-btn').style.display = 'inline-block';
     document.getElementById('game-together-panel').style.display = 'none';
     this._updateToolbarVisibility();
     this.socket.emit('listen-get', { channelCode: code });
@@ -1746,7 +1847,6 @@ class HavenApp {
     document.getElementById('game-together-panel').style.display = 'none';
     document.getElementById('status-channel').textContent = 'None';
     this._updateToolbarVisibility();
-    document.getElementById('status-online-count').textContent = '0';
   }
 
   _renderChannels() {
@@ -1812,16 +1912,16 @@ class HavenApp {
   _updateBadge(code) {
     const el = document.querySelector(`.channel-item[data-code="${code}"]`);
     if (!el) return;
-
     let badge = el.querySelector('.channel-badge');
     const count = this.unreadCounts[code] || 0;
-
     if (count > 0) {
       if (!badge) { badge = document.createElement('span'); badge.className = 'channel-badge'; el.appendChild(badge); }
       badge.textContent = count > 99 ? '99+' : count;
     } else if (badge) {
       badge.remove();
     }
+    const totalUnread = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
+    this._updateMsgBubbleBadge(totalUnread);
   }
 
   // ── Messages ──────────────────────────────────────────
@@ -2113,60 +2213,53 @@ class HavenApp {
 
   _renderOnlineUsers(users) {
     this._lastOnlineUsers = users;
-    const el = document.getElementById('online-users');
     if (users.length === 0) {
-      el.innerHTML = '<p class="muted-text">No one here</p>';
+      const ovList = document.getElementById('online-overlay-list');
+      if (ovList) ovList.innerHTML = '<p class="muted-text">No one here</p>';
+      const sidebarEl = document.getElementById('sidebar-online-users');
+      if (sidebarEl) sidebarEl.innerHTML = '<p class="muted-text">No one online</p>';
+      const sc = document.getElementById('sidebar-online-count');
+      if (sc) sc.textContent = '0';
       return;
     }
-
-    // Build a score lookup from high scores data
-    const scoreLookup = {};
-    if (this.highScores.flappy) {
-      this.highScores.flappy.forEach(s => { scoreLookup[s.user_id] = s.score; });
-    }
-    // Also use highScore from server-sent user data
-    users.forEach(u => {
-      if (u.highScore && u.highScore > (scoreLookup[u.id] || 0)) {
-        scoreLookup[u.id] = u.highScore;
-      }
-    });
-
-    // Sort: online first, then alphabetical
     const sorted = [...users].sort((a, b) => {
-      const aOn = a.online !== false;
-      const bOn = b.online !== false;
-      if (aOn !== bOn) return aOn ? -1 : 1;
-      return a.username.toLowerCase().localeCompare(b.username.toLowerCase());
+      const aOn = a.online !== false, bOn = b.online !== false;
+      return aOn !== bOn ? (aOn ? -1 : 1) : a.username.toLowerCase().localeCompare(b.username.toLowerCase());
     });
-
-    // Separate into online/offline groups
     const onlineUsers = sorted.filter(u => u.online !== false);
     const offlineUsers = sorted.filter(u => u.online === false);
-
     let html = '';
     if (onlineUsers.length > 0) {
       html += `<div class="user-group-label">Online — ${onlineUsers.length}</div>`;
-      html += onlineUsers.map(u => this._renderUserItem(u, scoreLookup)).join('');
+      html += onlineUsers.map(u => this._renderUserItem(u)).join('');
     }
     if (offlineUsers.length > 0) {
       html += `<div class="user-group-label offline-label">Offline — ${offlineUsers.length}</div>`;
-      html += offlineUsers.map(u => this._renderUserItem(u, scoreLookup)).join('');
+      html += offlineUsers.map(u => this._renderUserItem(u)).join('');
     }
-    if (!onlineUsers.length && !offlineUsers.length) {
-      html = '<p class="muted-text">No one here</p>';
+    if (!html) html = '<p class="muted-text">No one here</p>';
+    const ovList = document.getElementById('online-overlay-list');
+    if (ovList) ovList.innerHTML = html;
+    const sidebarEl = document.getElementById('sidebar-online-users');
+    const sidebarCount = document.getElementById('sidebar-online-count');
+    if (sidebarEl) {
+      let sidebarHtml = '';
+      if (onlineUsers.length > 0) {
+        sidebarHtml += `<div class="user-group-label">Online — ${onlineUsers.length}</div>`;
+        sidebarHtml += onlineUsers.map(u => `<div class="user-item mini" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot"></span><span class="user-item-name">${this._escapeHtml(u.displayName || u.username)}</span></div>`).join('');
+      }
+      if (offlineUsers.length > 0) {
+        sidebarHtml += `<div class="user-group-label offline-label">Offline — ${offlineUsers.length}</div>`;
+        sidebarHtml += offlineUsers.map(u => `<div class="user-item mini offline" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot away"></span><span class="user-item-name">${this._escapeHtml(u.displayName || u.username)}</span></div>`).join('');
+      }
+      sidebarEl.innerHTML = sidebarHtml || '<p class="muted-text">No members</p>';
     }
-
-    el.innerHTML = html;
+    if (sidebarCount) sidebarCount.textContent = users.length;
   }
-
-  _renderUserItem(u, scoreLookup) {
+  _renderUserItem(u) {
     const onlineClass = u.online === false ? ' offline' : '';
-    const score = scoreLookup[u.id] || 0;
     const displayName = u.displayName || u.username;
-    const scoreBadge = score > 0
-      ? `<span class="user-score-badge" title="Flappy Container: ${score}">🚢${score}</span>`
-      : '';
-    return `<div class="user-item${onlineClass}" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot${u.online === false ? ' away' : ''}"></span><span class="user-item-name">${this._escapeHtml(displayName)}</span>${scoreBadge}</div>`;
+    return `<div class="user-item${onlineClass}" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot${u.online === false ? ' away' : ''}"></span><span class="user-item-name">${this._escapeHtml(displayName)}</span></div>`;
   }
 
   _renderVoiceUsers(users) {
@@ -2283,7 +2376,7 @@ class HavenApp {
   }
 
   _updateVoiceButtons(inVoice) {
-    document.getElementById('voice-join-btn').style.display = inVoice ? 'none' : 'inline-flex';
+    document.getElementById('voice-join-btn').style.display = inVoice ? 'none' : 'inline-block';
     document.getElementById('voice-mute-btn').style.display = inVoice ? 'inline-flex' : 'none';
     document.getElementById('voice-deafen-btn').style.display = inVoice ? 'inline-flex' : 'none';
     document.getElementById('voice-leave-btn').style.display = inVoice ? 'inline-flex' : 'none';
@@ -2884,6 +2977,36 @@ class HavenApp {
       opt.textContent = c.unsupported ? `${c.name} (Coming Soon)` : c.name;
       if (c.unsupported) { opt.disabled = true; opt.style.color = '#666'; }
       consoleSelect.appendChild(opt);
+    });
+    const html5Grid = document.getElementById('html5-game-grid');
+    if (html5Grid) {
+      const allGames = this.gameManager.getAllGames();
+      html5Grid.innerHTML = allGames.map(g =>
+        `<div class="html5-game-card${g.type === 'flash' ? ' flash-game' : ''}" data-game-id="${g.id}" data-game-type="${g.type}" title="${g.desc}"><span class="html5-game-icon">${g.icon}</span><span class="html5-game-name">${g.name}</span><span class="html5-game-players">${g.type === 'flash' ? '⚡' : ''} ${g.maxPlayers > 1 ? g.maxPlayers + 'P' : '1P'}</span></div>`
+      ).join('');
+      html5Grid.addEventListener('click', (e) => {
+        const card = e.target.closest('.html5-game-card');
+        if (!card) return;
+        const gid = card.dataset.gameId;
+        try {
+          document.getElementById('game-host-controls').style.display = 'none';
+          document.getElementById('game-active-session').style.display = 'block';
+          const gm = this.gameManager.getAllGames().find(g => g.id === gid);
+          document.getElementById('game-now-title').textContent = gm?.name || gid;
+          document.getElementById('game-now-host').textContent = `Host: ${this.user.username}`;
+          endBtn.style.display = 'inline-flex';
+          this.gameManager.startHTML5Game(gid, this.currentChannel);
+        } catch (err) { this._showToast(err.message, 'error'); this._resetGameUI(); }
+      });
+    }
+    document.querySelectorAll('.game-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.game-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.game-tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        const target = document.getElementById(tab.dataset.tab);
+        if (target) target.classList.add('active');
+      });
     });
     gameBtn.addEventListener('click', () => {
       gamePanel.style.display = gamePanel.style.display === 'none' ? 'block' : 'none';
@@ -3611,6 +3734,9 @@ class HavenApp {
       e.preventDefault();
       ctxUserId = parseInt(userItem.dataset.userId);
       ctxUsername = userItem.dataset.username;
+      const nameDisplay = userItem.querySelector('.user-item-name')?.textContent || ctxUsername;
+      const headerEl = document.getElementById('ctx-menu-username');
+      if (headerEl) headerEl.textContent = nameDisplay;
       const isSelf = ctxUserId === this.user.id;
       const isAdmin = this.user.isAdmin;
       const isBlocked = this.blockedUsers.has(ctxUserId);

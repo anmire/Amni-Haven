@@ -6,7 +6,7 @@
 <h3 align="center">A turbocharged fork of <a href="https://github.com/ancsemi/Haven">Haven</a> — self-hosted private chat, voice, screen share, and retro gaming.</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.3.9-7289da" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.7.4-7289da" alt="Version" />
   <img src="https://img.shields.io/badge/upstream-Haven%20v1.4.5-orange" alt="Upstream" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node" />
@@ -29,69 +29,74 @@ If you want the clean upstream experience, go use [Haven](https://github.com/anc
 
 ## What's Different Here
 
-### 🎮 32-System Retro Emulator
+### 🎮 36-System Retro Emulator + 13 Built-In Games
 Haven ships with a mini-game. Amni-Haven ships with an **entire arcade**.
 
-Load your own legally-owned ROMs and play right in the browser — NES, SNES, N64, PS1, PSP, GBA, Genesis, Arcade, DOS, and 23 more systems. All cores are correct libretro WASM builds served from the EmulatorJS CDN.
+**5 HTML5 canvas games** (Tanks, Snake Battle, Tetris Battle, Asteroids, Breakout) and **8 Flash games** via Ruffle.js (Bubble Tanks 3, Super Smash Flash 1 & 2, Learn to Fly series, Flight, Tanks Flash).
+
+Load your own legally-owned ROMs and play right in the browser — NES, SNES, N64, PS1, PS2, PSP, GBA, Genesis, GameCube, Dreamcast, Arcade, DOS, and 24 more systems. All cores are libretro WASM builds from the EmulatorJS CDN.
 
 <details>
-<summary>Full console list (32 playable + 4 coming soon)</summary>
+<summary>Full console list (36 systems)</summary>
 
 | System | Core | System | Core |
 |--------|------|--------|------|
 | NES | fceumm | Game Boy | gambatte |
 | SNES | snes9x | GBC | gambatte |
 | N64 | mupen64plus_next | GBA | mgba |
-| PS1 | mednafen_psx_hw | NDS | melonds |
-| PSP | ppsspp | Genesis / MD | genesis_plus_gx |
-| Arcade | mame2003_plus | Neo Geo | fbalpha2012_neogeo |
-| DOS | dosbox_pure | Atari 2600 | stella2014 |
+| PS1 | pcsx_rearmed | NDS | melonds |
+| PS2 | pcsx2 | PSP | ppsspp |
+| GameCube | dolphin | Dreamcast | flycast |
+| Xbox | xemu | Genesis / MD | genesis_plus_gx |
+| Master System | smsplus | Game Gear | genesis_plus_gx |
+| Sega CD | genesis_plus_gx | 32X | picodrive |
+| Saturn | yabause | Arcade (FBNeo) | fbneo |
+| DOS | dosbox_pure | DOOM | prboom |
+| Atari 2600 | stella2014 | Atari 5200 | a5200 |
 | Atari 7800 | prosystem | Atari Lynx | handy |
 | Atari Jaguar | virtualjaguar | TurboGrafx-16 | mednafen_pce |
-| WonderSwan | mednafen_wswan | WonderSwan Color | mednafen_wswan |
-| Virtual Boy | mednafen_vb | Neo Geo Pocket | mednafen_ngp |
-| 32X | picodrive | ColecoVision | gearcoleco |
-| Intellivision | freeintv | Vectrex | vecx |
-| MSX | fmsx | MSX2 | fmsx |
-| Sega Saturn | yabause | 3DO | opera |
-| PC-FX | mednafen_pcfx | PC Engine CD | mednafen_pce |
-| *GameCube* | *coming soon* | *PS2* | *coming soon* |
-| *Dreamcast* | *coming soon* | *Xbox* | *coming soon* |
+| PC-FX | mednafen_pcfx | WonderSwan | mednafen_wswan |
+| Neo Geo Pocket | mednafen_ngp | ColecoVision | gearcoleco |
+| Virtual Boy | beetle_vb | C64 | vice_x64sc |
+| Amiga | puae | 3DO | opera |
 
 </details>
 
-### 🎨 18 Visual Themes (6 Fork-Exclusive)
-All 12 upstream Haven themes plus:
+### 🎨 27+ Visual Themes
+All upstream themes plus fork-exclusive additions:
 - **Dark Souls** 🔥 — ember glow, bonfire warmth
 - **Elden Ring** 💍 — golden grace, Erdtree light
 - **Minecraft** ⛏️ — dirt-block brown, creeper green
 - **Final Fantasy X** ⚔️ — Zanarkand pyrefly blues
 - **Zelda** 🗡️ — Hyrule field green, Triforce gold
 - **Triangle Morph** 🔺 — barycentric Chill/Heat/Dream blend with glassmorphism
+- **RGB Cycling** 🌈 — animated hue rotation
+- **Custom Palette** 🎨 — user-defined colors
+
+### 📦 Distributable EXE Build (v1.7.4)
+Run `build-exe.bat` to compile Haven into a standalone **AmniHaven.exe** with PixelCipher-256 baked in. Node.js bundled inside — no install required for end users.
+
+### 🧙 First-Run Setup Wizard (v1.7.4)
+New users get a guided 4-step wizard: Server Identity → Network & Access (LAN/port-forward/tunnel, SSL) → Features → Review & Launch. Generates `.env` automatically with auto-SSL cert generation option.
 
 ### 🔧 Quality-of-Life Additions
+- **Mod Mode** — drag-and-drop sidebar section reordering with layout persistence
 - **Spotify Premium integration** — OAuth + Web Playback SDK for Listen Together
 - **Display names** — separate from login username
-- **Sidebar expand/collapse** — toggle buttons for both sidebars
-- **Emulator error handling** — script.onerror + load timeout recovery
-- **Unsupported console guard** — GameCube/PS2/Dreamcast/Xbox greyed out as "Coming Soon"
-- **Stream close actually works** — tile × stops your stream or dismisses remote tiles
-- **ROM loading fix** — game container visible before EmulatorJS bootstraps (no more 0×0 canvas)
-- **Expanded ROM file picker** — 40+ file extensions covering all 32 systems
+- **Donate button** — Ko-fi link in sidebar bottom bar
+- **Sidebar expand/collapse** — toggle buttons for sidebars
+- **Two-panel layout** — no right sidebar, everything in the left panel
+- **N64 fallback** — auto-detects WebGL2/SharedArrayBuffer, falls back to parallel_n64 core
 
-### 🐛 Bug Fixes Ported from Upstream
+### 🐛 Bug Fixes
+- Flash game black boxes (CSP fix for Ruffle CDN)
+- EmulatorJS container rendering (CSS reset before game init)
+- N64 emulation fallback (WebGL2/SharedArrayBuffer detection → parallel_n64)
 - SSL bat file protocol detection ([upstream #2](https://github.com/ancsemi/Haven/issues/2))
 - Admin status & display name preserved on reconnect
-- Stale JS/CSS after deploy (ETag revalidation replaces maxAge caching)
+- Stream close tile fix, ROM loading 0×0 canvas fix
+- GIF picker z-index, tunnel/status 403, CORS health check
 - Mobile tap-to-reveal message toolbar
-
-### 🐛 Fork-Original Bug Fixes
-- GIF picker z-index overlap
-- Theme background opacity visibility
-- Tunnel/status 403 auth header
-- CORS health check URL extraction
-- EmulatorJS cleanup crash prevention
-- Emulator timeout false-positive on slow loads
 
 ---
 
@@ -103,8 +108,13 @@ All 12 upstream Haven themes plus:
 
 1. Install [Node.js](https://nodejs.org/) (LTS) and restart your PC
 2. Download / clone this repo
-3. Double-click **`Start Haven.bat`**
-4. Browser opens → register with `admin` username → create channels → share your IP + channel code
+3. Double-click **`Start Amni-Haven.bat`** — first-run wizard guides you through setup
+4. Browser opens → register with your admin username → create channels → share your IP + channel code
+
+**Standalone EXE (no Node.js required):**
+1. Run `build-exe.bat` to compile → outputs `dist/AmniHaven.exe`
+2. Copy the entire `dist/` folder to any Windows machine
+3. Run `AmniHaven.exe` → setup wizard opens in browser
 
 **Quick version (Linux / macOS):**
 ```bash
@@ -121,7 +131,7 @@ chmod +x start.sh && ./start.sh
 
 ## Version History
 
-See [CHANGELOG.md](CHANGELOG.md) for the full log. Current version: **1.3.9**.
+See [CHANGELOG.md](CHANGELOG.md) for the full log. Current version: **1.7.4**.
 
 ---
 

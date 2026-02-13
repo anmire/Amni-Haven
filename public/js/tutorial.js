@@ -9,11 +9,10 @@ class HavenTutorial {
       { target: '#channel-list', title: 'Channel List', desc: 'Click a channel to enter. Private channels are admin-only. Use the arrow to expand subchannels.', position: 'right' },
       { target: '.channel-header', title: 'Channel Header', desc: 'Copy channel codes, join voice, search messages, manage members, and access Listen/Game Together here.', position: 'bottom' },
       { target: '.voice-controls', title: 'Voice & Media', desc: 'Join voice chat, share your screen, suppress noise, listen to music together, or play retro games!', position: 'bottom' },
-      { target: '.theme-selector', title: 'Themes', desc: 'Pick your vibe! 13 themes including Haven, Discord, Matrix, Tron, HALO, Cyberpunk, and Triangle morphism.', position: 'right' },
       { target: '.welcome-screen, #message-area', title: 'Chat Area', desc: 'Messages, screen shares, search results, and pinned messages all appear in this main area.', position: 'left' },
       { target: '.message-input-area', title: 'Chat Input', desc: 'Type messages, use / for commands, @ for mentions, paste images, add emoji or send GIFs!', position: 'top', fallback: true },
-      { target: '.right-sidebar', title: 'Online Users', desc: 'See who\u0027s online and in voice. Click usernames for quick actions like DM or call.', position: 'left' },
-      { target: '#open-settings-btn', title: 'Settings', desc: 'Customize sounds, notifications, admin controls, tunneling, and bot management.', position: 'left' },
+      { target: '.voice-sidebar-section', title: 'Voice Users', desc: 'See who\u0027s in voice chat. Adjust individual volume levels for each user.', position: 'right' },
+      { target: '.sidebar-bottom-bar', title: 'Quick Actions', desc: 'Messages, online count, and settings gear — all in one compact bar at the bottom.', position: 'right' },
       { target: '.status-bar', title: 'Status Bar', desc: 'Connection status, voice state, ping, current channel, and online count at a glance.', position: 'top' },
     ];
   }

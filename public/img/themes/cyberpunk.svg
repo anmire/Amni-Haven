@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" opacity="0.3">
+<rect x="50" y="350" width="40" height="250" fill="#ff2d6f" opacity="0.15"/>
+<rect x="100" y="300" width="35" height="300" fill="#00f0ff" opacity="0.12"/>
+<rect x="145" y="320" width="50" height="280" fill="#ff2d6f" opacity="0.1"/>
+<rect x="200" y="280" width="30" height="320" fill="#00f0ff" opacity="0.14"/>
+<rect x="240" y="250" width="60" height="350" fill="#fcee09" opacity="0.08"/>
+<rect x="310" y="270" width="45" height="330" fill="#ff2d6f" opacity="0.12"/>
+<rect x="360" y="310" width="35" height="290" fill="#00f0ff" opacity="0.1"/>
+<rect x="400" y="290" width="55" height="310" fill="#fcee09" opacity="0.1"/>
+<rect x="460" y="330" width="40" height="270" fill="#ff2d6f" opacity="0.13"/>
+<rect x="510" y="350" width="45" height="250" fill="#00f0ff" opacity="0.11"/>
+<rect x="100" y="300" width="4" height="300" fill="#00f0ff" opacity="0.4"/>
+<rect x="240" y="250" width="4" height="350" fill="#fcee09" opacity="0.35"/>
+<rect x="400" y="290" width="4" height="310" fill="#ff2d6f" opacity="0.4"/>
+<rect x="510" y="350" width="3" height="250" fill="#00f0ff" opacity="0.35"/>
+<line x1="0" y1="580" x2="600" y2="580" stroke="#ff2d6f" stroke-width="1" opacity="0.2"/>
+<circle cx="120" cy="280" r="3" fill="#00f0ff" opacity="0.5"/>
+<circle cx="260" cy="230" r="3" fill="#fcee09" opacity="0.4"/>
+<circle cx="420" cy="270" r="3" fill="#ff2d6f" opacity="0.5"/>
+<text x="80" y="240" fill="#ff2d6f" font-family="monospace" font-size="20" opacity="0.2">NIGHT CITY</text>
+</svg>

@@ -1,0 +1,19 @@
+# Checklist: v1.7.4 — Distributable EXE + Setup Wizard + Donate + Testing
+- [x] Scan architecture map & codebase structure
+- [x] Create v1.7.4 backups in backups/v1.7.4/
+- [x] Create build-exe.bat (pkg compilation, native binding copy, fallback launcher)
+- [x] Create src/setupWizard.js (4-step web wizard, .env generation, SSL auto-gen)
+- [x] Integrate wizard into server.js (routes + middleware redirect)
+- [x] Add donate button to sidebar bottom bar (Ko-fi heart icon, pink hover)
+- [x] Add donate-btn CSS styles (color, hover glow, scale transform)
+- [x] Test all 8 Flash SWF file serving (all 200 OK)
+- [x] Verify library.json (36 consoles defined)
+- [x] Verify BIOS files (GBA, N64, SNES/GBC, PS1, PS2, GC)
+- [x] Confirm no console ROMs present (by design — user-uploaded)
+- [x] Verify donate button in served HTML
+- [x] Generate screenshots via puppeteer-core (8 screenshots)
+- [x] Bump package.json to v1.7.4
+- [x] Add CHANGELOG.md v1.7.4 entry
+- [x] Update README.md (v1.3.9 → v1.7.4, 36 consoles, 27 themes, EXE build, wizard)
+- [x] Update ARCHITECTURE.md (setupWizard, build-exe, donate-btn, screenshots)
+- [x] Create .setup-complete flag for existing install

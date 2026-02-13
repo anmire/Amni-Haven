@@ -195,6 +195,11 @@ function initDatabase() {
   } catch {
     db.exec("ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT NULL");
   }
+  try {
+    db.prepare("SELECT avatar FROM users LIMIT 0").get();
+  } catch {
+    db.exec("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT NULL");
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS high_scores (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

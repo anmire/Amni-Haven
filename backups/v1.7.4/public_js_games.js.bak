@@ -1,0 +1,572 @@
+const HTML5_GAMES = [
+  {id:'tanks',name:'Tanks',icon:'🔫',desc:'Classic local multiplayer tank battle',maxPlayers:2,type:'html5',category:'multiplayer'},
+  {id:'snake-battle',name:'Snake Battle',icon:'🐍',desc:'Classic snake with power-ups — local 2P',maxPlayers:2,type:'html5',category:'multiplayer'},
+  {id:'tetris-battle',name:'Tetris Battle',icon:'🧱',desc:'Head-to-head Tetris — send lines to your opponent',maxPlayers:2,type:'html5',category:'multiplayer'},
+  {id:'asteroids',name:'Asteroids',icon:'☄️',desc:'Blast asteroids in deep space',maxPlayers:1,type:'html5',category:'arcade'},
+  {id:'breakout',name:'Breakout',icon:'🧱',desc:'Smash bricks with a bouncing ball',maxPlayers:1,type:'html5',category:'arcade'},
+];
+const FLASH_GAMES = [
+  {id:'bubble-tanks-3',name:'Bubble Tanks 3',icon:'🫧',desc:'Grow your bubble tank through enemy zones',maxPlayers:1,type:'flash',category:'action',swf:'/games/roms/Bubble Tanks 3.swf'},
+  {id:'tanks-flash',name:'Tanks (Flash)',icon:'🔫',desc:'Classic Flash tank game',maxPlayers:1,type:'flash',category:'action',swf:'/games/roms/tanks.swf'},
+  {id:'ssf2',name:'Super Smash Flash 2',icon:'⚔️',desc:'Fan-made Smash Bros fighting game',maxPlayers:2,type:'flash',category:'fighting',swf:'/games/roms/ssf2-2007_20210626.swf'},
+  {id:'super-smash-flash',name:'Super Smash Bros Flash',icon:'🥊',desc:'Original Super Smash Flash',maxPlayers:2,type:'flash',category:'fighting',swf:'/games/roms/SuperSmash.swf'},
+  {id:'learn-to-fly-3',name:'Learn to Fly 3',icon:'🐧',desc:'Launch your penguin into the sky',maxPlayers:1,type:'flash',category:'arcade',swf:'/games/roms/learn-to-fly-3.swf'},
+  {id:'learn-to-fly',name:'Learn to Fly',icon:'🐧',desc:'The original penguin launcher',maxPlayers:1,type:'flash',category:'arcade',swf:'/games/roms/secure_Learn2Fly.swf'},
+  {id:'learn-to-fly-classic',name:'Learn to Fly (Classic)',icon:'🐧',desc:'Classic penguin flight game',maxPlayers:1,type:'flash',category:'arcade',swf:'/games/roms/flash_learn-to-fly.swf'},
+  {id:'flight',name:'Flight',icon:'✈️',desc:'Paper airplane flight adventure',maxPlayers:1,type:'flash',category:'arcade',swf:'/games/roms/flight-759879f9.swf'},
+];
+class GameManager {
+  constructor(socket, userId, username) {
+    this.socket = socket;
+    this.userId = userId;
+    this.username = username;
+    this.library = null;
+    this.currentSession = null;
+    this.emulator = null;
+    this.isHost = false;
+    this.players = new Map();
+    this.spectators = new Set();
+    this.controllerMap = new Map();
+    this.inputBuffer = [];
+    this.netplayEnabled = false;
+    this.html5Games = HTML5_GAMES;
+    this.flashGames = FLASH_GAMES;
+    this._activeHTML5 = null;
+    this._setupSocketListeners();
+  }
+  async loadLibrary() {
+    try {
+      const res = await fetch('/games/library.json');
+      this.library = await res.json();
+      return this.library;
+    } catch (e) {
+      console.error('Failed to load game library:', e);
+      return null;
+    }
+  }
+  getConsoles() { return this.library?.consoles || []; }
+  getConsole(id) { return this.getConsoles().find(c => c.id === id); }
+  getHTML5Games() { return this.html5Games; }
+  getFlashGames() { return this.flashGames; }
+  getAllGames() { return [...this.html5Games, ...this.flashGames]; }
+  _checkN64Support() {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const hasSAB = typeof SharedArrayBuffer !== 'undefined';
+    const hasWGL2 = !!gl;
+    return { hasSAB, hasWGL2, canThread: hasSAB && hasWGL2 };
+  }
+  _selectN64Core(consoleDef) {
+    const { canThread } = this._checkN64Support();
+    if (canThread) return consoleDef.core;
+    const alt = consoleDef.altCores;
+    return (alt && alt.includes('parallel_n64')) ? 'parallel_n64' : consoleDef.core;
+  }
+  async startGame(consoleId, romFile, channelCode) {
+    const con = this.getConsole(consoleId);
+    if (!con) throw new Error('Unknown console');
+    if (con.unsupported) throw new Error(`${con.name} requires server-side emulation (coming soon!)`);
+    this.isHost = true;
+    this.currentSession = { consoleId, romName: romFile.name, channelCode, hostId: this.userId, hostName: this.username, players: [{ id: this.userId, name: this.username, controller: 1 }], state: 'loading' };
+    this.socket.emit('game-start', { consoleId, romName: romFile.name, channelCode, maxPlayers: con.maxPlayers });
+    await this._loadEmulator(con, romFile);
+    this.currentSession.state = 'playing';
+    this.socket.emit('game-state', { channelCode, state: 'playing' });
+  }
+  async startHTML5Game(gameId, channelCode) {
+    const game = this.html5Games.find(g => g.id === gameId) || this.flashGames.find(g => g.id === gameId);
+    if (!game) throw new Error('Unknown game');
+    this.isHost = true;
+    this._activeHTML5 = gameId;
+    this.currentSession = { consoleId: game.type, romName: game.name, channelCode, hostId: this.userId, hostName: this.username, players: [{ id: this.userId, name: this.username, controller: 1 }], state: 'playing' };
+    this.socket.emit('game-start', { consoleId: game.type, romName: game.name, channelCode, maxPlayers: game.maxPlayers });
+    const container = document.getElementById('game-container');
+    if (!container) throw new Error('Game container not found');
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.display = 'block';
+    container.style.alignItems = 'stretch';
+    container.style.justifyContent = 'stretch';
+    if (game.type === 'flash') return this._loadFlashGame(game.swf, container);
+    const canvas = document.createElement('canvas');
+    canvas.id = 'html5-game-canvas';
+    canvas.width = 800;
+    canvas.height = 600;
+    canvas.style.cssText = 'width:100%;height:100%;display:block;background:#000;border-radius:4px;';
+    container.appendChild(canvas);
+    this._launchHTML5Game(gameId, canvas);
+  }
+  _launchHTML5Game(gameId, canvas) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const keys = {};
+    const kd = e => { keys[e.key] = true; e.preventDefault(); };
+    const ku = e => { keys[e.key] = false; };
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup', ku);
+    this._html5Cleanup = () => { window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
+    const engines = {
+      'tanks': () => this._gameTanks(ctx, W, H, keys, canvas),
+      'snake-battle': () => this._gameSnakeBattle(ctx, W, H, keys, canvas),
+      'tetris-battle': () => this._gameTetrisBattle(ctx, W, H, keys, canvas),
+      'asteroids': () => this._gameAsteroids(ctx, W, H, keys, canvas),
+      'breakout': () => this._gameBreakout(ctx, W, H, keys, canvas),
+    };
+    (engines[gameId] || engines['tanks'])();
+  }
+  _gameTanks(ctx, W, H, keys, canvas) {
+    const tanks = [
+      {x:100,y:H/2,a:0,s:2,c:'#4fc3f7',hp:5,cd:0,bullets:[]},
+      {x:W-100,y:H/2,a:Math.PI,s:2,c:'#ff6ec7',hp:5,cd:0,bullets:[]}
+    ];
+    const walls = [];
+    for (let i=0;i<8;i++) walls.push({x:100+Math.random()*(W-200),y:100+Math.random()*(H-200),w:20+Math.random()*60,h:20+Math.random()*60});
+    const p1k = {u:'w',d:'s',l:'a',r:'d',f:' '};
+    const p2k = {u:'ArrowUp',d:'ArrowDown',l:'ArrowLeft',r:'ArrowRight',f:'Enter'};
+    const scores = [0,0];
+    const respawn = (t,i) => { t.x = i===0?100:W-100; t.y=H/2; t.a=i===0?0:Math.PI; t.hp=5; t.bullets=[]; };
+    const loop = () => {
+      if (!this._activeHTML5) return;
+      ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+      ctx.strokeStyle='#333';ctx.lineWidth=2;
+      walls.forEach(w=>{ctx.fillStyle='#2a2a2a';ctx.fillRect(w.x,w.y,w.w,w.h);ctx.strokeRect(w.x,w.y,w.w,w.h);});
+      const mv = (t,k) => {
+        let nx=t.x,ny=t.y;
+        if(keys[k.u])ny-=t.s; if(keys[k.d])ny+=t.s;
+        if(keys[k.l])t.a-=0.05; if(keys[k.r])t.a+=0.05;
+        const blocked = walls.some(w=>nx>w.x-12&&nx<w.x+w.w+12&&ny>w.y-12&&ny<w.y+w.h+12);
+        if(!blocked){t.x=Math.max(12,Math.min(W-12,nx));t.y=Math.max(12,Math.min(H-12,ny));}
+        if(keys[k.f]&&t.cd<=0){t.bullets.push({x:t.x+Math.cos(t.a)*16,y:t.y+Math.sin(t.a)*16,dx:Math.cos(t.a)*5,dy:Math.sin(t.a)*5,life:120,bounces:0});t.cd=15;}
+        if(t.cd>0)t.cd--;
+      };
+      mv(tanks[0],p1k);mv(tanks[1],p2k);
+      tanks.forEach((t,ti) => {
+        t.bullets = t.bullets.filter(b => {
+          b.x+=b.dx;b.y+=b.dy;b.life--;
+          if(b.x<0||b.x>W){b.dx*=-1;b.bounces++;}
+          if(b.y<0||b.y>H){b.dy*=-1;b.bounces++;}
+          walls.forEach(w=>{if(b.x>w.x&&b.x<w.x+w.w&&b.y>w.y&&b.y<w.y+w.h){b.dx*=-1;b.dy*=-1;b.bounces++;}});
+          const ot=tanks[1-ti];
+          if(Math.hypot(b.x-ot.x,b.y-ot.y)<14){ot.hp--;if(ot.hp<=0){scores[ti]++;respawn(ot,1-ti);}return false;}
+          return b.life>0&&b.bounces<3;
+        });
+      });
+      tanks.forEach(t=>{
+        ctx.save();ctx.translate(t.x,t.y);ctx.rotate(t.a);
+        ctx.fillStyle=t.c;ctx.fillRect(-12,-10,24,20);
+        ctx.fillRect(10,-3,14,6);
+        ctx.restore();
+        ctx.fillStyle=t.c;
+        t.bullets.forEach(b=>{ctx.beginPath();ctx.arc(b.x,b.y,3,0,Math.PI*2);ctx.fill();});
+        ctx.fillStyle='#333';ctx.fillRect(t.x-15,t.y-20,30,4);
+        ctx.fillStyle=t.hp>2?'#4caf50':'#f44336';ctx.fillRect(t.x-15,t.y-20,(t.hp/5)*30,4);
+      });
+      ctx.fillStyle='#fff';ctx.font='bold 16px monospace';ctx.textAlign='center';
+      ctx.fillText(`P1: ${scores[0]}  |  P2: ${scores[1]}`,W/2,25);
+      ctx.font='11px monospace';ctx.fillStyle='#666';
+      ctx.fillText('P1: WASD+Space  |  P2: Arrows+Enter',W/2,H-10);
+      requestAnimationFrame(loop);
+    };
+    loop();
+  }
+  _loadFlashGame(swfPath, container) {
+    container.innerHTML = '<div class="game-placeholder">Loading Flash game via Ruffle...</div>';
+    let elapsed = 0;
+    const checkRuffle = () => {
+      elapsed += 200;
+      const ruffleAvail = typeof window.RufflePlayer !== 'undefined' || typeof window.ruffle !== 'undefined';
+      if (!ruffleAvail && elapsed < 15000) { setTimeout(checkRuffle, 200); return; }
+      if (!ruffleAvail) { container.innerHTML = '<div class="game-placeholder">Ruffle failed to load — check CSP or network</div>'; return; }
+      container.innerHTML = '';
+      const ruffleObj = window.RufflePlayer?.newest?.() || window.ruffle?.newest?.();
+      if (!ruffleObj) { container.innerHTML = '<div class="game-placeholder">Ruffle init failed — try refreshing</div>'; return; }
+      const player = ruffleObj.createPlayer();
+      player.style.cssText = 'width:100%;height:100%;display:block;border-radius:4px;';
+      container.style.display = 'block';
+      container.style.alignItems = 'stretch';
+      container.style.justifyContent = 'stretch';
+      container.appendChild(player);
+      player.load(swfPath).catch(() => {
+        container.innerHTML = '<div class="game-placeholder">Failed to load SWF file</div>';
+      });
+    };
+    checkRuffle();
+  }
+  _gameSnakeBattle(ctx, W, H, keys) {
+    const G=20,C=W/G,R=H/G;
+    const snakes=[
+      {body:[{x:5,y:Math.floor(R/2)}],dir:{x:1,y:0},c:'#4fc3f7',score:0,alive:true},
+      {body:[{x:C-6,y:Math.floor(R/2)}],dir:{x:-1,y:0},c:'#ff6ec7',score:0,alive:true}
+    ];
+    let food={x:Math.floor(C/2),y:Math.floor(R/2)};
+    const spawnFood=()=>{food={x:Math.floor(Math.random()*C),y:Math.floor(Math.random()*R)};};
+    const p1d={w:{x:0,y:-1},s:{x:0,y:1},a:{x:-1,y:0},d:{x:1,y:0}};
+    const p2d={ArrowUp:{x:0,y:-1},ArrowDown:{x:0,y:1},ArrowLeft:{x:-1,y:0},ArrowRight:{x:1,y:0}};
+    let tick=0;
+    const loop=()=>{
+      if(!this._activeHTML5)return;
+      tick++;
+      if(tick%6===0){
+        Object.entries(p1d).forEach(([k,v])=>{if(keys[k]&&!(v.x===-snakes[0].dir.x&&v.y===-snakes[0].dir.y))snakes[0].dir=v;});
+        Object.entries(p2d).forEach(([k,v])=>{if(keys[k]&&!(v.x===-snakes[1].dir.x&&v.y===-snakes[1].dir.y))snakes[1].dir=v;});
+        snakes.forEach((s,si)=>{
+          if(!s.alive)return;
+          const h={x:s.body[0].x+s.dir.x,y:s.body[0].y+s.dir.y};
+          if(h.x<0||h.x>=C||h.y<0||h.y>=R){s.alive=false;snakes[1-si].score+=5;return;}
+          if(snakes.some(os=>os.body.some(b=>b.x===h.x&&b.y===h.y))){s.alive=false;snakes[1-si].score+=5;return;}
+          s.body.unshift(h);
+          (h.x===food.x&&h.y===food.y)?(s.score++,spawnFood()):s.body.pop();
+        });
+        if(!snakes[0].alive||!snakes[1].alive){snakes.forEach((s,i)=>{s.body=[{x:i===0?5:C-6,y:Math.floor(R/2)}];s.dir={x:i===0?1:-1,y:0};s.alive=true;});spawnFood();}
+      }
+      ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#ff4444';ctx.fillRect(food.x*G,food.y*G,G-1,G-1);
+      snakes.forEach(s=>{s.body.forEach((b,i)=>{ctx.fillStyle=i===0?'#fff':s.c;ctx.fillRect(b.x*G,b.y*G,G-1,G-1);});});
+      ctx.fillStyle='#fff';ctx.font='bold 14px monospace';ctx.textAlign='center';
+      ctx.fillText(`P1: ${snakes[0].score}  |  P2: ${snakes[1].score}`,W/2,18);
+      ctx.font='11px monospace';ctx.fillStyle='#666';
+      ctx.fillText('P1: WASD  |  P2: Arrows',W/2,H-10);
+      requestAnimationFrame(loop);
+    };
+    loop();
+  }
+  _gameTetrisBattle(ctx, W, H, keys) {
+    const BW=10,BH=20,BS=Math.floor(Math.min((W/2-30)/BW,(H-60)/BH));
+    const SHAPES=[[[1,1,1,1]],[[1,1],[1,1]],[[0,1,0],[1,1,1]],[[1,0,0],[1,1,1]],[[0,0,1],[1,1,1]],[[0,1,1],[1,1,0]],[[1,1,0],[0,1,1]]];
+    const COLORS=['#00f0f0','#f0f000','#a020f0','#0040f0','#f0a000','#00f040','#f00040'];
+    const mkBoard=()=>Array.from({length:BH},()=>Array(BW).fill(0));
+    const players=[
+      {board:mkBoard(),piece:null,px:0,py:0,pi:0,cd:0,drop:0,score:0,lines:0,kl:'a',kr:'d',ku:'w',kd:'s',krot:'q'},
+      {board:mkBoard(),piece:null,px:0,py:0,pi:0,cd:0,drop:0,score:0,lines:0,kl:'ArrowLeft',kr:'ArrowRight',ku:'ArrowUp',kd:'ArrowDown',krot:'/'}
+    ];
+    const spawn=(p)=>{const i=Math.floor(Math.random()*SHAPES.length);p.pi=i;p.piece=SHAPES[i];p.px=Math.floor((BW-p.piece[0].length)/2);p.py=0;p.drop=0;};
+    const fits=(board,piece,px,py)=>{for(let r=0;r<piece.length;r++)for(let c=0;c<piece[r].length;c++){if(!piece[r][c])continue;const bx=px+c,by=py+r;if(bx<0||bx>=BW||by>=BH)return false;if(by>=0&&board[by][bx])return false;}return true;};
+    const place=(board,piece,px,py,pi)=>{for(let r=0;r<piece.length;r++)for(let c=0;c<piece[r].length;c++){if(piece[r][c]&&py+r>=0)board[py+r][px+c]=pi+1;}};
+    const rotate=(piece)=>{const R=piece.length,C=piece[0].length;return Array.from({length:C},(_,c)=>Array.from({length:R},(_,r)=>piece[R-1-r][c]));};
+    const clearLines=(p,opp)=>{let cleared=0;p.board=p.board.filter(row=>{if(row.every(c=>c)){cleared++;return false;}return true;});while(p.board.length<BH)p.board.unshift(Array(BW).fill(0));if(cleared>0){p.lines+=cleared;p.score+=cleared*cleared*100;if(cleared>=2){const garbage=Array(BW).fill(8);garbage[Math.floor(Math.random()*BW)]=0;for(let i=0;i<cleared-1;i++){opp.board.shift();opp.board.push([...garbage]);}}}};
+    players.forEach(p=>spawn(p));
+    let tick=0,gameOver=false;
+    const loop=()=>{
+      if(!this._activeHTML5)return;
+      tick++;
+      const speed=Math.max(5,30-Math.floor(tick/600));
+      players.forEach((p,pi)=>{
+        if(p.cd>0){p.cd--;return;}
+        if(keys[p.kl]&&fits(p.board,p.piece,p.px-1,p.py)){p.px--;p.cd=4;}
+        if(keys[p.kr]&&fits(p.board,p.piece,p.px+1,p.py)){p.px++;p.cd=4;}
+        if(keys[p.krot]){const rot=rotate(p.piece);if(fits(p.board,rot,p.px,p.py)){p.piece=rot;p.cd=6;}}
+        if(keys[p.kd])p.drop+=3;
+      });
+      if(tick%3===0)players.forEach((p,pi)=>{
+        p.drop++;
+        if(p.drop>=Math.max(5,30-Math.floor(tick/600))){
+          p.drop=0;
+          fits(p.board,p.piece,p.px,p.py+1)?p.py++:(place(p.board,p.piece,p.px,p.py,p.pi),clearLines(p,players[1-pi]),spawn(p),fits(p.board,p.piece,p.px,p.py)||(gameOver=true));
+        }
+      });
+      ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+      players.forEach((p,pi)=>{
+        const ox=pi===0?20:W/2+10,oy=30;
+        ctx.strokeStyle='#333';ctx.strokeRect(ox-1,oy-1,BW*BS+2,BH*BS+2);
+        for(let r=0;r<BH;r++)for(let c=0;c<BW;c++){ctx.fillStyle=p.board[r][c]?COLORS[p.board[r][c]-1]:'#1a1a1a';ctx.fillRect(ox+c*BS,oy+r*BS,BS-1,BS-1);}
+        if(p.piece)for(let r=0;r<p.piece.length;r++)for(let c=0;c<p.piece[r].length;c++){if(p.piece[r][c]){ctx.fillStyle=COLORS[p.pi];ctx.fillRect(ox+(p.px+c)*BS,oy+(p.py+r)*BS,BS-1,BS-1);}}
+        ctx.fillStyle='#fff';ctx.font='bold 12px monospace';ctx.textAlign='center';
+        ctx.fillText(`P${pi+1}: ${p.score} (${p.lines}L)`,ox+BW*BS/2,oy-10);
+      });
+      ctx.font='11px monospace';ctx.fillStyle='#666';ctx.textAlign='center';
+      ctx.fillText('P1: WASD+Q  |  P2: Arrows+/',W/2,H-10);
+      if(gameOver){ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(0,0,W,H);ctx.fillStyle='#ff4444';ctx.font='bold 28px monospace';ctx.textAlign='center';ctx.fillText('GAME OVER',W/2,H/2);return;}
+      requestAnimationFrame(loop);
+    };
+    loop();
+  }
+  _gameAsteroids(ctx, W, H, keys) {
+    const ship={x:W/2,y:H/2,a:-Math.PI/2,vx:0,vy:0,cd:0};
+    let bullets=[],asteroids=[],score=0,lives=3;
+    const spawnAsteroids=(n)=>{for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2;asteroids.push({x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*(1+Math.random()),vy:Math.sin(a)*(1+Math.random()),r:30+Math.random()*20,tier:2});}};
+    spawnAsteroids(5);
+    const loop=()=>{
+      if(!this._activeHTML5)return;
+      ctx.fillStyle='#050510';ctx.fillRect(0,0,W,H);
+      if(keys['a']||keys['ArrowLeft'])ship.a-=0.06;
+      if(keys['d']||keys['ArrowRight'])ship.a+=0.06;
+      if(keys['w']||keys['ArrowUp']){ship.vx+=Math.cos(ship.a)*0.15;ship.vy+=Math.sin(ship.a)*0.15;}
+      if((keys[' ']||keys['Enter'])&&ship.cd<=0){bullets.push({x:ship.x+Math.cos(ship.a)*14,y:ship.y+Math.sin(ship.a)*14,vx:Math.cos(ship.a)*7,vy:Math.sin(ship.a)*7,life:50});ship.cd=8;}
+      if(ship.cd>0)ship.cd--;
+      ship.x=(ship.x+ship.vx+W)%W;ship.y=(ship.y+ship.vy+H)%H;
+      ship.vx*=0.99;ship.vy*=0.99;
+      ctx.save();ctx.translate(ship.x,ship.y);ctx.rotate(ship.a);ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(14,0);ctx.lineTo(-8,-8);ctx.lineTo(-4,0);ctx.lineTo(-8,8);ctx.closePath();ctx.stroke();ctx.restore();
+      bullets=bullets.filter(b=>{b.x=(b.x+b.vx+W)%W;b.y=(b.y+b.vy+H)%H;b.life--;ctx.fillStyle='#ff0';ctx.beginPath();ctx.arc(b.x,b.y,2,0,Math.PI*2);ctx.fill();return b.life>0;});
+      let newA=[];
+      asteroids=asteroids.filter(a=>{
+        a.x=(a.x+a.vx+W)%W;a.y=(a.y+a.vy+H)%H;
+        let hit=false;
+        bullets=bullets.filter(b=>{if(Math.hypot(b.x-a.x,b.y-a.y)<a.r){hit=true;return false;}return true;});
+        if(hit){score+=10*(3-a.tier);if(a.tier>0){const na=Math.random()*Math.PI*2;newA.push({x:a.x,y:a.y,vx:Math.cos(na)*2,vy:Math.sin(na)*2,r:a.r*0.6,tier:a.tier-1},{x:a.x,y:a.y,vx:-Math.cos(na)*2,vy:-Math.sin(na)*2,r:a.r*0.6,tier:a.tier-1});}return false;}
+        if(Math.hypot(ship.x-a.x,ship.y-a.y)<a.r+8){lives--;ship.x=W/2;ship.y=H/2;ship.vx=0;ship.vy=0;}
+        ctx.strokeStyle='#aaa';ctx.lineWidth=1;ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,Math.PI*2);ctx.stroke();
+        return true;
+      });
+      asteroids.push(...newA);
+      if(asteroids.length===0)spawnAsteroids(5+Math.floor(score/200));
+      ctx.fillStyle='#fff';ctx.font='bold 14px monospace';ctx.textAlign='left';
+      ctx.fillText(`Score: ${score}  Lives: ${lives}`,10,20);
+      ctx.font='11px monospace';ctx.fillStyle='#666';ctx.textAlign='center';
+      ctx.fillText('WASD/Arrows: Move  |  Space: Shoot',W/2,H-10);
+      if(lives<=0){ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(0,0,W,H);ctx.fillStyle='#ff4444';ctx.font='bold 32px monospace';ctx.textAlign='center';ctx.fillText('GAME OVER',W/2,H/2-20);ctx.fillStyle='#fff';ctx.font='18px monospace';ctx.fillText(`Score: ${score}`,W/2,H/2+20);return;}
+      requestAnimationFrame(loop);
+    };
+    loop();
+  }
+  _gameBreakout(ctx, W, H, keys) {
+    const pw=100,ph=12,brickR=8,brickC=12,brickW=W/brickC-4,brickH=18;
+    let px=W/2-pw/2,ball={x:W/2,y:H-50,dx:3,dy:-3,r:6},score=0,lives=3;
+    const colors=['#ff4444','#ff8844','#ffcc44','#44ff44','#4488ff','#aa44ff'];
+    let bricks=[];
+    for(let r=0;r<brickR;r++)for(let c=0;c<brickC;c++)bricks.push({x:c*(brickW+4)+2,y:r*(brickH+4)+40,w:brickW,h:brickH,c:colors[r%colors.length],alive:true});
+    const loop=()=>{
+      if(!this._activeHTML5)return;
+      ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+      if(keys['a']||keys['ArrowLeft'])px=Math.max(0,px-6);
+      if(keys['d']||keys['ArrowRight'])px=Math.min(W-pw,px+6);
+      ball.x+=ball.dx;ball.y+=ball.dy;
+      if(ball.x-ball.r<=0||ball.x+ball.r>=W)ball.dx*=-1;
+      if(ball.y-ball.r<=0)ball.dy*=-1;
+      if(ball.y+ball.r>=H-ph&&ball.x>=px&&ball.x<=px+pw){ball.dy=-Math.abs(ball.dy);ball.dx+=(ball.x-(px+pw/2))*0.08;}
+      if(ball.y>H){lives--;ball.x=W/2;ball.y=H-50;ball.dx=3*(Math.random()>0.5?1:-1);ball.dy=-3;}
+      bricks.forEach(b=>{if(!b.alive)return;if(ball.x+ball.r>b.x&&ball.x-ball.r<b.x+b.w&&ball.y+ball.r>b.y&&ball.y-ball.r<b.y+b.h){b.alive=false;ball.dy*=-1;score+=10;}});
+      ctx.fillStyle='#4fc3f7';ctx.fillRect(px,H-ph-4,pw,ph);
+      ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fill();
+      bricks.forEach(b=>{if(!b.alive)return;ctx.fillStyle=b.c;ctx.fillRect(b.x,b.y,b.w,b.h);});
+      ctx.fillStyle='#fff';ctx.font='bold 14px monospace';ctx.textAlign='left';
+      ctx.fillText(`Score: ${score}  Lives: ${lives}`,10,20);
+      ctx.font='11px monospace';ctx.fillStyle='#666';ctx.textAlign='center';
+      ctx.fillText('A/D or Arrows: Move Paddle',W/2,H-10);
+      if(!bricks.some(b=>b.alive)){bricks.forEach(b=>b.alive=true);ball.dx*=1.1;ball.dy*=1.1;}
+      if(lives<=0){ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(0,0,W,H);ctx.fillStyle='#ff4444';ctx.font='bold 32px monospace';ctx.textAlign='center';ctx.fillText('GAME OVER',W/2,H/2-20);ctx.fillStyle='#fff';ctx.font='18px monospace';ctx.fillText(`Score: ${score}`,W/2,H/2+20);return;}
+      requestAnimationFrame(loop);
+    };
+    loop();
+  }
+  async _loadEmulator(consoleDef, romFile) {
+    const container = document.getElementById('game-container');
+    if (!container) throw new Error('Game container not found');
+    container.innerHTML = '<div class="game-placeholder">Loading emulator...</div>';
+    container.style.display = 'block';
+    container.style.alignItems = 'stretch';
+    container.style.justifyContent = 'stretch';
+    container.style.position = 'relative';
+    const ejsVars = ['EJS_emulator','EJS_player','EJS_core','EJS_gameUrl','EJS_gameID','EJS_pathtodata','EJS_startOnLoaded','EJS_color','EJS_defaultControls','EJS_Buttons','EJS_biosUrl','EJS_onGameStart','EJS_onSaveState','EJS_onLoadState','EJS_threads','EJS_DEBUG_XX','EJS_RESET_VARS'];
+    ejsVars.forEach(k => { try { delete window[k]; } catch {} });
+    document.querySelectorAll('script[src*="emulatorjs"]').forEach(s => s.remove());
+    document.querySelectorAll('link[href*="emulatorjs"]').forEach(l => l.remove());
+    document.querySelectorAll('style[data-emulatorjs]').forEach(s => s.remove());
+    const isN64 = consoleDef.id === 'n64';
+    let core = consoleDef.core;
+    if (isN64) {
+      const n64Check = this._checkN64Support();
+      if (!n64Check.hasWGL2) {
+        container.innerHTML = '<div class="game-placeholder">N64 requires WebGL2 — try Chrome or Edge</div>';
+        throw new Error('N64 emulation requires WebGL2 support');
+      }
+      core = n64Check.canThread ? 'mupen64plus_next' : 'parallel_n64';
+      container.innerHTML = `<div class="game-placeholder">Loading N64 core (${core})...</div>`;
+    }
+    const romUrl = URL.createObjectURL(romFile);
+    window.EJS_player = '#game-container';
+    window.EJS_core = core;
+    window.EJS_gameUrl = romUrl;
+    window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+    window.EJS_startOnLoaded = true;
+    window.EJS_color = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#7289da';
+    window.EJS_gameID = romFile.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
+    window.EJS_defaultControls = true;
+    window.EJS_Buttons = { playPause:true, restart:true, mute:true, settings:true, fullscreen:true, saveState:true, loadState:true, screenRecord:false, gamepad:true, cheat:false, volume:true, saveSavFiles:true, loadSavFiles:true, quickSave:true, quickLoad:true, screenshot:true, cacheManager:false };
+    if (isN64) {
+      window.EJS_threads = typeof SharedArrayBuffer !== 'undefined';
+      window.EJS_DEBUG_XX = false;
+      window.EJS_RESET_VARS = true;
+    }
+    if (consoleDef.needsBios) window.EJS_biosUrl = `/games/bios/${consoleDef.id}/`;
+    window.EJS_onGameStart = () => { this._onGameStarted(); };
+    window.EJS_onSaveState = (data) => { this._onSaveState(data); };
+    window.EJS_onLoadState = () => { this._onLoadState(); };
+    const script = document.createElement('script');
+    script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+    script.async = true;
+    document.body.appendChild(script);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const checkReady = () => {
+        if (window.EJS_emulator) { settled = true; resolve(); return; }
+        if (settled) return;
+        setTimeout(checkReady, 500);
+      };
+      script.onload = () => { setTimeout(checkReady, 1000); };
+      script.onerror = () => {
+        if (settled) return;
+        settled = true;
+        if (isN64 && core === 'mupen64plus_next') {
+          container.innerHTML = '<div class="game-placeholder">Retrying with parallel_n64...</div>';
+          window.EJS_core = 'parallel_n64';
+          window.EJS_threads = false;
+          const retry = document.createElement('script');
+          retry.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+          retry.async = true;
+          document.body.appendChild(retry);
+          retry.onload = () => { setTimeout(() => { settled = true; resolve(); }, 2000); };
+          retry.onerror = () => {
+            settled = true;
+            container.innerHTML = '<div class="game-placeholder">Failed to load N64 core</div>';
+            reject(new Error('N64 cores failed to load'));
+          };
+          return;
+        }
+        container.innerHTML = '<div class="game-placeholder">Failed to load emulator core</div>';
+        reject(new Error(`Core "${core}" failed to load`));
+      };
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          if (document.querySelector('#game-container canvas, #game-container iframe, #game-container #ejs_emulator')) { resolve(); return; }
+          container.innerHTML = '<div class="game-placeholder">Emulator timed out — try another core</div>';
+          reject(new Error('Emulator loader timed out'));
+        }
+      }, 45000);
+    });
+  }
+  _onGameStarted() {
+    this.emulator = window.EJS_emulator;
+    if (this.netplayEnabled && this.isHost) this._startNetplay();
+  }
+  _onSaveState(data) {
+    if (this.isHost && this.currentSession) {
+      const blob = new Blob([data], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${this.currentSession.romName.replace(/\.[^/.]+$/, '')}_save.state`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+  _onLoadState() {}
+  joinGame(sessionData) {
+    this.currentSession = sessionData;
+    this.isHost = false;
+  }
+  requestController(controllerId) {
+    if (!this.currentSession) return;
+    this.socket.emit('game-request-controller', { channelCode: this.currentSession.channelCode, controllerId });
+  }
+  releaseController() {
+    if (!this.currentSession) return;
+    const myController = [...this.controllerMap.entries()].find(([_, uid]) => uid === this.userId);
+    if (myController) this.socket.emit('game-release-controller', { channelCode: this.currentSession.channelCode, controllerId: myController[0] });
+  }
+  sendInput(controllerId, input) {
+    if (!this.netplayEnabled || !this.currentSession) return;
+    this.socket.emit('game-input', { channelCode: this.currentSession.channelCode, controllerId, input, frame: this._getCurrentFrame() });
+  }
+  _getCurrentFrame() { return this.emulator?.getFrameCount?.() || 0; }
+  _startNetplay() {
+    this.netplayEnabled = true;
+    if (this.emulator?.netplay) this.emulator.netplay.start();
+  }
+  endGame() {
+    if (this.currentSession) this.socket.emit('game-end', { channelCode: this.currentSession.channelCode });
+    this._cleanup();
+  }
+  _cleanup() {
+    this.currentSession = null;
+    this.isHost = false;
+    this.players.clear();
+    this.spectators.clear();
+    this.controllerMap.clear();
+    this.netplayEnabled = false;
+    this._activeHTML5 = null;
+    if (this._html5Cleanup) { this._html5Cleanup(); this._html5Cleanup = null; }
+    if (window.EJS_emulator) {
+      try { window.EJS_emulator.pause(); } catch {}
+      try { window.EJS_emulator.callEvent?.('exit'); } catch {}
+    }
+    ['EJS_emulator','EJS_player','EJS_core','EJS_gameUrl','EJS_gameID','EJS_pathtodata','EJS_startOnLoaded','EJS_color','EJS_defaultControls','EJS_Buttons','EJS_biosUrl','EJS_onGameStart','EJS_onSaveState','EJS_onLoadState','EJS_threads','EJS_DEBUG_XX','EJS_RESET_VARS'].forEach(k => { try { delete window[k]; } catch {} });
+    document.querySelectorAll('script[src*="emulatorjs"]').forEach(s => s.remove());
+    const container = document.getElementById('game-container');
+    if (container) {
+      container.innerHTML = '<div class="game-placeholder">Select a game to play</div>';
+      container.style.display = '';
+      container.style.alignItems = '';
+      container.style.justifyContent = '';
+      container.style.position = '';
+    }
+    this.emulator = null;
+  }
+  _setupSocketListeners() {
+    this.socket.on('game-session', (data) => {
+      if (data) {
+        this.currentSession = data;
+        this.players = new Map(data.players.map(p => [p.id, p]));
+        this.controllerMap = new Map(data.controllers || []);
+        this._renderPlayers();
+        if (this.onSessionUpdate) this.onSessionUpdate(data);
+      } else {
+        this._cleanup();
+        if (this.onSessionEnd) this.onSessionEnd();
+      }
+    });
+    this.socket.on('game-player-joined', (data) => {
+      this.players.set(data.userId, { id: data.userId, name: data.username, controller: null });
+      this._renderPlayers();
+      if (this.onPlayerJoin) this.onPlayerJoin(data);
+    });
+    this.socket.on('game-player-left', (data) => {
+      this.players.delete(data.userId);
+      this._renderPlayers();
+      if (this.onPlayerLeave) this.onPlayerLeave(data);
+    });
+    this.socket.on('game-controller-assigned', (data) => {
+      this.controllerMap.set(data.controllerId, data.userId);
+      const player = this.players.get(data.userId);
+      if (player) player.controller = data.controllerId;
+      this._renderPlayers();
+      if (this.onControllerChange) this.onControllerChange(data);
+    });
+    this.socket.on('game-controller-released', (data) => {
+      this.controllerMap.delete(data.controllerId);
+      const player = this.players.get(data.userId);
+      if (player) player.controller = null;
+      this._renderPlayers();
+    });
+    this.socket.on('game-input-sync', (data) => {
+      if (!this.netplayEnabled || this.isHost) return;
+      this.inputBuffer.push(data);
+      this._applyInputs();
+    });
+    this.socket.on('game-state-sync', (data) => {
+      if (this.isHost || !this.emulator) return;
+      if (data.saveState) this.emulator.loadState(new Uint8Array(data.saveState));
+    });
+    this.socket.on('game-ended', () => {
+      this._cleanup();
+      if (this.onSessionEnd) this.onSessionEnd();
+    });
+  }
+  _applyInputs() {
+    while (this.inputBuffer.length > 0) {
+      const input = this.inputBuffer.shift();
+      if (this.emulator?.setInput) this.emulator.setInput(input.controllerId, input.input);
+    }
+  }
+  _renderPlayers() {
+    const el = document.getElementById('game-players-list');
+    if (!el) return;
+    el.innerHTML = [...this.players.values()].map(p => `<div class="game-player-item ${p.controller ? 'has-controller' : ''}"><span class="gp-name">${this._esc(p.name)}</span><span class="gp-controller">${p.controller ? `🎮 P${p.controller}` : '👁️ Spectating'}</span></div>`).join('');
+  }
+  _esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  onSessionUpdate = null;
+  onSessionEnd = null;
+  onPlayerJoin = null;
+  onPlayerLeave = null;
+  onControllerChange = null;
+}
+if (typeof module !== 'undefined') module.exports = { GameManager, HTML5_GAMES, FLASH_GAMES };

@@ -1,0 +1,3715 @@
+// ═══════════════════════════════════════════════════════════
+// Haven — Main Client Application
+// Features: chat, voice, themes, images, multi-server,
+//           notifications, volume sliders, status bar
+// ═══════════════════════════════════════════════════════════
+
+class HavenApp {
+  constructor() {
+    this.token = localStorage.getItem('haven_token');
+    this.user = JSON.parse(localStorage.getItem('haven_user') || 'null');
+    this.socket = null;
+    this.voice = null;
+    this.currentChannel = null;
+    this.channels = [];
+    this.typingTimeout = null;
+    this.lastTypingEmit = 0;
+    this.unreadCounts = {};
+    this.onlineCount = 0;
+    this.pingInterval = null;
+    this.serverManager = new ServerManager();
+    this.notifications = new NotificationManager();
+    this.replyingTo = null;        // message object being replied to
+    this.channelMembers = [];      // for @mention autocomplete
+    this.mentionQuery = '';        // current partial @mention being typed
+    this.mentionStart = -1;        // cursor position of the '@'
+    this.editingMsgId = null;      // message currently being edited
+    this.serverSettings = {};      // server-wide settings
+    this.adminActionTarget = null;
+    this.blockedUsers = new Set();
+    this.dms = [];
+    this.currentDm = null;
+    this.activeCall = null;
+    this.gifProvider = 'giphy';
+    this.gameManager = null;
+
+    // Slash command definitions for autocomplete
+    this.slashCommands = [
+      { cmd: 'shrug',      args: '[text]',   desc: 'Appends ¯\\_(ツ)_/¯' },
+      { cmd: 'tableflip',  args: '[text]',   desc: 'Flip a table (╯°□°)╯︵ ┻━┻' },
+      { cmd: 'unflip',     args: '[text]',   desc: 'Put the table back ┬─┬ ノ( ゜-゜ノ)' },
+      { cmd: 'lenny',      args: '[text]',   desc: 'Lenny face ( ͡° ͜ʖ ͡°)' },
+      { cmd: 'disapprove', args: '[text]',   desc: 'ಠ_ಠ look of disapproval' },
+      { cmd: 'me',         args: '<action>', desc: 'Italic action message' },
+      { cmd: 'spoiler',    args: '<text>',   desc: 'Hidden spoiler text' },
+      { cmd: 'tts',        args: '<text>',   desc: 'Text-to-speech message' },
+      { cmd: 'bbs',        args: '',         desc: 'Announce you\'ll be back soon' },
+      { cmd: 'brb',        args: '',         desc: 'Announce you\'ll be right back' },
+      { cmd: 'afk',        args: '',         desc: 'Away from keyboard' },
+      { cmd: 'boobs',      args: '',         desc: '( . Y . )' },
+      { cmd: 'nick',       args: '<name>',   desc: 'Change your username' },
+      { cmd: 'clear',      args: '',         desc: 'Clear your chat view' },
+      { cmd: 'flip',       args: '',         desc: 'Flip a coin: heads or tails' },
+      { cmd: 'roll',       args: '[NdN]',    desc: 'Roll dice (e.g. /roll 2d6)' },
+      { cmd: 'hug',        args: '<@user>',  desc: 'Send a hug to someone' },
+      { cmd: 'wave',       args: '[text]',   desc: 'Wave at the chat 👋' },
+    ];
+
+    // Quick-access emoji palette (most useful ones)
+    this.emojis = [
+      '😀','😂','😍','🥺','😎','🤔','😭','🥳','🔥','❤️',
+      '👍','👎','👏','🙌','💀','💯','✅','❌','⭐','🎉',
+      '😈','🤡','💩','👀','🫡','🤝','😴','🤣','😤','🫠',
+      '🍕','🎮','🎵','⚡','🚀','💎','🏆','🛡️','⚔️','🧠'
+    ];
+
+    if (!this.token || !this.user) {
+      window.location.href = '/';
+      return;
+    }
+
+    this._init();
+  }
+
+  // ── Initialization ────────────────────────────────────
+
+  _init() {
+    this.socket = io({ auth: { token: this.token } });
+    this.voice = new VoiceManager(this.socket);
+    this.gameManager = new GameManager(this.socket, this.user.id, this.user.username);
+    this.spotifyPlayer = null;
+    this._spotifyReady = false;
+    this._setupSocketListeners();
+    this._setupUI();
+    this._setupThemes();
+    this._setupServerBar();
+    this._setupNotifications();
+    this._setupContextMenu();
+    this._setupAvatarSettings();
+    this._setupDensitySettings();
+    this._setupImageUpload();
+    this._setupGifPicker();
+    this._setupGameUI();
+    this._setupSpotify();
+    this._startStatusBar();
+    this._setupMobile();
+
+    this.socket.emit('get-channels');
+    this.socket.emit('get-server-settings');
+    this.socket.emit('get-preferences');
+    this.socket.emit('get-blocks');
+    this.socket.emit('get-dms');
+
+    document.getElementById('current-user').textContent = this.user.displayName || this.user.username;
+
+    if (this.user.isAdmin) {
+      document.getElementById('create-channel-overlay-btn').style.display = '';
+      document.getElementById('admin-mod-panel').style.display = 'block';
+    }
+    setTimeout(() => new HavenTutorial().start(), 500);
+  }
+
+  // ── Socket Event Listeners ────────────────────────────
+
+  _setupSocketListeners() {
+    this.socket.on('session-info', (data) => {
+      this.user = { ...this.user, ...data };
+      localStorage.setItem('haven_user', JSON.stringify(this.user));
+      const nameEl = document.getElementById('display-name');
+      if (nameEl) nameEl.textContent = this.user.displayName || this.user.username;
+      const loginEl = document.getElementById('login-name');
+      if (loginEl) loginEl.textContent = `@${this.user.username}`;
+      const createBtn = document.getElementById('create-channel-overlay-btn');
+      const adminMod = document.getElementById('admin-mod-panel');
+      if (this.user.isAdmin) {
+        if (createBtn) createBtn.style.display = '';
+        if (adminMod) adminMod.style.display = 'block';
+      } else {
+        if (createBtn) createBtn.style.display = 'none';
+        if (adminMod) adminMod.style.display = 'none';
+      }
+    });
+    this.socket.on('connect', () => {
+      this._setLed('connection-led', 'on');
+      this._setLed('status-server-led', 'on');
+      document.getElementById('status-server-text').textContent = 'Connected';
+      this._startPingMonitor();
+    });
+
+    this.socket.on('disconnect', () => {
+      this._setLed('connection-led', 'danger pulse');
+      this._setLed('status-server-led', 'danger pulse');
+      document.getElementById('status-server-text').textContent = 'Disconnected';
+      document.getElementById('status-ping').textContent = '--';
+    });
+
+    this.socket.on('connect_error', (err) => {
+      if (err.message === 'Invalid token' || err.message === 'Authentication required') {
+        localStorage.removeItem('haven_token');
+        localStorage.removeItem('haven_user');
+        window.location.href = '/';
+      }
+      this._setLed('connection-led', 'danger');
+      this._setLed('status-server-led', 'danger');
+      document.getElementById('status-server-text').textContent = 'Error';
+    });
+
+    this.socket.on('channels-list', (channels) => {
+      this.channels = channels;
+      this._renderChannels();
+    });
+
+    this.socket.on('channel-created', (channel) => {
+      this.channels.push(channel);
+      this._renderChannels();
+      this._showToast(`Channel "#${channel.name}" created!\nCode: ${channel.code}`, 'success');
+      this.switchChannel(channel.code);
+    });
+
+    this.socket.on('channel-joined', (channel) => {
+      if (!this.channels.find(c => c.code === channel.code)) {
+        this.channels.push(channel);
+        this._renderChannels();
+      }
+      this.switchChannel(channel.code);
+    });
+
+    this.socket.on('channels-refresh', () => { this.socket.emit('get-channels'); });
+
+    this.socket.on('channel-removed', (data) => {
+      this.channels = this.channels.filter(c => c.code !== data.code);
+      this._renderChannels();
+      if (this.currentChannel === data.code) { this._showWelcome(); this.currentChannel = null; }
+    });
+
+    this.socket.on('channel-left', (data) => {
+      this.channels = this.channels.filter(c => c.code !== data.code);
+      this._renderChannels();
+      if (this.currentChannel === data.code) { this._showWelcome(); this.currentChannel = null; }
+      this._showToast('Left channel', 'info');
+    });
+
+    this.socket.on('channel-permissions', (data) => {
+      this._currentChannelPermissions = data;
+      this._renderChannelMembers(data);
+    });
+
+    this.socket.on('message-history', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this._renderMessages(data.messages);
+      }
+    });
+
+    this.socket.on('new-message', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this._appendMessage(data.message);
+        if (data.message.user_id !== this.user.id) {
+          // Check if message contains @mention of current user
+          const mentionRegex = new RegExp(`@${this.user.username}\\b`, 'i');
+          if (mentionRegex.test(data.message.content)) {
+            this.notifications.play('mention');
+          } else {
+            this.notifications.play('message');
+          }
+        }
+        // TTS: speak the message aloud for all listeners
+        if (data.message.tts) {
+          this.notifications.speak(`${data.message.username} says: ${data.message.content}`);
+        }
+      } else {
+        this.unreadCounts[data.channelCode] = (this.unreadCounts[data.channelCode] || 0) + 1;
+        this._updateBadge(data.channelCode);
+        // Check @mention even in other channels
+        const mentionRegex = new RegExp(`@${this.user.username}\\b`, 'i');
+        if (data.message.user_id !== this.user.id && mentionRegex.test(data.message.content)) {
+          this.notifications.play('mention');
+        } else {
+          this.notifications.play('message');
+        }
+      }
+    });
+
+    this.socket.on('online-users', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this.onlineCount = data.users.length;
+        this._renderOnlineUsers(data.users);
+      }
+    });
+    this.socket.on('global-online-count', (count) => {
+      document.getElementById('status-online-count').textContent = count;
+      const sidebarCount = document.getElementById('sidebar-bottom-online-count');
+      if (sidebarCount) sidebarCount.textContent = count;
+    });
+
+    this.socket.on('voice-users-update', (data) => {
+      this._renderVoiceUsers(data.users);
+    });
+
+    this.socket.on('user-typing', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this._showTyping(data.username);
+      }
+    });
+
+    this.socket.on('user-joined', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this._appendSystemMessage(`${data.user.username} joined the channel`);
+        this.notifications.play('join');
+      }
+    });
+
+    this.socket.on('channel-deleted', (data) => {
+      this.channels = this.channels.filter(c => c.code !== data.code);
+      this._renderChannels();
+      if (this.currentChannel === data.code) {
+        this.currentChannel = null;
+        this._showWelcome();
+        this._showToast('Channel was deleted', 'error');
+      }
+    });
+
+    this.socket.on('error-msg', (msg) => {
+      this._showToast(msg, 'error');
+    });
+    this.socket.on('listen-session', (session) => {
+      this._onListenSession(session);
+    });
+    this.socket.on('listen-sync-update', (data) => {
+      this._onListenSync(data);
+    });
+    this.socket.on('listen-ended', () => {
+      this._onListenEnded();
+    });
+    this.socket.on('pong-check', () => {
+      if (this._pingStart) {
+        const latency = Date.now() - this._pingStart;
+        document.getElementById('status-ping').textContent = latency;
+      }
+    });
+    this.socket.on('cross-server-ping', (data) => {
+      this.notifications.playDirect('mention');
+      this._showToast(`📡 ${data.fromUser} from ${data.fromServer}: ${data.message}`, 'info', 8000);
+    });
+
+    // ── Reactions ──────────────────────────────────────
+    this.socket.on('reactions-updated', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this._updateMessageReactions(data.messageId, data.reactions);
+      }
+    });
+
+    // ── Channel members (for @mentions) ────────────────
+    this.socket.on('channel-members', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this.channelMembers = data.members;
+      }
+    });
+
+    // ── Username rename ──────────────────────────────
+    this.socket.on('renamed', (data) => {
+      this.token = data.token;
+      this.user = data.user;
+      localStorage.setItem('haven_token', data.token);
+      localStorage.setItem('haven_user', JSON.stringify(data.user));
+      document.getElementById('current-user').textContent = data.user.username;
+      this._showToast(`You are now "${data.user.username}"`, 'success');
+      // Refresh admin UI in case admin status changed
+      if (data.user.isAdmin) {
+        document.getElementById('create-channel-overlay-btn').style.display = '';
+        document.getElementById('admin-mod-panel').style.display = 'block';
+        if (this.currentChannel) {
+          document.getElementById('delete-channel-btn').style.display = 'inline-flex';
+        }
+      } else {
+        document.getElementById('create-channel-overlay-btn').style.display = 'none';
+        document.getElementById('admin-mod-panel').style.display = 'none';
+        document.getElementById('delete-channel-btn').style.display = 'none';
+      }
+    });
+
+    this.socket.on('user-renamed', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this._appendSystemMessage(`${data.oldName} is now known as ${data.newName}`);
+      }
+    });
+
+    // ── Message edit / delete ──────────────────────────
+    this.socket.on('message-edited', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        const msgEl = document.querySelector(`[data-msg-id="${data.messageId}"]`);
+        if (!msgEl) return;
+        const contentEl = msgEl.querySelector('.message-content');
+        if (contentEl) {
+          contentEl.innerHTML = this._formatContent(data.content);
+          // Add or update edited indicator
+          let editedTag = msgEl.querySelector('.edited-tag');
+          if (!editedTag) {
+            editedTag = document.createElement('span');
+            editedTag.className = 'edited-tag';
+            editedTag.title = `Edited at ${new Date(data.editedAt).toLocaleString()}`;
+            editedTag.textContent = '(edited)';
+            contentEl.appendChild(editedTag);
+          }
+        }
+      }
+    });
+
+    this.socket.on('message-deleted', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        const msgEl = document.querySelector(`[data-msg-id="${data.messageId}"]`);
+        if (msgEl) msgEl.remove();
+      }
+    });
+
+    // ── Pin / Unpin ──────────────────────────────────
+    this.socket.on('message-pinned', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        const msgEl = document.querySelector(`[data-msg-id="${data.messageId}"]`);
+        if (msgEl) {
+          msgEl.classList.add('pinned');
+          msgEl.dataset.pinned = '1';
+          // Add pin tag to header
+          const header = msgEl.querySelector('.message-header');
+          if (header && !header.querySelector('.pinned-tag')) {
+            header.insertAdjacentHTML('beforeend', '<span class="pinned-tag" title="Pinned message">📌</span>');
+          }
+          // Update toolbar: swap pin → unpin
+          const pinBtn = msgEl.querySelector('[data-action="pin"]');
+          if (pinBtn) { pinBtn.dataset.action = 'unpin'; pinBtn.title = 'Unpin'; }
+        }
+        this._appendSystemMessage(`📌 ${data.pinnedBy} pinned a message`);
+      }
+    });
+
+    this.socket.on('message-unpinned', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        const msgEl = document.querySelector(`[data-msg-id="${data.messageId}"]`);
+        if (msgEl) {
+          msgEl.classList.remove('pinned');
+          delete msgEl.dataset.pinned;
+          const tag = msgEl.querySelector('.pinned-tag');
+          if (tag) tag.remove();
+          // Update toolbar: swap unpin → pin
+          const unpinBtn = msgEl.querySelector('[data-action="unpin"]');
+          if (unpinBtn) { unpinBtn.dataset.action = 'pin'; unpinBtn.title = 'Pin'; }
+        }
+        this._appendSystemMessage('📌 A message was unpinned');
+      }
+    });
+
+    this.socket.on('pinned-messages', (data) => {
+      if (data.channelCode === this.currentChannel) {
+        this._renderPinnedPanel(data.pins);
+      }
+    });
+
+    // ── Admin moderation events ────────────────────────
+    this.socket.on('kicked', (data) => {
+      this._showToast(`You were kicked${data.reason ? ': ' + data.reason : ''}`, 'error');
+      if (this.currentChannel === data.channelCode) {
+        this.currentChannel = null;
+        this._showWelcome();
+      }
+    });
+
+    this.socket.on('banned', (data) => {
+      this._showToast(`You have been banned${data.reason ? ': ' + data.reason : ''}`, 'error');
+      setTimeout(() => {
+        localStorage.removeItem('haven_token');
+        localStorage.removeItem('haven_user');
+        window.location.href = '/';
+      }, 3000);
+    });
+
+    this.socket.on('muted', (data) => {
+      this._showToast(`You have been muted for ${data.duration} min${data.reason ? ': ' + data.reason : ''}`, 'error');
+    });
+
+    this.socket.on('ban-list', (data) => {
+      this._renderBanList(data);
+    });
+
+    // ── Server settings ────────────────────────────────
+    this.socket.on('server-settings', (settings) => {
+      this.serverSettings = settings;
+      this._applyServerSettings();
+    });
+
+    this.socket.on('server-setting-changed', (data) => {
+      this.serverSettings[data.key] = data.value;
+      this._applyServerSettings();
+    });
+
+    // ── User preferences (persistent theme etc.) ───────
+    this.socket.on('preferences', (prefs) => {
+      if (prefs.theme) {
+        applyThemeFromServer(prefs.theme);
+      }
+    });
+
+    // ── Search results ─────────────────────────────────
+    this.socket.on('search-results', (data) => {
+      const panel = document.getElementById('search-results-panel');
+      const list = document.getElementById('search-results-list');
+      const count = document.getElementById('search-results-count');
+      count.textContent = `${data.results.length} result${data.results.length !== 1 ? 's' : ''} for "${this._escapeHtml(data.query)}"`;
+      list.innerHTML = data.results.length === 0
+        ? '<p class="muted-text" style="padding:12px">No results found</p>'
+        : data.results.map(r => `
+          <div class="search-result-item" data-msg-id="${r.id}">
+            <span class="search-result-author" style="color:${this._getUserColor(r.username)}">${this._escapeHtml(r.username)}</span>
+            <span class="search-result-time">${this._formatTime(r.created_at)}</span>
+            <div class="search-result-content">${this._highlightSearch(this._escapeHtml(r.content), data.query)}</div>
+          </div>
+        `).join('');
+      panel.style.display = 'block';
+
+      // Click to scroll to message
+      list.querySelectorAll('.search-result-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const msgId = item.dataset.msgId;
+          const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+          if (msgEl) {
+            msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            msgEl.classList.add('highlight-flash');
+            setTimeout(() => msgEl.classList.remove('highlight-flash'), 2000);
+          }
+        });
+      });
+    });
+
+    this.socket.on('blocks-list', (data) => {
+      this.blockedUsers = new Set(data.map(b => b.userId));
+    });
+    this.socket.on('block-updated', (data) => {
+      data.blocked ? this.blockedUsers.add(data.userId) : this.blockedUsers.delete(data.userId);
+      this._showToast(data.blocked ? 'User blocked' : 'User unblocked', 'success');
+    });
+    this.socket.on('dms-list', (data) => {
+      this.dms = data;
+      this._renderDMs();
+    });
+    this.socket.on('dm-opened', (data) => {
+      if (!this.dms.find(d => d.channel_code === data.channel_code)) {
+        this.dms.push(data);
+        this._renderDMs();
+      }
+    });
+    this.socket.on('dm-message', (data) => {
+      if (this.currentDm === data.dm_code) {
+        this._appendMessage({ ...data, id: data.id || Date.now() });
+      } else {
+        this.notifications.playDirect('dm_notify');
+        this._showToast(`DM from ${data.username}`, 'info');
+      }
+    });
+    this.socket.on('dm-message-history', (data) => {
+      if (this.currentDm === data.code) {
+        this._renderMessages(data.messages);
+      }
+    });
+    this.socket.on('incoming-call', (data) => {
+      this.activeCall = { code: data.code, type: data.type, role: 'callee' };
+      const modal = document.getElementById('call-modal');
+      document.getElementById('call-modal-title').textContent = `Incoming ${data.type} call`;
+      document.getElementById('call-modal-desc').textContent = `${data.callerName} is calling...`;
+      document.getElementById('call-accept-btn').style.display = '';
+      document.getElementById('call-reject-btn').style.display = '';
+      document.getElementById('call-end-btn').style.display = 'none';
+      modal.style.display = 'flex';
+      this.notifications.playDirect('flip_ring');
+    });
+    this.socket.on('call-accepted', (data) => {
+      document.getElementById('call-accept-btn').style.display = 'none';
+      document.getElementById('call-reject-btn').style.display = 'none';
+      document.getElementById('call-end-btn').style.display = '';
+      document.getElementById('call-modal-desc').textContent = 'Connected';
+      this._showToast('Call connected', 'success');
+    });
+    this.socket.on('call-rejected', () => {
+      document.getElementById('call-modal').style.display = 'none';
+      this.activeCall = null;
+      this._showToast('Call rejected', 'error');
+    });
+    this.socket.on('call-ended', () => {
+      document.getElementById('call-modal').style.display = 'none';
+      this.activeCall = null;
+      this._showToast('Call ended', 'info');
+    });
+    this.socket.on('call-signal', (data) => {
+      if (this.activeCall && this.activeCall.code === data.code) {
+        /* WebRTC signal handled by voice manager */
+      }
+    });
+  }
+
+  // ── UI Event Bindings ─────────────────────────────────
+
+  _setupUI() {
+    const msgInput = document.getElementById('message-input');
+
+    msgInput.addEventListener('keydown', (e) => {
+      // If slash dropdown is visible, hijack arrow keys and enter
+      const slashDd = document.getElementById('slash-dropdown');
+      if (slashDd && slashDd.style.display !== 'none') {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          this._navigateSlashDropdown(e.key === 'ArrowDown' ? 1 : -1);
+          return;
+        }
+        if (e.key === 'Tab') {
+          const active = slashDd.querySelector('.slash-item.active');
+          if (active) { e.preventDefault(); active.click(); return; }
+        }
+        if (e.key === 'Escape') { this._hideSlashDropdown(); return; }
+      }
+
+      // If mention dropdown is visible, hijack arrow keys and enter
+      const dropdown = document.getElementById('mention-dropdown');
+      if (dropdown && dropdown.style.display !== 'none') {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          this._navigateMentionDropdown(e.key === 'ArrowDown' ? 1 : -1);
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          const active = dropdown.querySelector('.mention-item.active');
+          if (active) {
+            e.preventDefault();
+            active.click();
+            return;
+          }
+        }
+        if (e.key === 'Escape') {
+          this._hideMentionDropdown();
+          return;
+        }
+      }
+
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this._sendMessage();
+      }
+    });
+
+    msgInput.addEventListener('input', () => {
+      msgInput.style.height = 'auto';
+      msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
+
+      const now = Date.now();
+      if (now - this.lastTypingEmit > 2000 && this.currentChannel) {
+        this.socket.emit('typing', { code: this.currentChannel });
+        this.lastTypingEmit = now;
+      }
+
+      // Check for @mention trigger
+      this._checkMentionTrigger();
+      // Check for /command trigger
+      this._checkSlashTrigger();
+    });
+
+    document.getElementById('send-btn').addEventListener('click', () => this._sendMessage());
+    const joinBtn = document.getElementById('join-channel-btn');
+    const codeInput = document.getElementById('channel-code-input');
+    const joinModal = document.getElementById('join-channel-modal');
+    const createModal = document.getElementById('create-channel-modal');
+    document.getElementById('join-channel-overlay-btn')?.addEventListener('click', () => { joinModal.style.display = 'flex'; codeInput.focus(); });
+    document.getElementById('cancel-join-btn')?.addEventListener('click', () => { joinModal.style.display = 'none'; });
+    joinModal?.addEventListener('click', (e) => { if (e.target === joinModal) joinModal.style.display = 'none'; });
+    joinBtn.addEventListener('click', () => {
+      const code = codeInput.value.trim();
+      if (code) { this.socket.emit('join-channel', { code }); codeInput.value = ''; joinModal.style.display = 'none'; }
+    });
+    codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinBtn.click(); });
+    document.getElementById('create-channel-overlay-btn')?.addEventListener('click', () => { createModal.style.display = 'flex'; document.getElementById('new-channel-name')?.focus(); });
+    document.getElementById('cancel-create-btn')?.addEventListener('click', () => { createModal.style.display = 'none'; });
+    createModal?.addEventListener('click', (e) => { if (e.target === createModal) createModal.style.display = 'none'; });
+    const createBtn = document.getElementById('create-channel-btn');
+    const nameInput = document.getElementById('new-channel-name');
+    if (createBtn) {
+      createBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        const typeEl = document.getElementById('new-channel-type');
+        const type = typeEl ? typeEl.value : 'both';
+        const parentEl = document.getElementById('new-channel-parent');
+        const parentId = parentEl && parentEl.value ? parseInt(parentEl.value) : null;
+        const privateEl = document.getElementById('new-channel-private');
+        const isPrivate = privateEl ? privateEl.checked : false;
+        if (name) { this.socket.emit('create-channel', { name, type, parentId, isPrivate }); nameInput.value = ''; if (privateEl) privateEl.checked = false; createModal.style.display = 'none'; }
+      });
+      nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createBtn.click(); });
+    }
+
+    // Copy code
+    document.getElementById('copy-code-btn').addEventListener('click', () => {
+      if (this.currentChannel) {
+        navigator.clipboard.writeText(this.currentChannel).then(() => {
+          this._showToast('Channel code copied!', 'success');
+        });
+      }
+    });
+
+    // Delete channel
+    document.getElementById('delete-channel-btn').addEventListener('click', () => {
+      if (this.currentChannel && confirm('Delete this channel? All messages will be lost.')) {
+        this.socket.emit('delete-channel', { code: this.currentChannel });
+      }
+    });
+
+    // Manage channel members (admin)
+    document.getElementById('manage-members-btn')?.addEventListener('click', () => {
+      if (!this.currentChannel) return;
+      document.getElementById('channel-members-modal').style.display = 'flex';
+      document.getElementById('add-member-row').style.display = this.user.isAdmin ? 'flex' : 'none';
+      this.socket.emit('get-channel-permissions', { code: this.currentChannel });
+    });
+    document.getElementById('close-channel-members-btn')?.addEventListener('click', () => { document.getElementById('channel-members-modal').style.display = 'none'; });
+    document.getElementById('add-member-btn')?.addEventListener('click', () => {
+      const input = document.getElementById('add-member-input');
+      const username = input.value.trim();
+      if (!username || !this.currentChannel) return;
+      this.socket.emit('add-channel-user', { code: this.currentChannel, username });
+      input.value = '';
+    });
+    document.getElementById('add-member-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('add-member-btn').click(); });
+
+    // Leave channel
+    document.getElementById('leave-channel-btn')?.addEventListener('click', () => {
+      if (!this.currentChannel) return;
+      const ch = this.channels.find(c => c.code === this.currentChannel);
+      if (ch?.is_private) return this._showToast('Cannot leave private channels', 'error');
+      if (confirm('Leave this channel? You can rejoin with the code.')) {
+        this.socket.emit('leave-channel', { code: this.currentChannel });
+      }
+    });
+
+    // Voice buttons
+    document.getElementById('voice-join-btn').addEventListener('click', () => this._joinVoice());
+    document.getElementById('voice-mute-btn').addEventListener('click', () => this._toggleMute());
+    document.getElementById('voice-deafen-btn').addEventListener('click', () => this._toggleDeafen());
+    document.getElementById('voice-leave-btn').addEventListener('click', () => this._leaveVoice());
+    document.getElementById('screen-share-btn').addEventListener('click', () => this._toggleScreenShare());
+    document.getElementById('screen-share-close').addEventListener('click', () => this._hideScreenShare());
+    const noiseSuppBtn = document.getElementById('noise-suppress-btn');
+    if (noiseSuppBtn) {
+      noiseSuppBtn.addEventListener('click', () => {
+        if (!this.voice || !this.voice.inVoice) return;
+        const on = this.voice.toggleNoiseSuppression();
+        noiseSuppBtn.innerHTML = on ? '<span class="led on" style="width:8px;height:8px;margin-right:4px"></span>🧭 Active' : '<span class="led off" style="width:8px;height:8px;margin-right:4px"></span>🧭 Filter';
+        noiseSuppBtn.classList.toggle('active-filter', on);
+        this._showToast(on ? 'Noise suppression ON' : 'Noise suppression OFF', 'info');
+      });
+    }
+    const listenBtn = document.getElementById('listen-together-btn');
+    if (listenBtn) {
+      listenBtn.addEventListener('click', () => {
+        const panel = document.getElementById('listen-together-panel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        if (panel.style.display === 'block') this.socket.emit('listen-get', { channelCode: this.currentChannel });
+      });
+    }
+    const listenCloseBtn = document.getElementById('listen-panel-close');
+    if (listenCloseBtn) listenCloseBtn.addEventListener('click', () => { document.getElementById('listen-together-panel').style.display = 'none'; });
+    const listenStartBtn = document.getElementById('listen-start-btn');
+    if (listenStartBtn) {
+      listenStartBtn.addEventListener('click', () => {
+        const url = document.getElementById('listen-url-input').value.trim();
+        const title = document.getElementById('listen-title-input').value.trim();
+        if (!url) return this._showToast('Paste a media URL first', 'error');
+        this.socket.emit('listen-start', { url, title, channelCode: this.currentChannel });
+        document.getElementById('listen-url-input').value = '';
+        document.getElementById('listen-title-input').value = '';
+      });
+    }
+    const listenPlayPause = document.getElementById('listen-play-pause');
+    if (listenPlayPause) {
+      listenPlayPause.addEventListener('click', async () => {
+        if (!this._listenSession) return;
+        this._listenSession.isPlaying = !this._listenSession.isPlaying;
+        listenPlayPause.textContent = this._listenSession.isPlaying ? '⏸ Pause' : '▶ Play';
+        if (this._spotifyReady && this.spotifyPlayer?.isPremium && this._isSpotifyUrl(this._listenSession.url)) {
+          this._listenSession.isPlaying ? await this.spotifyPlayer.resume() : await this.spotifyPlayer.pause();
+        }
+        this.socket.emit('listen-sync', { isPlaying: this._listenSession.isPlaying, position: 0, channelCode: this.currentChannel });
+      });
+    }
+    const listenStopBtn = document.getElementById('listen-stop-btn');
+    if (listenStopBtn) {
+      listenStopBtn.addEventListener('click', () => {
+        this.socket.emit('listen-stop', { channelCode: this.currentChannel });
+      });
+    }
+    const callAcceptBtn = document.getElementById('call-accept-btn');
+    if (callAcceptBtn) {
+      callAcceptBtn.addEventListener('click', () => {
+        if (this.activeCall) this.socket.emit('accept-call', { code: this.activeCall.code });
+      });
+    }
+    const callRejectBtn = document.getElementById('call-reject-btn');
+    if (callRejectBtn) {
+      callRejectBtn.addEventListener('click', () => {
+        if (this.activeCall) { this.socket.emit('reject-call', { code: this.activeCall.code }); this.activeCall = null; }
+        document.getElementById('call-modal').style.display = 'none';
+      });
+    }
+    const callEndBtn = document.getElementById('call-end-btn');
+    if (callEndBtn) {
+      callEndBtn.addEventListener('click', () => {
+        if (this.activeCall) { this.socket.emit('end-call', { code: this.activeCall.code }); this.activeCall = null; }
+        document.getElementById('call-modal').style.display = 'none';
+      });
+    }
+    const closeBlockListBtn = document.getElementById('close-block-list-btn');
+    if (closeBlockListBtn) closeBlockListBtn.addEventListener('click', () => document.getElementById('block-list-modal').style.display = 'none');
+
+    // Wire up the voice manager's video callback
+    this.voice.onScreenStream = (userId, stream) => this._handleScreenStream(userId, stream);
+    this.voice.onScreenShareStopped = () => {
+      document.getElementById('screen-share-btn').textContent = '🖥️ Share';
+      document.getElementById('screen-share-btn').classList.remove('sharing');
+    };
+    this.voice._localUserId = this.user.id;
+
+    // Wire up voice join/leave audio cues
+    this.voice.onVoiceJoin = (userId, username) => {
+      this.notifications.playDirect('voice_join');
+    };
+    this.voice.onVoiceLeave = (userId, username) => {
+      this.notifications.playDirect('voice_leave');
+    };
+
+    // Wire up talking indicator
+    this.voice.onTalkingChange = (userId, isTalking) => {
+      const resolvedId = userId === 'self' ? this.user.id : userId;
+      const el = document.querySelector(`.voice-user-item[data-user-id="${resolvedId}"]`);
+      if (el) el.classList.toggle('talking', isTalking);
+    };
+
+    // Search
+    let searchTimeout = null;
+    document.getElementById('search-toggle-btn').addEventListener('click', () => {
+      const sc = document.getElementById('search-container');
+      sc.style.display = sc.style.display === 'none' ? 'flex' : 'none';
+      if (sc.style.display === 'flex') document.getElementById('search-input').focus();
+    });
+    document.getElementById('search-close-btn').addEventListener('click', () => {
+      document.getElementById('search-container').style.display = 'none';
+      document.getElementById('search-results-panel').style.display = 'none';
+      document.getElementById('search-input').value = '';
+    });
+    document.getElementById('search-results-close').addEventListener('click', () => {
+      document.getElementById('search-results-panel').style.display = 'none';
+    });
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      const q = e.target.value.trim();
+      if (q.length >= 2 && this.currentChannel) {
+        searchTimeout = setTimeout(() => {
+          this.socket.emit('search-messages', { code: this.currentChannel, query: q });
+        }, 400);
+      } else {
+        document.getElementById('search-results-panel').style.display = 'none';
+      }
+    });
+    document.getElementById('search-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.getElementById('search-container').style.display = 'none';
+        document.getElementById('search-results-panel').style.display = 'none';
+      }
+    });
+
+    // Pinned messages panel
+    document.getElementById('pinned-toggle-btn').addEventListener('click', () => {
+      const panel = document.getElementById('pinned-panel');
+      if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+      } else if (this.currentChannel) {
+        this.socket.emit('get-pinned-messages', { code: this.currentChannel });
+      }
+    });
+    document.getElementById('pinned-close').addEventListener('click', () => {
+      document.getElementById('pinned-panel').style.display = 'none';
+    });
+
+    // Global keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+F = search
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f' && this.currentChannel) {
+        e.preventDefault();
+        const sc = document.getElementById('search-container');
+        sc.style.display = 'flex';
+        document.getElementById('search-input').focus();
+      }
+      // Escape = close modals
+      if (e.key === 'Escape') {
+        document.getElementById('search-container').style.display = 'none';
+        document.getElementById('search-results-panel').style.display = 'none';
+      }
+    });
+
+    // Logout
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      if (this.voice && this.voice.inVoice) this.voice.leave();
+      localStorage.removeItem('haven_token');
+      localStorage.removeItem('haven_user');
+      window.location.href = '/';
+    });
+
+    document.getElementById('status-online-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const ov = document.getElementById('online-overlay');
+      ov.style.display = ov.style.display === 'none' ? 'flex' : 'none';
+    });
+    document.getElementById('online-overlay-close')?.addEventListener('click', () => {
+      document.getElementById('online-overlay').style.display = 'none';
+    });
+    document.addEventListener('click', (e) => {
+      const ov = document.getElementById('online-overlay');
+      const btn = document.getElementById('status-online-btn');
+      if (ov && ov.style.display !== 'none' && !ov.contains(e.target) && !btn.contains(e.target)) ov.style.display = 'none';
+    });
+
+    document.getElementById('messages').addEventListener('click', (e) => {
+      if (e.target.classList.contains('chat-image')) {
+        window.open(e.target.src, '_blank');
+      }
+      // Spoiler reveal toggle
+      if (e.target.closest('.spoiler')) {
+        e.target.closest('.spoiler').classList.toggle('revealed');
+      }
+    });
+
+    // Emoji picker toggle
+    document.getElementById('emoji-btn').addEventListener('click', () => {
+      this._toggleEmojiPicker();
+    });
+
+    // Close emoji picker when clicking outside
+    document.addEventListener('click', (e) => {
+      const picker = document.getElementById('emoji-picker');
+      const btn = document.getElementById('emoji-btn');
+      if (picker && picker.style.display !== 'none' &&
+          !picker.contains(e.target) && !btn.contains(e.target)) {
+        picker.style.display = 'none';
+      }
+    });
+
+    // Reply close button
+    document.getElementById('reply-close-btn').addEventListener('click', () => {
+      this._clearReply();
+    });
+
+    // Messages container — delegate reaction and reply button clicks
+    document.getElementById('messages').addEventListener('click', (e) => {
+      const target = e.target.closest('[data-action]');
+      if (!target) return;
+
+      const action = target.dataset.action;
+      const msgEl = target.closest('.message, .message-compact');
+      if (!msgEl) return;
+
+      const msgId = parseInt(msgEl.dataset.msgId);
+      if (!msgId) return;
+
+      if (action === 'react') {
+        this._showReactionPicker(msgEl, msgId);
+      } else if (action === 'reply') {
+        this._setReply(msgEl, msgId);
+      } else if (action === 'edit') {
+        this._startEditMessage(msgEl, msgId);
+      } else if (action === 'delete') {
+        if (confirm('Delete this message?')) {
+          this.socket.emit('delete-message', { messageId: msgId });
+        }
+      } else if (action === 'pin') {
+        this.socket.emit('pin-message', { messageId: msgId });
+      } else if (action === 'unpin') {
+        this.socket.emit('unpin-message', { messageId: msgId });
+      }
+    });
+
+    // Reaction badge click (toggle own reaction)
+    document.getElementById('messages').addEventListener('click', (e) => {
+      const badge = e.target.closest('.reaction-badge');
+      if (!badge) return;
+      const msgEl = badge.closest('.message, .message-compact');
+      if (!msgEl) return;
+      const msgId = parseInt(msgEl.dataset.msgId);
+      const emoji = badge.dataset.emoji;
+      const hasOwn = badge.classList.contains('own');
+      if (hasOwn) {
+        this.socket.emit('remove-reaction', { messageId: msgId, emoji });
+      } else {
+        this.socket.emit('add-reaction', { messageId: msgId, emoji });
+      }
+    });
+
+    // Rename username
+    document.getElementById('rename-btn').addEventListener('click', () => {
+      document.getElementById('rename-modal').style.display = 'flex';
+      const input = document.getElementById('rename-input');
+      input.value = this.user.username;
+      input.focus();
+      input.select();
+    });
+
+    document.getElementById('cancel-rename-btn').addEventListener('click', () => {
+      document.getElementById('rename-modal').style.display = 'none';
+    });
+
+    document.getElementById('save-rename-btn').addEventListener('click', () => this._saveRename());
+
+    document.getElementById('rename-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this._saveRename();
+    });
+
+    document.getElementById('rename-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+    });
+
+    // ── Admin moderation bindings ───────────────────────
+    document.getElementById('cancel-admin-action-btn').addEventListener('click', () => {
+      document.getElementById('admin-action-modal').style.display = 'none';
+    });
+
+    document.getElementById('admin-action-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+    });
+
+    document.getElementById('confirm-admin-action-btn').addEventListener('click', () => {
+      if (!this.adminActionTarget) return;
+      const { action, userId } = this.adminActionTarget;
+      const reason = document.getElementById('admin-action-reason').value.trim();
+      const duration = parseInt(document.getElementById('admin-action-duration').value) || 10;
+
+      if (action === 'kick') {
+        this.socket.emit('kick-user', { userId, reason });
+      } else if (action === 'ban') {
+        this.socket.emit('ban-user', { userId, reason });
+      } else if (action === 'mute') {
+        this.socket.emit('mute-user', { userId, reason, duration });
+      }
+
+      document.getElementById('admin-action-modal').style.display = 'none';
+      this.adminActionTarget = null;
+    });
+
+    // ── Settings popout modal ────────────────────────────
+    document.getElementById('open-settings-btn').addEventListener('click', () => {
+      document.getElementById('settings-modal').style.display = 'flex';
+    });
+    document.getElementById('close-settings-btn').addEventListener('click', () => {
+      document.getElementById('settings-modal').style.display = 'none';
+    });
+    document.getElementById('settings-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+    });
+    const displayNameInput = document.getElementById('display-name-input');
+    if (displayNameInput) {
+      displayNameInput.value = this.user.displayName || '';
+      document.getElementById('save-display-name-btn').addEventListener('click', () => {
+        const name = displayNameInput.value.trim();
+        this.socket.emit('update-display-name', { displayName: name });
+      });
+    }
+    this.socket.on('display-name-updated', (data) => {
+      this.user.displayName = data.displayName;
+      const headerDisplay = document.getElementById('current-user');
+      if (headerDisplay) headerDisplay.textContent = data.displayName || this.user.username;
+      this._showToast(`Display name ${data.displayName ? `set to "${data.displayName}"` : 'cleared'}`, 'success');
+    });
+
+    // Member visibility select (admin)
+    const visSelect = document.getElementById('member-visibility-select');
+    if (visSelect) {
+      visSelect.addEventListener('change', () => {
+        this.socket.emit('update-server-setting', {
+          key: 'member_visibility',
+          value: visSelect.value
+        });
+      });
+    }
+
+    // View bans button
+    document.getElementById('view-bans-btn').addEventListener('click', () => {
+      this.socket.emit('get-bans');
+      document.getElementById('bans-modal').style.display = 'flex';
+    });
+
+    document.getElementById('close-bans-btn').addEventListener('click', () => {
+      document.getElementById('bans-modal').style.display = 'none';
+    });
+
+    document.getElementById('bans-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+    });
+
+    // ── Cleanup controls (admin) ─────────────────────────
+    const cleanupEnabled = document.getElementById('cleanup-enabled');
+    if (cleanupEnabled) {
+      cleanupEnabled.addEventListener('change', () => {
+        this.socket.emit('update-server-setting', {
+          key: 'cleanup_enabled',
+          value: cleanupEnabled.checked ? 'true' : 'false'
+        });
+      });
+    }
+
+    const cleanupAge = document.getElementById('cleanup-max-age');
+    if (cleanupAge) {
+      cleanupAge.addEventListener('change', () => {
+        const val = Math.max(0, Math.min(3650, parseInt(cleanupAge.value) || 0));
+        cleanupAge.value = val;
+        this.socket.emit('update-server-setting', {
+          key: 'cleanup_max_age_days',
+          value: String(val)
+        });
+      });
+    }
+
+    const cleanupSize = document.getElementById('cleanup-max-size');
+    if (cleanupSize) {
+      cleanupSize.addEventListener('change', () => {
+        const val = Math.max(0, Math.min(100000, parseInt(cleanupSize.value) || 0));
+        cleanupSize.value = val;
+        this.socket.emit('update-server-setting', {
+          key: 'cleanup_max_size_mb',
+          value: String(val)
+        });
+      });
+    }
+
+    const runCleanupBtn = document.getElementById('run-cleanup-now-btn');
+    if (runCleanupBtn) {
+      runCleanupBtn.addEventListener('click', () => {
+        this.socket.emit('run-cleanup-now');
+        this._showToast('Cleanup triggered — check server console for results', 'success');
+      });
+    }
+
+    // ── Whitelist controls (admin) ───────────────────────
+    const whitelistToggle = document.getElementById('whitelist-enabled');
+    if (whitelistToggle) {
+      whitelistToggle.addEventListener('change', () => {
+        this.socket.emit('whitelist-toggle', { enabled: whitelistToggle.checked });
+        this.socket.emit('update-server-setting', {
+          key: 'whitelist_enabled',
+          value: whitelistToggle.checked ? 'true' : 'false'
+        });
+      });
+    }
+
+    document.getElementById('whitelist-add-btn').addEventListener('click', () => {
+      const input = document.getElementById('whitelist-username-input');
+      const username = input.value.trim();
+      if (!username) return;
+      this.socket.emit('whitelist-add', { username });
+      input.value = '';
+    });
+
+    document.getElementById('whitelist-username-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('whitelist-add-btn').click();
+    });
+
+    this.socket.on('whitelist-list', (list) => { this._renderWhitelist(list); });
+    const tunnelEnabledEl = document.getElementById('tunnel-enabled');
+    if (tunnelEnabledEl) tunnelEnabledEl.addEventListener('change', () => {
+      this.socket.emit('update-server-setting', { key: 'tunnel_enabled', value: tunnelEnabledEl.checked ? 'true' : 'false' });
+    });
+    const tunnelProvEl = document.getElementById('tunnel-provider-select');
+    if (tunnelProvEl) tunnelProvEl.addEventListener('change', () => {
+      this.socket.emit('update-server-setting', { key: 'tunnel_provider', value: tunnelProvEl.value });
+    });
+    const giphyKeyInput = document.getElementById('giphy-api-key-input');
+    const giphyKeySave = document.getElementById('save-giphy-key-btn');
+    if (giphyKeySave && giphyKeyInput) giphyKeySave.addEventListener('click', () => {
+      const k = giphyKeyInput.value.trim();
+      if (!k) return;
+      this.socket.emit('update-server-setting', { key: 'giphy_api_key', value: k });
+      this._showToast('Giphy API key saved', 'success');
+    });
+    const spotifyClientId = document.getElementById('spotify-client-id-input');
+    const spotifyClientSecret = document.getElementById('spotify-client-secret-input');
+    const spotifySave = document.getElementById('save-spotify-creds-btn');
+    if (spotifySave) spotifySave.addEventListener('click', () => {
+      const cid = spotifyClientId?.value.trim();
+      const sec = spotifyClientSecret?.value.trim();
+      if (!cid || !sec) return this._showToast('Both Client ID and Secret required', 'error');
+      this.socket.emit('update-server-setting', { key: 'spotify_client_id', value: cid });
+      this.socket.emit('update-server-setting', { key: 'spotify_client_secret', value: sec });
+      this._showToast('Spotify credentials saved', 'success');
+    });
+    const viewBlocksBtn = document.getElementById('view-blocks-btn');
+    if (viewBlocksBtn) viewBlocksBtn.addEventListener('click', () => {
+      document.getElementById('block-list-modal').style.display = 'flex';
+      this._renderBlockList();
+    });
+    const manageBotsBtn = document.getElementById('manage-bots-btn');
+    if (manageBotsBtn) manageBotsBtn.addEventListener('click', () => {
+      this._showToast('Bot management coming soon!', 'info');
+    });
+    this._setupSidebarToggles();
+  }
+  _setupSidebarToggles() {
+    const leftSidebar = document.querySelector('.sidebar');
+    const leftBtn = document.getElementById('toggle-left-sidebar');
+    const savedLeftW = localStorage.getItem('haven_left_width');
+    if (savedLeftW && leftSidebar) leftSidebar.style.width = savedLeftW + 'px';
+    if (localStorage.getItem('haven_left_collapsed') === '1' && leftSidebar) { leftSidebar.classList.add('collapsed'); if (leftBtn) leftBtn.textContent = '▶'; }
+    leftBtn?.addEventListener('click', () => {
+      const c = leftSidebar.classList.toggle('collapsed');
+      leftBtn.textContent = c ? '▶' : '◀';
+      localStorage.setItem('haven_left_collapsed', c ? '1' : '0');
+    });
+    this._setupSidebarResize(leftSidebar, 'left');
+    this._setupCollapsibles();
+    this._setupMessagesBubble();
+  }
+  _setupCollapsibles() {
+    document.querySelectorAll('.collapsible-label').forEach(label => {
+      const targetId = label.dataset.target;
+      if (!targetId) return;
+      const saved = localStorage.getItem('haven_collapse_' + targetId);
+      if (saved === '1') {
+        const t = document.getElementById(targetId);
+        if (t) t.classList.add('collapsed');
+        label.classList.add('collapsed');
+      }
+      label.addEventListener('click', () => {
+        const t = document.getElementById(targetId);
+        if (!t) return;
+        const c = t.classList.toggle('collapsed');
+        label.classList.toggle('collapsed', c);
+        localStorage.setItem('haven_collapse_' + targetId, c ? '1' : '0');
+      });
+    });
+  }
+  _setupMessagesBubble() {
+    const btn = document.getElementById('messages-bubble-btn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const dmSection = document.querySelector('.dm-section');
+      const leftSidebar = document.querySelector('.sidebar');
+      if (leftSidebar?.classList.contains('collapsed')) {
+        leftSidebar.classList.remove('collapsed');
+        const leftBtn = document.getElementById('toggle-left-sidebar');
+        if (leftBtn) leftBtn.textContent = '◀';
+        localStorage.setItem('haven_left_collapsed', '0');
+      }
+      if (dmSection) {
+        const dmList = document.getElementById('dm-list');
+        if (dmList?.classList.contains('collapsed')) {
+          dmList.classList.remove('collapsed');
+          dmSection.querySelector('.collapsible-label')?.classList.remove('collapsed');
+          localStorage.setItem('haven_collapse_dm-list', '0');
+        }
+        dmSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  }
+  _updateMsgBubbleBadge(count) {
+    const badge = document.getElementById('msg-bubble-badge');
+    if (!badge) return;
+    badge.style.display = count > 0 ? '' : 'none';
+    badge.textContent = count > 99 ? '99+' : count;
+  }
+  _setupSidebarResize(sidebar, side) {
+    if (!sidebar) return;
+    const handle = document.createElement('div');
+    handle.className = 'sidebar-resize-handle';
+    sidebar.appendChild(handle);
+    let startX, startW;
+    const onMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const delta = side === 'left' ? clientX - startX : startX - clientX;
+      const newW = Math.min(400, Math.max(side === 'left' ? 160 : 140, startW + delta));
+      sidebar.style.width = newW + 'px';
+    };
+    const onUp = () => {
+      handle.classList.remove('active');
+      sidebar.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const key = side === 'left' ? 'haven_left_width' : 'haven_right_width';
+      localStorage.setItem(key, parseInt(sidebar.style.width));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+    };
+    const onDown = (e) => {
+      e.preventDefault();
+      startX = e.touches ? e.touches[0].clientX : e.clientX;
+      startW = sidebar.getBoundingClientRect().width;
+      handle.classList.add('active');
+      sidebar.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      document.addEventListener('touchmove', onMove, { passive: true });
+      document.addEventListener('touchend', onUp);
+    };
+    handle.addEventListener('mousedown', onDown);
+    handle.addEventListener('touchstart', onDown, { passive: false });
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // SERVER BAR — multi-server with live status
+  // ═══════════════════════════════════════════════════════
+
+  _setupServerBar() {
+    this.serverManager.startPolling(30000);
+    this._renderServerBar();
+    setInterval(() => this._renderServerBar(), 30000);
+
+    document.getElementById('home-server').addEventListener('click', () => {
+      // Already home — pulse the icon for fun
+      const el = document.getElementById('home-server');
+      el.classList.add('bounce');
+      setTimeout(() => el.classList.remove('bounce'), 400);
+    });
+
+    document.getElementById('add-server-btn').addEventListener('click', () => {
+      document.getElementById('add-server-modal').style.display = 'flex';
+      document.getElementById('server-name-input').value = '';
+      document.getElementById('server-url-input').value = '';
+      document.getElementById('server-name-input').focus();
+    });
+
+    document.getElementById('cancel-server-btn').addEventListener('click', () => {
+      document.getElementById('add-server-modal').style.display = 'none';
+    });
+
+    document.getElementById('save-server-btn').addEventListener('click', () => this._addServer());
+
+    // Enter key in modal inputs
+    document.getElementById('server-url-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this._addServer();
+    });
+
+    // Close modal on overlay click
+    document.getElementById('add-server-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+    });
+  }
+
+  _addServer() {
+    const name = document.getElementById('server-name-input').value.trim();
+    const url = document.getElementById('server-url-input').value.trim();
+    if (!name || !url) return this._showToast('Name and address are both required', 'error');
+
+    if (this.serverManager.add(name, url)) {
+      document.getElementById('add-server-modal').style.display = 'none';
+      this._renderServerBar();
+      this._showToast(`Added "${name}"`, 'success');
+    } else {
+      this._showToast('Server already in your list', 'error');
+    }
+  }
+
+  _renderServerBar() {
+    const list = document.getElementById('server-list');
+    const servers = this.serverManager.getAll();
+
+    list.innerHTML = servers.map(s => {
+      const initial = s.name.charAt(0).toUpperCase();
+      const online = s.status.online;
+      const statusClass = online === true ? 'online' : online === false ? 'offline' : 'unknown';
+      const statusText = online === true ? '● Online' : online === false ? '○ Offline' : '◌ Checking...';
+      return `
+        <div class="server-icon remote" data-url="${this._escapeHtml(s.url)}"
+             title="${this._escapeHtml(s.name)} — ${statusText}">
+          <span class="server-icon-text">${initial}</span>
+          <span class="server-status-dot ${statusClass}"></span>
+          <button class="server-remove" title="Remove">&times;</button>
+        </div>
+      `;
+    }).join('');
+
+    list.querySelectorAll('.server-icon.remote').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.classList.contains('server-remove')) {
+          e.stopPropagation();
+          this.serverManager.remove(el.dataset.url);
+          this._renderServerBar();
+          this._showToast('Server removed', 'success');
+          return;
+        }
+        window.open(el.dataset.url, '_blank', 'noopener');
+      });
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showServerPingMenu(el.dataset.url, e.clientX, e.clientY);
+      });
+    });
+  }
+  _showServerPingMenu(url, x, y) {
+    document.querySelectorAll('.server-ping-menu').forEach(m => m.remove());
+    const status = this.serverManager.statusCache.get(url);
+    if (!status?.online) return this._showToast('Server is offline', 'error');
+    const users = status.users || [];
+    const menu = document.createElement('div');
+    menu.className = 'context-menu server-ping-menu';
+    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:9999;`;
+    if (!users.length) {
+      menu.innerHTML = '<div class="ctx-item disabled" style="opacity:0.5">No users online</div>';
+    } else {
+      menu.innerHTML = `<div class="ctx-header" style="padding:6px 12px;font-size:11px;color:var(--text-muted);font-weight:600">${status.name} — ${users.length} online</div>` +
+        users.map(u => `<div class="ctx-item server-ping-user" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" style="cursor:pointer;padding:6px 12px;display:flex;align-items:center;gap:6px"><span style="color:var(--accent)">📡</span> ${this._escapeHtml(u.username)}</div>`).join('');
+    }
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+    if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+    menu.querySelectorAll('.server-ping-user').forEach(item => {
+      item.addEventListener('click', async () => {
+        const result = await this.serverManager.sendPing(url, item.dataset.uid, this.user.username);
+        this._showToast(result.delivered ? `Pinged ${item.dataset.uname}!` : `Could not reach ${item.dataset.uname}`, result.delivered ? 'success' : 'error');
+        menu.remove();
+      });
+    });
+    const dismiss = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', dismiss); } };
+    setTimeout(() => document.addEventListener('click', dismiss), 10);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // IMAGE UPLOAD — button, paste, drag & drop
+  // ═══════════════════════════════════════════════════════
+
+  _setupImageUpload() {
+    const fileInput = document.getElementById('file-input');
+    const uploadBtn = document.getElementById('upload-btn');
+    const messageArea = document.getElementById('message-area');
+
+    uploadBtn.addEventListener('click', () => {
+      if (!this.currentChannel) return this._showToast('Select a channel first', 'error');
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) this._uploadImage(fileInput.files[0]);
+      fileInput.value = '';
+    });
+
+    // Paste image from clipboard
+    document.getElementById('message-input').addEventListener('paste', (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          this._uploadImage(item.getAsFile());
+          return;
+        }
+      }
+    });
+
+    // Drag & drop
+    messageArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      messageArea.classList.add('drag-over');
+    });
+
+    messageArea.addEventListener('dragleave', () => {
+      messageArea.classList.remove('drag-over');
+    });
+
+    messageArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      messageArea.classList.remove('drag-over');
+      const file = e.dataTransfer?.files[0];
+      if (file && file.type.startsWith('image/')) {
+        this._uploadImage(file);
+      }
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // MOBILE — hamburger, overlay, swipe gestures
+  // ═══════════════════════════════════════════════════════
+
+  _setupMobile() {
+    const menuBtn = document.getElementById('mobile-menu-btn');
+    const overlay = document.getElementById('mobile-overlay');
+    const appBody = document.getElementById('app-body');
+    menuBtn.addEventListener('click', () => {
+      const isOpen = appBody.classList.toggle('mobile-sidebar-open');
+      isOpen ? overlay.classList.add('active') : overlay.classList.remove('active');
+    });
+    overlay.addEventListener('click', () => this._closeMobilePanels());
+    const origSwitch = this.switchChannel.bind(this);
+    this.switchChannel = (code) => {
+      origSwitch(code);
+      this._closeMobilePanels();
+    };
+    let touchStartX = 0;
+    let touchStartY = 0;
+    const SWIPE_THRESHOLD = 60;
+    document.addEventListener('touchstart', (e) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dy) > Math.abs(dx)) return;
+      if (dx > 0 && touchStartX < 40) {
+        appBody.classList.add('mobile-sidebar-open');
+        overlay.classList.add('active');
+      } else if (dx < 0 && appBody.classList.contains('mobile-sidebar-open')) {
+        this._closeMobilePanels();
+      }
+    }, { passive: true });
+    const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    if (isTouchDevice) {
+      const messagesEl = document.getElementById('messages');
+      messagesEl.addEventListener('click', (e) => {
+        if (e.target.closest('.msg-toolbar') || e.target.closest('a') ||
+            e.target.closest('img') || e.target.closest('.reaction-badge') ||
+            e.target.closest('.spoiler') || e.target.closest('.reply-banner')) return;
+        const msgEl = e.target.closest('.message, .message-compact');
+        if (!msgEl) {
+          messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
+          return;
+        }
+        const wasSelected = msgEl.classList.contains('msg-selected');
+        messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
+        if (!wasSelected) msgEl.classList.add('msg-selected');
+      });
+      document.getElementById('message-input').addEventListener('focus', () => {
+        messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
+      });
+    }
+  }
+  _closeMobilePanels() {
+    const appBody = document.getElementById('app-body');
+    const overlay = document.getElementById('mobile-overlay');
+    appBody.classList.remove('mobile-sidebar-open');
+    overlay.classList.remove('active');
+  }
+
+  _saveRename() {
+    const input = document.getElementById('rename-input');
+    const newName = input.value.trim();
+    if (!newName || newName.length < 3) {
+      return this._showToast('Username must be at least 3 characters', 'error');
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(newName)) {
+      return this._showToast('Letters, numbers, and underscores only', 'error');
+    }
+    this.socket.emit('rename-user', { username: newName });
+    document.getElementById('rename-modal').style.display = 'none';
+  }
+
+  async _uploadImage(file) {
+    if (!this.currentChannel) return;
+    if (file.size > 5 * 1024 * 1024) {
+      return this._showToast('Image too large (max 5 MB)', 'error');
+    }
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      this._showToast('Uploading image...', 'info');
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.token}` },
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) return this._showToast(data.error || 'Upload failed', 'error');
+
+      // Send the image URL as a message (prefix with img: to avoid slash-command parsing)
+      this.socket.emit('send-message', {
+        code: this.currentChannel,
+        content: data.url,
+        isImage: true
+      });
+    } catch {
+      this._showToast('Upload failed — check your connection', 'error');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════
+
+  _setupNotifications() {
+    const toggle = document.getElementById('notif-enabled');
+    const volume = document.getElementById('notif-volume');
+    const msgSound = document.getElementById('notif-msg-sound');
+    const mentionVolume = document.getElementById('notif-mention-volume');
+    const mentionSound = document.getElementById('notif-mention-sound');
+
+    toggle.checked = this.notifications.enabled;
+    volume.value = this.notifications.volume * 100;
+    msgSound.value = this.notifications.sounds.message;
+    mentionVolume.value = this.notifications.mentionVolume * 100;
+    mentionSound.value = this.notifications.sounds.mention;
+
+    toggle.addEventListener('change', () => {
+      this.notifications.setEnabled(toggle.checked);
+    });
+
+    volume.addEventListener('input', () => {
+      this.notifications.setVolume(volume.value / 100);
+    });
+
+    msgSound.addEventListener('change', () => {
+      this.notifications.setSound('message', msgSound.value);
+      this.notifications.play('message'); // Preview the selected sound
+    });
+
+    mentionVolume.addEventListener('input', () => {
+      this.notifications.setMentionVolume(mentionVolume.value / 100);
+    });
+
+    mentionSound.addEventListener('change', () => {
+      this.notifications.setSound('mention', mentionSound.value);
+      this.notifications.play('mention'); // Preview the selected sound
+    });
+  }
+
+  // ── Theme System ──────────────────────────────────────
+
+  _setupThemes() {
+    initThemeSwitcher('theme-selector', this.socket);
+  }
+  async _setupSpotify() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('spotify_linked') === '1') {
+      this._showToast('🎵 Spotify connected!', 'success');
+      history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('spotify_error')) {
+      this._showToast(`Spotify error: ${params.get('spotify_error')}`, 'error');
+      history.replaceState({}, '', window.location.pathname);
+    }
+    await this._updateSpotifyUI();
+    const connectBtn = document.getElementById('spotify-connect-btn');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', async () => {
+        if (!this.spotifyPlayer) this.spotifyPlayer = new SpotifyPlayer(() => {}, (e) => console.warn('Spotify:', e), (s) => this._onSpotifyState(s));
+        const url = await this.spotifyPlayer.getAuthUrl();
+        if (url) window.location.href = url;
+        else this._showToast('Spotify not configured by admin', 'error');
+      });
+    }
+    const volSlider = document.getElementById('spotify-volume');
+    if (volSlider) volSlider.addEventListener('input', () => { if (this.spotifyPlayer) this.spotifyPlayer.setVolume(volSlider.value / 100); });
+    const seekSlider = document.getElementById('spotify-seek');
+    if (seekSlider) seekSlider.addEventListener('change', () => { if (this.spotifyPlayer && this._spotifyDuration) this.spotifyPlayer.seek((seekSlider.value / 100) * this._spotifyDuration); });
+  }
+  async _updateSpotifyUI() {
+    const statusEl = document.getElementById('spotify-status');
+    const connectRow = document.getElementById('spotify-connect-row');
+    if (!this.spotifyPlayer) this.spotifyPlayer = new SpotifyPlayer(() => { this._spotifyReady = true; }, (e) => console.warn('Spotify:', e), (s) => this._onSpotifyState(s));
+    const status = await this.spotifyPlayer.checkStatus();
+    if (!status.configured) { if (connectRow) connectRow.style.display = 'none'; return; }
+    if (status.linked) {
+      if (statusEl) { statusEl.textContent = status.premium ? '✓ Premium' : '✓ Linked'; statusEl.className = 'spotify-status ' + (status.premium ? 'premium' : 'linked'); }
+      if (connectRow) connectRow.style.display = 'none';
+      if (status.premium && !this._spotifyReady) await this.spotifyPlayer.init();
+    } else {
+      if (statusEl) { statusEl.textContent = ''; statusEl.className = 'spotify-status'; }
+      if (connectRow) connectRow.style.display = 'flex';
+    }
+  }
+  _onSpotifyState(state) {
+    if (!state) return;
+    const track = state.track_window?.current_track;
+    if (track) {
+      const nameEl = document.getElementById('spotify-track-name');
+      const artistEl = document.getElementById('spotify-artist-name');
+      const artEl = document.getElementById('spotify-album-art');
+      if (nameEl) nameEl.textContent = track.name;
+      if (artistEl) artistEl.textContent = track.artists?.map(a => a.name).join(', ') || '';
+      if (artEl && track.album?.images?.[0]?.url) artEl.src = track.album.images[0].url;
+    }
+    this._spotifyDuration = state.duration;
+    const seekEl = document.getElementById('spotify-seek');
+    const curEl = document.getElementById('spotify-time-current');
+    const totEl = document.getElementById('spotify-time-total');
+    if (seekEl && state.duration) seekEl.value = (state.position / state.duration) * 100;
+    if (curEl) curEl.textContent = this._formatMs(state.position);
+    if (totEl) totEl.textContent = this._formatMs(state.duration);
+  }
+  _formatMs(ms) { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`; }
+  _isSpotifyUrl(url) { return /open\.spotify\.com\/(track|album|playlist)\//.test(url); }
+
+  // ── Status Bar ────────────────────────────────────────
+
+  _startStatusBar() {
+    this._updateClock();
+    setInterval(() => this._updateClock(), 1000);
+  }
+
+  _updateClock() {
+    const now = new Date();
+    const h = now.getHours().toString().padStart(2, '0');
+    const m = now.getMinutes().toString().padStart(2, '0');
+    const s = now.getSeconds().toString().padStart(2, '0');
+    document.getElementById('status-clock').textContent = `${h}:${m}:${s}`;
+  }
+
+  _startPingMonitor() {
+    if (this.pingInterval) clearInterval(this.pingInterval);
+
+    this.pingInterval = setInterval(() => {
+      if (this.socket && this.socket.connected) {
+        this._pingStart = Date.now();
+        this.socket.emit('ping-check');
+      }
+    }, 5000);
+
+    this._pingStart = Date.now();
+    this.socket.emit('ping-check');
+  }
+
+  _setLed(id, state) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'led ' + state;
+  }
+
+  // ── Channel Management ────────────────────────────────
+
+  switchChannel(code) {
+    if (this.currentChannel === code) return;
+
+    if (this.voice && this.voice.inVoice && this.voice.currentChannel !== code) {
+      this.voice.leave();
+      this._updateVoiceButtons(false);
+      this._updateVoiceStatus(false);
+    }
+
+    this.currentChannel = code;
+    const channel = this.channels.find(c => c.code === code);
+
+    document.getElementById('channel-header-name').textContent = channel ? `# ${channel.name}` : code;
+    document.getElementById('channel-code-display').textContent = code;
+    document.getElementById('copy-code-btn').style.display = 'inline-flex';
+    document.getElementById('voice-join-btn').style.display = 'inline-block';
+    document.getElementById('search-toggle-btn').style.display = 'inline-flex';
+    document.getElementById('pinned-toggle-btn').style.display = 'inline-flex';
+    document.getElementById('listen-together-btn').style.display = 'inline-block';
+    document.getElementById('listen-together-panel').style.display = 'none';
+    document.getElementById('game-together-btn').style.display = 'inline-block';
+    document.getElementById('game-together-panel').style.display = 'none';
+    this._updateToolbarVisibility();
+    this.socket.emit('listen-get', { channelCode: code });
+    this.socket.emit('game-get', { channelCode: code });
+
+    if (this.user.isAdmin) {
+      document.getElementById('delete-channel-btn').style.display = 'inline-flex';
+      document.getElementById('manage-members-btn').style.display = 'inline-flex';
+    } else {
+      document.getElementById('manage-members-btn').style.display = 'none';
+    }
+    document.getElementById('leave-channel-btn').style.display = channel && !channel.is_private ? 'inline-flex' : 'none';
+
+    document.getElementById('messages').innerHTML = '';
+    document.getElementById('message-area').style.display = 'flex';
+    document.getElementById('no-channel-msg').style.display = 'none';
+
+    document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+    const activeEl = document.querySelector(`.channel-item[data-code="${code}"]`);
+    if (activeEl) activeEl.classList.add('active');
+
+    this.unreadCounts[code] = 0;
+    this._updateBadge(code);
+
+    document.getElementById('status-channel').textContent = channel ? channel.name : code;
+
+    this.socket.emit('enter-channel', { code });
+    this.socket.emit('get-messages', { code });
+    this.socket.emit('get-channel-members', { code });
+    this._clearReply();
+  }
+
+  _showWelcome() {
+    document.getElementById('message-area').style.display = 'none';
+    document.getElementById('no-channel-msg').style.display = 'flex';
+    document.getElementById('channel-header-name').textContent = 'Select a channel';
+    document.getElementById('channel-code-display').textContent = '';
+    document.getElementById('copy-code-btn').style.display = 'none';
+    document.getElementById('manage-members-btn').style.display = 'none';
+    document.getElementById('leave-channel-btn').style.display = 'none';
+    document.getElementById('delete-channel-btn').style.display = 'none';
+    document.getElementById('voice-join-btn').style.display = 'none';
+    document.getElementById('voice-mute-btn').style.display = 'none';
+    document.getElementById('voice-deafen-btn').style.display = 'none';
+    document.getElementById('voice-leave-btn').style.display = 'none';
+    document.getElementById('screen-share-btn').style.display = 'none';
+    document.getElementById('search-toggle-btn').style.display = 'none';
+    document.getElementById('pinned-toggle-btn').style.display = 'none';
+    document.getElementById('listen-together-btn').style.display = 'none';
+    document.getElementById('listen-together-panel').style.display = 'none';
+    document.getElementById('game-together-btn').style.display = 'none';
+    document.getElementById('game-together-panel').style.display = 'none';
+    document.getElementById('status-channel').textContent = 'None';
+    this._updateToolbarVisibility();
+  }
+
+  _renderChannels() {
+    const list = document.getElementById('channel-list');
+    list.innerHTML = '';
+    const topLevel = this.channels.filter(c => !c.parent_id);
+    const childMap = {};
+    this.channels.forEach(c => {
+      if (c.parent_id) {
+        (childMap[c.parent_id] = childMap[c.parent_id] || []).push(c);
+      }
+    });
+    const renderItem = (ch, depth) => {
+      const el = document.createElement('div');
+      el.className = 'channel-item' + (ch.code === this.currentChannel ? ' active' : '') + (depth > 0 ? ' subchannel' : '');
+      el.dataset.code = ch.code;
+      el.style.paddingLeft = `${8 + depth * 16}px`;
+      const typeIcon = ch.channel_type === 'voice' ? '\ud83d\udd0a' : ch.channel_type === 'text' ? '\ud83d\udcac' : '#';
+      const lockIcon = ch.is_private ? '\ud83d\udd12 ' : '';
+      const kids = childMap[ch.id];
+      let toggleHtml = '';
+      if (kids && kids.length) {
+        const collapsed = this._collapsedChannels && this._collapsedChannels.has(ch.id);
+        toggleHtml = `<span class="channel-toggle ${collapsed ? 'collapsed' : ''}" data-ch-id="${ch.id}">▾</span>`;
+      }
+      el.innerHTML = `${toggleHtml}<span class="channel-hash">${depth > 0 ? '└ ' : ''}${lockIcon}${typeIcon}</span><span class="channel-name">${this._escapeHtml(ch.name)}</span>`;
+      if (this.unreadCounts[ch.code] > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'channel-badge';
+        badge.textContent = this.unreadCounts[ch.code];
+        el.appendChild(badge);
+      }
+      const toggle = el.querySelector('.channel-toggle');
+      if (toggle) {
+        toggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!this._collapsedChannels) this._collapsedChannels = new Set();
+          this._collapsedChannels.has(ch.id) ? this._collapsedChannels.delete(ch.id) : this._collapsedChannels.add(ch.id);
+          this._renderChannels();
+        });
+      }
+      el.addEventListener('click', () => this.switchChannel(ch.code));
+      list.appendChild(el);
+      if (kids && kids.length && !(this._collapsedChannels && this._collapsedChannels.has(ch.id))) {
+        kids.forEach(kid => renderItem(kid, depth + 1));
+      }
+    };
+    topLevel.forEach(ch => renderItem(ch, 0));
+    const parentSelect = document.getElementById('new-channel-parent');
+    if (parentSelect) {
+      const curVal = parentSelect.value;
+      parentSelect.innerHTML = '<option value="">Top-level</option>';
+      this.channels.filter(c => !c.parent_id).forEach(c => {
+        const o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = c.name;
+        parentSelect.appendChild(o);
+      });
+      parentSelect.value = curVal || '';
+    }
+  }
+
+  _updateBadge(code) {
+    const el = document.querySelector(`.channel-item[data-code="${code}"]`);
+    if (!el) return;
+    let badge = el.querySelector('.channel-badge');
+    const count = this.unreadCounts[code] || 0;
+    if (count > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'channel-badge'; el.appendChild(badge); }
+      badge.textContent = count > 99 ? '99+' : count;
+    } else if (badge) {
+      badge.remove();
+    }
+    const totalUnread = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
+    this._updateMsgBubbleBadge(totalUnread);
+  }
+
+  // ── Messages ──────────────────────────────────────────
+
+  _sendMessage() {
+    const input = document.getElementById('message-input');
+    const content = input.value.trim();
+    if (!content || (!this.currentChannel && !this.currentDm)) return;
+
+    // Client-side slash commands (not sent to server)
+    if (content.startsWith('/')) {
+      const parts = content.match(/^\/(\w+)(?:\s+(.*))?$/);
+      if (parts) {
+        const cmd = parts[1].toLowerCase();
+        const arg = (parts[2] || '').trim();
+        if (cmd === 'clear') {
+          document.getElementById('messages').innerHTML = '';
+          input.value = '';
+          input.style.height = 'auto';
+          this._hideMentionDropdown();
+          this._hideSlashDropdown();
+          return;
+        }
+        if (cmd === 'nick' && arg) {
+          this.socket.emit('rename-user', { username: arg });
+          input.value = '';
+          input.style.height = 'auto';
+          this._hideMentionDropdown();
+          this._hideSlashDropdown();
+          return;
+        }
+      }
+    }
+
+    // DM mode — send via send-dm
+    if (this.currentDm) {
+      this.socket.emit('send-dm', { code: this.currentDm, content });
+      input.value = '';
+      input.style.height = 'auto';
+      input.focus();
+      this._hideMentionDropdown();
+      this._hideSlashDropdown();
+      return;
+    }
+
+    const payload = { code: this.currentChannel, content };
+    if (this.replyingTo) {
+      payload.replyTo = this.replyingTo.id;
+    }
+
+    this.socket.emit('send-message', payload);
+    input.value = '';
+    input.style.height = 'auto';
+    input.focus();
+    this._clearReply();
+    this._hideMentionDropdown();
+    this._hideSlashDropdown();
+  }
+
+  _renderMessages(messages) {
+    const container = document.getElementById('messages');
+    container.innerHTML = '';
+    messages.forEach((msg, i) => {
+      const prevMsg = i > 0 ? messages[i - 1] : null;
+      container.appendChild(this._createMessageEl(msg, prevMsg));
+    });
+    this._scrollToBottom(true);
+    // Re-scroll after any images finish loading
+    container.querySelectorAll('img').forEach(img => {
+      if (!img.complete) img.addEventListener('load', () => this._scrollToBottom(true), { once: true });
+    });
+    // Fetch link previews for all messages
+    this._fetchLinkPreviews(container);
+  }
+
+  _appendMessage(message) {
+    const container = document.getElementById('messages');
+    const lastMsg = container.lastElementChild;
+
+    let prevMsg = null;
+    // Only use last element for grouping if it's an actual message (not a system message)
+    if (lastMsg && lastMsg.dataset && lastMsg.dataset.userId && lastMsg.dataset.msgId) {
+      prevMsg = {
+        user_id: parseInt(lastMsg.dataset.userId),
+        created_at: lastMsg.dataset.time
+      };
+    }
+
+    const wasAtBottom = this._isScrolledToBottom();
+    const msgEl = this._createMessageEl(message, prevMsg);
+    container.appendChild(msgEl);
+    // Fetch link previews for this message
+    this._fetchLinkPreviews(msgEl);
+    if (wasAtBottom) {
+      this._scrollToBottom();
+      // Also scroll after images load (they shift content down)
+      const imgs = container.lastElementChild?.querySelectorAll('img');
+      if (imgs) imgs.forEach(img => {
+        if (!img.complete) img.addEventListener('load', () => this._scrollToBottom(), { once: true });
+      });
+    }
+  }
+
+  _createMessageEl(msg, prevMsg) {
+    const isImage = this._isImageUrl(msg.content);
+    const isCompact = !isImage && prevMsg &&
+      prevMsg.user_id === msg.user_id &&
+      !msg.reply_to &&
+      (new Date(msg.created_at) - new Date(prevMsg.created_at)) < 5 * 60 * 1000;
+
+    const reactionsHtml = this._renderReactions(msg.id, msg.reactions || []);
+    const editedHtml = msg.edited_at ? `<span class="edited-tag" title="Edited at ${new Date(msg.edited_at).toLocaleString()}">(edited)</span>` : '';
+    const pinnedTag = msg.pinned ? '<span class="pinned-tag" title="Pinned message">📌</span>' : '';
+
+    // Build toolbar with context-aware buttons
+    let toolbarBtns = `<button data-action="react" title="React">😀</button><button data-action="reply" title="Reply">↩️</button>`;
+    if (this.user.isAdmin) {
+      toolbarBtns += msg.pinned
+        ? `<button data-action="unpin" title="Unpin">📌</button>`
+        : `<button data-action="pin" title="Pin">📌</button>`;
+    }
+    if (msg.user_id === this.user.id) {
+      toolbarBtns += `<button data-action="edit" title="Edit">✏️</button>`;
+    }
+    if (msg.user_id === this.user.id || this.user.isAdmin) {
+      toolbarBtns += `<button data-action="delete" title="Delete">🗑️</button>`;
+    }
+    const toolbarHtml = `<div class="msg-toolbar">${toolbarBtns}</div>`;
+    const replyHtml = msg.replyContext ? this._renderReplyBanner(msg.replyContext) : '';
+
+    if (isCompact) {
+      const el = document.createElement('div');
+      el.className = 'message-compact' + (msg.pinned ? ' pinned' : '');
+      el.dataset.userId = msg.user_id;
+      el.dataset.username = msg.username;
+      el.dataset.time = msg.created_at;
+      el.dataset.msgId = msg.id;
+      if (msg.pinned) el.dataset.pinned = '1';
+      const contentHtml = msg.is_html ? msg.content : this._formatContent(msg.content);
+      el.innerHTML = `
+        <span class="compact-time">${new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
+        <div class="message-content">${pinnedTag}${contentHtml}${editedHtml}</div>
+        ${toolbarHtml}
+        ${reactionsHtml}
+      `;
+      return el;
+    }
+
+    const isSelf = msg.user_id === this.user.id;
+    const customColor = isSelf && this._avatarColor ? `hsl(${this._avatarColor}, 65%, 50%)` : null;
+    const color = customColor || this._getUserColor(msg.username);
+    const displayName = msg.displayName || msg.username;
+    const initial = displayName.charAt(0).toUpperCase();
+    const msgContentHtml = msg.is_html ? msg.content : this._formatContent(msg.content);
+    const shapeClass = 'avatar-' + (this._avatarShape || 'circle');
+    const avatarContent = (isSelf && this._avatarImg)
+      ? `<img src="${this._avatarImg}" alt="${initial}" style="width:100%;height:100%;object-fit:cover;">`
+      : initial;
+
+    const el = document.createElement('div');
+    el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '');
+    el.dataset.userId = msg.user_id;
+    el.dataset.time = msg.created_at;
+    el.dataset.msgId = msg.id;
+    if (msg.pinned) el.dataset.pinned = '1';
+    el.innerHTML = `
+      ${replyHtml}
+      <div class="message-row">
+        <div class="message-avatar ${shapeClass}" style="background-color:${color}">${avatarContent}</div>
+        <div class="message-body">
+          <div class="message-header">
+            <span class="message-author" style="color:${color}">${this._escapeHtml(displayName)}</span>
+            <span class="message-time">${this._formatTime(msg.created_at)}</span>
+            ${pinnedTag}
+          </div>
+          <div class="message-content">${msgContentHtml}${editedHtml}</div>
+          ${reactionsHtml}
+        </div>
+        ${toolbarHtml}
+      </div>
+    `;
+    return el;
+  }
+
+  _appendSystemMessage(text) {
+    const container = document.getElementById('messages');
+    const wasAtBottom = this._isScrolledToBottom();
+    const el = document.createElement('div');
+    el.className = 'system-message';
+    el.textContent = text;
+    container.appendChild(el);
+    if (wasAtBottom) this._scrollToBottom();
+  }
+
+  // ── Pinned Messages Panel ─────────────────────────────
+
+  _renderPinnedPanel(pins) {
+    const panel = document.getElementById('pinned-panel');
+    const list = document.getElementById('pinned-list');
+    const count = document.getElementById('pinned-count');
+
+    count.textContent = `📌 ${pins.length} pinned message${pins.length !== 1 ? 's' : ''}`;
+
+    if (pins.length === 0) {
+      list.innerHTML = '<p class="muted-text" style="padding:12px">No pinned messages</p>';
+    } else {
+      list.innerHTML = pins.map(p => `
+        <div class="pinned-item" data-msg-id="${p.id}">
+          <div class="pinned-item-header">
+            <span class="pinned-item-author" style="color:${this._getUserColor(p.username)}">${this._escapeHtml(p.username)}</span>
+            <span class="pinned-item-time">${this._formatTime(p.created_at)}</span>
+          </div>
+          <div class="pinned-item-content">${this._formatContent(p.content)}</div>
+          <div class="pinned-item-footer">Pinned by ${this._escapeHtml(p.pinned_by)}</div>
+        </div>
+      `).join('');
+    }
+    panel.style.display = 'block';
+
+    // Click to scroll to pinned message
+    list.querySelectorAll('.pinned-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const msgId = item.dataset.msgId;
+        const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+        if (msgEl) {
+          msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          msgEl.classList.add('highlight-flash');
+          setTimeout(() => msgEl.classList.remove('highlight-flash'), 2000);
+        }
+        panel.style.display = 'none';
+      });
+    });
+  }
+
+  // ── Link Previews ─────────────────────────────────────
+
+  _fetchLinkPreviews(containerEl) {
+    const links = containerEl.querySelectorAll('.message-content a[href]');
+    const seen = new Set();
+    links.forEach(link => {
+      const url = link.href;
+      if (seen.has(url)) return;
+      seen.add(url);
+      // Skip image URLs (already rendered inline) and internal URLs
+      if (/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i.test(url)) return;
+      if (/^https:\/\/media\.tenor\.com\//i.test(url)) return;
+      if (url.startsWith(window.location.origin)) return;
+
+      fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
+        headers: { 'Authorization': `Bearer ${this.token}` }
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.title && !data.description) return;
+          const msgContent = link.closest('.message-content');
+          if (!msgContent) return;
+
+          // Don't add duplicate previews
+          if (msgContent.querySelector(`.link-preview[data-url="${CSS.escape(url)}"]`)) return;
+
+          const card = document.createElement('a');
+          card.className = 'link-preview';
+          card.href = url;
+          card.target = '_blank';
+          card.rel = 'noopener noreferrer nofollow';
+          card.dataset.url = url;
+
+          let inner = '';
+          if (data.image) {
+            inner += `<img class="link-preview-image" src="${this._escapeHtml(data.image)}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+          }
+          inner += '<div class="link-preview-text">';
+          if (data.siteName) inner += `<span class="link-preview-site">${this._escapeHtml(data.siteName)}</span>`;
+          if (data.title) inner += `<span class="link-preview-title">${this._escapeHtml(data.title)}</span>`;
+          if (data.description) inner += `<span class="link-preview-desc">${this._escapeHtml(data.description).slice(0, 200)}</span>`;
+          inner += '</div>';
+          card.innerHTML = inner;
+
+          msgContent.appendChild(card);
+
+          // Scroll if at bottom
+          if (this._isScrolledToBottom()) this._scrollToBottom();
+        })
+        .catch(() => {});
+    });
+  }
+
+  // ── Users ─────────────────────────────────────────────
+
+  _renderOnlineUsers(users) {
+    this._lastOnlineUsers = users;
+    if (users.length === 0) {
+      const ovList = document.getElementById('online-overlay-list');
+      if (ovList) ovList.innerHTML = '<p class="muted-text">No one here</p>';
+      const sidebarEl = document.getElementById('sidebar-online-users');
+      if (sidebarEl) sidebarEl.innerHTML = '<p class="muted-text">No one online</p>';
+      const sc = document.getElementById('sidebar-online-count');
+      if (sc) sc.textContent = '0';
+      return;
+    }
+    const sorted = [...users].sort((a, b) => {
+      const aOn = a.online !== false, bOn = b.online !== false;
+      return aOn !== bOn ? (aOn ? -1 : 1) : a.username.toLowerCase().localeCompare(b.username.toLowerCase());
+    });
+    const onlineUsers = sorted.filter(u => u.online !== false);
+    const offlineUsers = sorted.filter(u => u.online === false);
+    let html = '';
+    if (onlineUsers.length > 0) {
+      html += `<div class="user-group-label">Online — ${onlineUsers.length}</div>`;
+      html += onlineUsers.map(u => this._renderUserItem(u)).join('');
+    }
+    if (offlineUsers.length > 0) {
+      html += `<div class="user-group-label offline-label">Offline — ${offlineUsers.length}</div>`;
+      html += offlineUsers.map(u => this._renderUserItem(u)).join('');
+    }
+    if (!html) html = '<p class="muted-text">No one here</p>';
+    const ovList = document.getElementById('online-overlay-list');
+    if (ovList) ovList.innerHTML = html;
+    const sidebarEl = document.getElementById('sidebar-online-users');
+    const sidebarCount = document.getElementById('sidebar-online-count');
+    if (sidebarEl) sidebarEl.innerHTML = onlineUsers.map(u => `<div class="user-item mini" data-user-id="${u.id}"><span class="user-dot"></span><span class="user-item-name">${this._escapeHtml(u.displayName || u.username)}</span></div>`).join('') || '<p class="muted-text">No one online</p>';
+    if (sidebarCount) sidebarCount.textContent = onlineUsers.length;
+  }
+  _renderUserItem(u) {
+    const onlineClass = u.online === false ? ' offline' : '';
+    const displayName = u.displayName || u.username;
+    return `<div class="user-item${onlineClass}" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot${u.online === false ? ' away' : ''}"></span><span class="user-item-name">${this._escapeHtml(displayName)}</span></div>`;
+  }
+
+  _renderVoiceUsers(users) {
+    const el = document.getElementById('voice-users');
+    if (users.length === 0) {
+      el.innerHTML = '<p class="muted-text">No one in voice</p>';
+      return;
+    }
+    el.innerHTML = users.map(u => {
+      const savedVol = this._getVoiceVolume(u.id);
+      const isSelf = u.id === this.user.id;
+      const displayName = u.displayName || u.username;
+      const talking = this.voice && ((isSelf && this.voice.talkingState.get('self')) || this.voice.talkingState.get(u.id));
+      return `
+        <div class="user-item voice-user-item${talking ? ' talking' : ''}" data-user-id="${u.id}">
+          <span class="user-dot voice"></span>
+          <span class="user-item-name">${this._escapeHtml(displayName)}</span>
+          ${!isSelf ? `<input type="range" class="volume-slider" min="0" max="200" value="${savedVol}" data-user-id="${u.id}" title="Volume: ${savedVol}%">` : '<span class="you-tag">you</span>'}
+        </div>
+      `;
+    }).join('');
+
+    // Bind volume sliders
+    el.querySelectorAll('.volume-slider').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const userId = parseInt(slider.dataset.userId);
+        const vol = parseInt(slider.value);
+        slider.title = `Volume: ${vol}%`;
+        this._setVoiceVolume(userId, vol);
+        if (this.voice) this.voice.setVolume(userId, vol / 100);
+      });
+    });
+  }
+
+  _getVoiceVolume(userId) {
+    try {
+      const vols = JSON.parse(localStorage.getItem('haven_voice_volumes') || '{}');
+      return vols[userId] ?? 100;
+    } catch { return 100; }
+  }
+
+  _setVoiceVolume(userId, vol) {
+    try {
+      const vols = JSON.parse(localStorage.getItem('haven_voice_volumes') || '{}');
+      vols[userId] = vol;
+      localStorage.setItem('haven_voice_volumes', JSON.stringify(vols));
+    } catch { /* ignore */ }
+  }
+
+  _showTyping(username) {
+    const el = document.getElementById('typing-indicator');
+    el.textContent = `${username} is typing...`;
+    clearTimeout(this.typingTimeout);
+    this.typingTimeout = setTimeout(() => { el.textContent = ''; }, 3000);
+  }
+
+  // ── Voice ─────────────────────────────────────────────
+
+  async _joinVoice() {
+    if (!this.currentChannel) return;
+    const success = await this.voice.join(this.currentChannel);
+    if (success) {
+      this._updateVoiceButtons(true);
+      this._updateVoiceStatus(true);
+      this._showToast('Joined voice chat', 'success');
+    } else {
+      this._showToast('Could not access microphone. Check permissions or use HTTPS.', 'error');
+    }
+  }
+
+  _leaveVoice() {
+    this.voice.leave();
+    this._updateVoiceButtons(false);
+    this._updateVoiceStatus(false);
+  }
+
+  _toggleMute() {
+    const muted = this.voice.toggleMute();
+    const btn = document.getElementById('voice-mute-btn');
+    btn.textContent = muted ? '🔊 Unmute' : '🔇 Mute';
+    btn.classList.toggle('muted', muted);
+
+    // Audible cue
+    this.notifications.playDirect(muted ? 'mute_on' : 'mute_off');
+
+    if (muted) {
+      this._setLed('status-voice-led', 'warn');
+      document.getElementById('status-voice-text').textContent = 'Muted';
+    } else if (!this.voice.isDeafened) {
+      this._setLed('status-voice-led', 'on');
+      document.getElementById('status-voice-text').textContent = 'Active';
+    }
+  }
+
+  _toggleDeafen() {
+    const deafened = this.voice.toggleDeafen();
+    const btn = document.getElementById('voice-deafen-btn');
+    btn.textContent = deafened ? '🔈 Undeafen' : '🔇 Deafen';
+    btn.classList.toggle('muted', deafened);
+
+    // Audible cue
+    this.notifications.playDirect(deafened ? 'deafen_on' : 'deafen_off');
+
+    if (deafened) {
+      this._setLed('status-voice-led', 'danger');
+      document.getElementById('status-voice-text').textContent = 'Deafened';
+    } else if (this.voice.isMuted) {
+      this._setLed('status-voice-led', 'warn');
+      document.getElementById('status-voice-text').textContent = 'Muted';
+    } else {
+      this._setLed('status-voice-led', 'on');
+      document.getElementById('status-voice-text').textContent = 'Active';
+    }
+  }
+
+  _updateVoiceButtons(inVoice) {
+    document.getElementById('voice-join-btn').style.display = inVoice ? 'none' : 'inline-block';
+    document.getElementById('voice-mute-btn').style.display = inVoice ? 'inline-flex' : 'none';
+    document.getElementById('voice-deafen-btn').style.display = inVoice ? 'inline-flex' : 'none';
+    document.getElementById('voice-leave-btn').style.display = inVoice ? 'inline-flex' : 'none';
+    document.getElementById('screen-share-btn').style.display = inVoice ? 'inline-flex' : 'none';
+    const nsBtnUp = document.getElementById('noise-suppress-btn');
+    if (nsBtnUp) nsBtnUp.style.display = inVoice ? 'inline-flex' : 'none';
+    this._updateToolbarVisibility();
+
+    if (!inVoice) {
+      document.getElementById('voice-mute-btn').textContent = '🔇 Mute';
+      document.getElementById('voice-mute-btn').classList.remove('muted');
+      document.getElementById('voice-deafen-btn').textContent = '🔇 Deafen';
+      document.getElementById('voice-deafen-btn').classList.remove('muted');
+      document.getElementById('screen-share-btn').textContent = '🖥️ Share';
+      document.getElementById('screen-share-btn').classList.remove('sharing');
+      this._hideScreenShare();
+    }
+  }
+
+  _updateVoiceStatus(inVoice) {
+    if (inVoice) {
+      this._setLed('status-voice-led', 'on');
+      document.getElementById('status-voice-text').textContent = 'Active';
+    } else {
+      this._setLed('status-voice-led', 'off');
+      document.getElementById('status-voice-text').textContent = 'Off';
+    }
+  }
+  _updateToolbarVisibility() {
+    const tb = document.getElementById('voice-toolbar');
+    if (!tb) return;
+    const hasVisible = Array.from(tb.querySelectorAll('.btn-voice')).some(b => b.style.display !== 'none');
+    tb.classList.toggle('active', hasVisible);
+  }
+
+  // ── Screen Share ──────────────────────────────────────
+
+  async _toggleScreenShare() {
+    if (!this.voice.inVoice) return;
+
+    if (this.voice.isScreenSharing) {
+      this.voice.stopScreenShare();
+      document.getElementById('screen-share-btn').textContent = '🖥️ Share';
+      document.getElementById('screen-share-btn').classList.remove('sharing');
+      this._handleScreenStream(this.user.id, null);
+      this._showToast('Stopped screen sharing', 'info');
+    } else {
+      const ok = await this.voice.shareScreen();
+      if (ok) {
+        document.getElementById('screen-share-btn').textContent = '🛑 Stop';
+        document.getElementById('screen-share-btn').classList.add('sharing');
+        this._showToast('Screen sharing started', 'success');
+        // Show our own screen in the viewer via the multi-stream handler
+        this._handleScreenStream(this.user.id, this.voice.screenStream);
+      } else {
+        this._showToast('Screen share cancelled or not supported', 'error');
+      }
+    }
+  }
+
+  _handleScreenStream(userId, stream) {
+    const container = document.getElementById('screen-share-container');
+    const grid = document.getElementById('screen-share-grid');
+    const label = document.getElementById('screen-share-label');
+    if (stream) {
+      const tileId = `screen-tile-${userId || 'self'}`;
+      let tile = document.getElementById(tileId);
+      if (!tile) {
+        tile = document.createElement('div');
+        tile.id = tileId;
+        tile.className = 'screen-share-tile';
+        const vid = document.createElement('video');
+        vid.autoplay = true;
+        vid.playsInline = true;
+        vid.muted = true;
+        tile.appendChild(vid);
+        const lbl = document.createElement('div');
+        lbl.className = 'screen-share-tile-label';
+        const peer = this.voice.peers.get(userId);
+        const who = userId === null || userId === this.user.id ? 'You' : (peer ? peer.username : 'Someone');
+        lbl.textContent = who;
+        tile.appendChild(lbl);
+        const toolbar = document.createElement('div');
+        toolbar.className = 'screen-tile-toolbar';
+        const maxBtn = document.createElement('button');
+        maxBtn.className = 'screen-tile-btn';
+        maxBtn.title = 'Fullscreen';
+        maxBtn.innerHTML = '⛶';
+        maxBtn.addEventListener('click', () => {
+          if (document.fullscreenElement === tile) {
+            document.exitFullscreen().catch(() => {});
+          } else {
+            tile.requestFullscreen().catch(() => {});
+          }
+        });
+        toolbar.appendChild(maxBtn);
+        const volWrap = document.createElement('div');
+        volWrap.className = 'screen-tile-vol';
+        const volIcon = document.createElement('span');
+        volIcon.textContent = '🔊';
+        volIcon.className = 'screen-tile-vol-icon';
+        const volSlider = document.createElement('input');
+        volSlider.type = 'range';
+        volSlider.min = '0';
+        volSlider.max = '100';
+        volSlider.value = '100';
+        volSlider.className = 'screen-tile-vol-slider';
+        volSlider.addEventListener('input', () => {
+          vid.muted = volSlider.value === '0';
+          vid.volume = volSlider.value / 100;
+          volIcon.textContent = volSlider.value === '0' ? '🔇' : (volSlider.value < 50 ? '🔉' : '🔊');
+        });
+        volWrap.appendChild(volIcon);
+        volWrap.appendChild(volSlider);
+        toolbar.appendChild(volWrap);
+        const resSelect = document.createElement('select');
+        resSelect.className = 'screen-tile-res';
+        resSelect.title = 'Playback quality';
+        ['Auto','1080p','720p','480p','360p'].forEach(r => {
+          const o = document.createElement('option');
+          o.value = r.toLowerCase();
+          o.textContent = r;
+          resSelect.appendChild(o);
+        });
+        resSelect.addEventListener('change', () => {
+          const track = stream.getVideoTracks()[0];
+          if (!track || resSelect.value === 'auto') return;
+          const h = parseInt(resSelect.value);
+          const w = Math.round(h * (16 / 9));
+          track.applyConstraints({ width: { ideal: w }, height: { ideal: h } }).catch(() => {});
+        });
+        toolbar.appendChild(resSelect);
+        tile.appendChild(toolbar);
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'screen-share-tile-close';
+        closeBtn.title = (userId === null || userId === this.user.id) ? 'Stop sharing' : 'Dismiss stream';
+        closeBtn.textContent = '✕';
+        closeBtn.addEventListener('click', () => {
+          if (userId === null || userId === this.user.id) {
+            this.voice.isScreenSharing ? this._toggleScreenShare() : this._handleScreenStream(userId, null);
+          } else {
+            this._handleScreenStream(userId, null);
+          }
+        });
+        tile.appendChild(closeBtn);
+        grid.appendChild(tile);
+      }
+      const videoEl = tile.querySelector('video');
+      videoEl.srcObject = stream;
+      videoEl.play().catch(() => {});
+      container.style.display = 'flex';
+      const count = grid.children.length;
+      label.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''}`;
+    } else {
+      const tileId = `screen-tile-${userId || 'self'}`;
+      const tile = document.getElementById(tileId);
+      if (tile) {
+        const vid = tile.querySelector('video');
+        if (vid) vid.srcObject = null;
+        tile.remove();
+      }
+      this._updateScreenShareVisibility();
+    }
+  }
+
+  _updateScreenShareVisibility() {
+    const container = document.getElementById('screen-share-container');
+    const grid = document.getElementById('screen-share-grid');
+    const label = document.getElementById('screen-share-label');
+    const count = grid.children.length;
+    if (count === 0) {
+      container.style.display = 'none';
+    } else {
+      label.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''}`;
+    }
+  }
+
+  _hideScreenShare() {
+    if (this.voice?.isScreenSharing) {
+      this.voice.stopScreenShare();
+      document.getElementById('screen-share-btn').textContent = '🖥️ Share';
+      document.getElementById('screen-share-btn').classList.remove('sharing');
+      this._handleScreenStream(this.user.id, null);
+      this._showToast('Stopped screen sharing', 'info');
+      return;
+    }
+    const container = document.getElementById('screen-share-container');
+    const grid = document.getElementById('screen-share-grid');
+    if (grid.children.length === 0) {
+      container.style.display = 'none';
+      container.classList.remove('screen-collapsed');
+      return;
+    }
+    const collapsed = container.classList.toggle('screen-collapsed');
+    const btn = document.getElementById('screen-share-close');
+    btn.textContent = collapsed ? '▸' : '▾';
+    btn.title = collapsed ? 'Expand streams' : 'Minimize streams';
+  }
+  _buildEmbedUrl(url) {
+    let m;
+    if ((m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/))) return `https://www.youtube-nocookie.com/embed/${m[1]}?autoplay=1&enablejsapi=1&rel=0&origin=${encodeURIComponent(window.location.origin)}`;
+    if ((m = url.match(/open\.spotify\.com\/(track|album|playlist)\/([\w]+)/))) return `https://open.spotify.com/embed/${m[1]}/${m[2]}?utm_source=generator&theme=0`;
+    if ((m = url.match(/soundcloud\.com\/.+/))) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&auto_play=true&visual=true`;
+    if ((m = url.match(/vimeo\.com\/(\d+)/))) return `https://player.vimeo.com/video/${m[1]}?autoplay=1`;
+    return '';
+  }
+  _onListenSession(session) {
+    this._listenSession = session;
+    const activeEl = document.getElementById('listen-active-session');
+    const hostCtrl = document.getElementById('listen-host-controls');
+    const embedCont = document.getElementById('listen-embed-container');
+    const sdkPlayer = document.getElementById('spotify-sdk-player');
+    const playPause = document.getElementById('listen-play-pause');
+    const stopBtn = document.getElementById('listen-stop-btn');
+    if (!session) {
+      activeEl.style.display = 'none';
+      hostCtrl.style.display = 'block';
+      embedCont.innerHTML = '';
+      if (sdkPlayer) sdkPlayer.style.display = 'none';
+      if (this.spotifyPlayer) this.spotifyPlayer.pause();
+      return;
+    }
+    hostCtrl.style.display = 'none';
+    activeEl.style.display = 'block';
+    document.getElementById('listen-now-title').textContent = session.title || session.url;
+    document.getElementById('listen-now-host').textContent = `Hosted by ${session.hostName}`;
+    const isHost = session.hostId === this.user.id;
+    playPause.style.display = isHost ? '' : 'none';
+    stopBtn.style.display = isHost ? '' : 'none';
+    playPause.textContent = session.isPlaying ? '⏸ Pause' : '▶ Play';
+    const isSpotify = this._isSpotifyUrl(session.url);
+    if (isSpotify && this._spotifyReady && this.spotifyPlayer?.isPremium) {
+      embedCont.style.display = 'none';
+      if (sdkPlayer) sdkPlayer.style.display = 'block';
+      const uri = this.spotifyPlayer.spotifyUrlToUri(session.url);
+      if (uri) this.spotifyPlayer.play(uri);
+      this._showToast(`🎵 ${session.hostName} started Listen Together`, 'info');
+      return;
+    }
+    embedCont.style.display = '';
+    if (sdkPlayer) sdkPlayer.style.display = 'none';
+    const embedUrl = this._buildEmbedUrl(session.url);
+    if (!embedUrl) return this._showToast('Unsupported media URL', 'error');
+    embedCont.innerHTML = `<iframe src="${this._escapeHtml(embedUrl)}" width="100%" height="${embedUrl.includes('spotify') ? '152' : '80'}" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" allowfullscreen style="border-radius:8px"></iframe>${embedUrl.includes('spotify') ? '<div class="spotify-embed-hint">Tip: Log into <a href="https://open.spotify.com" target="_blank" rel="noopener">open.spotify.com</a> in your browser first for full playback, or use Connect Spotify above</div>' : ''}`;
+    this._showToast(`🎵 ${session.hostName} started Listen Together`, 'info');
+  }
+  _onListenSync(data) {
+    if (!this._listenSession) return;
+    this._listenSession.isPlaying = data.isPlaying;
+    this._listenSession.position = data.position;
+  }
+  _onListenEnded() {
+    this._listenSession = null;
+    document.getElementById('listen-active-session').style.display = 'none';
+    document.getElementById('listen-host-controls').style.display = 'block';
+    document.getElementById('listen-embed-container').innerHTML = '';
+    const sdkPlayer = document.getElementById('spotify-sdk-player');
+    if (sdkPlayer) sdkPlayer.style.display = 'none';
+    if (this.spotifyPlayer) this.spotifyPlayer.pause();
+    this._showToast('🎵 Listen Together ended', 'info');
+  }
+
+  // ── Utilities ─────────────────────────────────────────
+
+  _escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  _isImageUrl(str) {
+    if (!str) return false;
+    const trimmed = str.trim();
+    if (/^\/uploads\/[\w\-]+\.(jpg|jpeg|png|gif|webp)$/i.test(trimmed)) return true;
+    if (/^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)(\?[^"'<>]*)?$/i.test(trimmed)) return true;
+    // Tenor GIF URLs (don't have file extensions)
+    if (/^https:\/\/media\.tenor\.com\/.+/i.test(trimmed)) return true;
+    return false;
+  }
+
+  _highlightSearch(escapedHtml, query) {
+    if (!query) return escapedHtml;
+    const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return escapedHtml.replace(new RegExp(`(${safeQuery})`, 'gi'), '<mark>$1</mark>');
+  }
+
+  _formatContent(str) {
+    // Render server-hosted images inline (early return)
+    if (/^\/uploads\/[\w\-]+\.(jpg|jpeg|png|gif|webp)$/i.test(str.trim())) {
+      return `<img src="${this._escapeHtml(str.trim())}" class="chat-image" alt="image" loading="lazy">`;
+    }
+
+    // ── Extract fenced code blocks before escaping ──
+    const codeBlocks = [];
+    const withPlaceholders = str.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+      const idx = codeBlocks.length;
+      codeBlocks.push({ lang: lang || '', code });
+      return `\x00CODEBLOCK_${idx}\x00`;
+    });
+
+    let html = this._escapeHtml(withPlaceholders);
+
+    // Auto-link URLs (and render image URLs as inline images)
+    html = html.replace(
+      /\bhttps?:\/\/[a-zA-Z0-9\-._~:/?#\[\]@!$&()*+,;=%]+/g,
+      (url) => {
+        try { new URL(url); } catch { return url; }
+        const safeUrl = url.replace(/['"<>]/g, '');
+        if (/\.(jpg|jpeg|png|gif|webp)(\?[^"'<>]*)?$/i.test(safeUrl) ||
+            /^https:\/\/media\.tenor\.com\//i.test(safeUrl)) {
+          return `<img src="${safeUrl}" class="chat-image" alt="image" loading="lazy">`;
+        }
+        return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer nofollow">${safeUrl}</a>`;
+      }
+    );
+
+    // Render @mentions with highlight
+    html = html.replace(/@(\w{1,30})/g, (match, username) => {
+      const isSelf = username.toLowerCase() === this.user.username.toLowerCase();
+      return `<span class="mention${isSelf ? ' mention-self' : ''}">${match}</span>`;
+    });
+
+    // Render spoilers (||text||) — CSP-safe, uses delegated click handler
+    html = html.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler">$1</span>');
+
+    // Render /me action text (italic)
+    if (html.startsWith('_') && html.endsWith('_') && html.length > 2) {
+      html = `<em class="action-text">${html.slice(1, -1)}</em>`;
+    }
+
+    // Render **bold**
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    // Render *italic*
+    html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+
+    // Render ~~strikethrough~~
+    html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
+
+    // Render `inline code`
+    html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+
+    // Render > blockquotes (lines starting with >)
+    html = html.replace(/(?:^|\n)&gt;\s?(.+)/g, (_, text) => {
+      return `\n<blockquote class="chat-blockquote">${text}</blockquote>`;
+    });
+
+    html = html.replace(/\n/g, '<br>');
+
+    // ── Restore fenced code blocks ──
+    codeBlocks.forEach((block, idx) => {
+      const escaped = this._escapeHtml(block.code).replace(/\n$/, '');
+      const langAttr = block.lang ? ` data-lang="${this._escapeHtml(block.lang)}"` : '';
+      const langLabel = block.lang ? `<span class="code-block-lang">${this._escapeHtml(block.lang)}</span>` : '';
+      const rendered = `<div class="code-block"${langAttr}>${langLabel}<pre><code>${escaped}</code></pre></div>`;
+      html = html.replace(`\x00CODEBLOCK_${idx}\x00`, rendered);
+    });
+
+    return html;
+  }
+
+  _formatTime(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const isToday = date.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+
+    if (isToday) return `Today at ${time}`;
+    if (isYesterday) return `Yesterday at ${time}`;
+    return `${date.toLocaleDateString()} ${time}`;
+  }
+
+  _getUserColor(username) {
+    const colors = [
+      '#e94560', '#7c5cfc', '#43b581', '#faa61a',
+      '#f47fff', '#00b8d4', '#ff6b6b', '#a8e6cf',
+      '#82aaff', '#c792ea', '#ffcb6b', '#89ddff'
+    ];
+    let hash = 0;
+    for (const ch of username) {
+      hash = ((hash << 5) - hash) + ch.charCodeAt(0);
+    }
+    return colors[Math.abs(hash) % colors.length];
+  }
+
+  _isScrolledToBottom() {
+    const el = document.getElementById('messages');
+    return el.scrollHeight - el.clientHeight - el.scrollTop < 150;
+  }
+
+  _scrollToBottom(force) {
+    const el = document.getElementById('messages');
+    if (force || this._isScrolledToBottom()) {
+      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+    }
+  }
+
+  _showToast(message, type = 'info', duration = 4000) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), duration);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // EMOJI PICKER
+  // ═══════════════════════════════════════════════════════
+
+  _toggleEmojiPicker() {
+    const picker = document.getElementById('emoji-picker');
+    if (picker.style.display === 'flex') {
+      picker.style.display = 'none';
+      return;
+    }
+    picker.innerHTML = '';
+    this.emojis.forEach(emoji => {
+      const btn = document.createElement('button');
+      btn.className = 'emoji-item';
+      btn.textContent = emoji;
+      btn.addEventListener('click', () => {
+        const input = document.getElementById('message-input');
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.substring(0, start) + emoji + input.value.substring(end);
+        input.selectionStart = input.selectionEnd = start + emoji.length;
+        input.focus();
+        picker.style.display = 'none';
+      });
+      picker.appendChild(btn);
+    });
+    picker.style.display = 'flex';
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // GIF PICKER (Tenor)
+  // ═══════════════════════════════════════════════════════
+
+  _setupGifPicker() {
+    const btn = document.getElementById('gif-btn');
+    const picker = document.getElementById('gif-picker');
+    const searchInput = document.getElementById('gif-search-input');
+    const grid = document.getElementById('gif-grid');
+    if (!btn || !picker) return;
+    this._gifDebounce = null;
+    btn.addEventListener('click', () => {
+      if (picker.style.display === 'flex') { picker.style.display = 'none'; return; }
+      document.getElementById('emoji-picker').style.display = 'none';
+      picker.style.display = 'flex';
+      searchInput.value = '';
+      searchInput.focus();
+      this._loadTrendingGifs();
+    });
+    document.addEventListener('click', (e) => {
+      if (picker.style.display !== 'none' && !picker.contains(e.target) && !btn.contains(e.target)) picker.style.display = 'none';
+    });
+    searchInput.addEventListener('input', () => {
+      clearTimeout(this._gifDebounce);
+      const q = searchInput.value.trim();
+      if (!q) { this._loadTrendingGifs(); return; }
+      this._gifDebounce = setTimeout(() => this._searchGifs(q), 350);
+    });
+    grid.addEventListener('click', (e) => {
+      const img = e.target.closest('img');
+      if (!img || !img.dataset.full) return;
+      this._sendGifMessage(img.dataset.full);
+      picker.style.display = 'none';
+    });
+  }
+
+  _loadTrendingGifs() {
+    const grid = document.getElementById('gif-grid');
+    grid.innerHTML = '<div class="gif-picker-empty">Loading...</div>';
+    const endpoint = '/api/gif/giphy/trending?limit=20';
+    fetch(endpoint)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error === 'gif_not_configured' || data.error === 'giphy_not_configured') {
+          this._showGifSetupGuide(grid);
+          return;
+        }
+        if (data.error) {
+          grid.innerHTML = `<div class="gif-picker-empty">${data.error}</div>`;
+          return;
+        }
+        this._renderGifGrid(data.results || []);
+      })
+      .catch(() => {
+        grid.innerHTML = '<div class="gif-picker-empty">Failed to load GIFs</div>';
+      });
+  }
+
+  _searchGifs(query) {
+    const grid = document.getElementById('gif-grid');
+    grid.innerHTML = '<div class="gif-picker-empty">Searching...</div>';
+    const endpoint = `/api/gif/giphy/search?q=${encodeURIComponent(query)}&limit=20`;
+    fetch(endpoint)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error === 'gif_not_configured' || data.error === 'giphy_not_configured') {
+          this._showGifSetupGuide(grid);
+          return;
+        }
+        if (data.error) {
+          grid.innerHTML = `<div class="gif-picker-empty">${data.error}</div>`;
+          return;
+        }
+        const results = data.results || [];
+        if (results.length === 0) {
+          grid.innerHTML = '<div class="gif-picker-empty">No GIFs found</div>';
+          return;
+        }
+        this._renderGifGrid(results);
+      })
+      .catch(() => {
+        grid.innerHTML = '<div class="gif-picker-empty">Search failed</div>';
+      });
+  }
+
+  _showGifSetupGuide(grid) {
+    const isAdmin = this.user && this.user.isAdmin;
+    if (isAdmin) {
+      grid.innerHTML = `
+        <div class="gif-setup-guide">
+          <h3>🎞️ Set Up GIF Search</h3>
+          <p>GIF search is powered by <strong>Giphy</strong> and needs a free API key.</p>
+          <ol>
+            <li>Go to <a href="https://developers.giphy.com" target="_blank" rel="noopener">developers.giphy.com</a></li>
+            <li>Create an app (select API, not SDK)</li>
+            <li>Copy the API key and paste it below</li>
+          </ol>
+          <div class="gif-setup-input-row">
+            <input type="text" id="gif-giphy-key-input" placeholder="Paste Giphy API key…" spellcheck="false" autocomplete="off" />
+            <button id="gif-giphy-key-save">Save</button>
+          </div>
+          <p class="gif-setup-note">💡 Free tier = 100 searches/hr. More than enough!</p>
+        </div>`;
+      const saveBtn = document.getElementById('gif-giphy-key-save');
+      const input = document.getElementById('gif-giphy-key-input');
+      saveBtn.addEventListener('click', () => {
+        const key = input.value.trim();
+        if (!key) return;
+        this.socket.emit('update-server-setting', { key: 'giphy_api_key', value: key });
+        grid.innerHTML = '<div class="gif-picker-empty">Saved! Loading GIFs…</div>';
+        setTimeout(() => this._loadTrendingGifs(), 500);
+      });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveBtn.click(); });
+    } else {
+      grid.innerHTML = `
+        <div class="gif-setup-guide">
+          <h3>🎞️ GIF Search Not Available</h3>
+          <p>An admin needs to set up the Giphy API key in Settings before GIF search can work.</p>
+        </div>`;
+    }
+  }
+
+  _renderGifGrid(results) {
+    const grid = document.getElementById('gif-grid');
+    grid.innerHTML = '';
+    results.forEach(gif => {
+      if (!gif.tiny) return;
+      const img = document.createElement('img');
+      img.src = gif.tiny;
+      img.alt = gif.title || 'GIF';
+      img.loading = 'lazy';
+      img.dataset.full = gif.full || gif.tiny;
+      grid.appendChild(img);
+    });
+  }
+
+  _sendGifMessage(url) {
+    if (!this.currentChannel || !url) return;
+    const payload = { code: this.currentChannel, content: url };
+    if (this.replyTo) { payload.replyTo = this.replyTo; this._clearReply(); }
+    this.socket.emit('send-message', payload);
+  }
+  async _setupGameUI() {
+    const gameBtn = document.getElementById('game-together-btn');
+    const gamePanel = document.getElementById('game-together-panel');
+    const gameCloseBtn = document.getElementById('game-panel-close');
+    const consoleSelect = document.getElementById('game-console-select');
+    const romBtn = document.getElementById('game-rom-btn');
+    const romInput = document.getElementById('game-rom-input');
+    const startBtn = document.getElementById('game-start-btn');
+    const controllerSelect = document.getElementById('game-controller-select');
+    const fullscreenBtn = document.getElementById('game-fullscreen-btn');
+    const endBtn = document.getElementById('game-end-btn');
+    if (!gameBtn || !gamePanel) return;
+    await this.gameManager.loadLibrary();
+    const consoles = this.gameManager.getConsoles();
+    consoles.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.unsupported ? `${c.name} (Coming Soon)` : c.name;
+      if (c.unsupported) { opt.disabled = true; opt.style.color = '#666'; }
+      consoleSelect.appendChild(opt);
+    });
+    const html5Grid = document.getElementById('html5-game-grid');
+    if (html5Grid) {
+      const allGames = this.gameManager.getAllGames();
+      html5Grid.innerHTML = allGames.map(g =>
+        `<div class="html5-game-card${g.type === 'flash' ? ' flash-game' : ''}" data-game-id="${g.id}" data-game-type="${g.type}" title="${g.desc}"><span class="html5-game-icon">${g.icon}</span><span class="html5-game-name">${g.name}</span><span class="html5-game-players">${g.type === 'flash' ? '⚡' : ''} ${g.maxPlayers > 1 ? g.maxPlayers + 'P' : '1P'}</span></div>`
+      ).join('');
+      html5Grid.addEventListener('click', (e) => {
+        const card = e.target.closest('.html5-game-card');
+        if (!card) return;
+        const gid = card.dataset.gameId;
+        try {
+          document.getElementById('game-host-controls').style.display = 'none';
+          document.getElementById('game-active-session').style.display = 'block';
+          const gm = this.gameManager.getAllGames().find(g => g.id === gid);
+          document.getElementById('game-now-title').textContent = gm?.name || gid;
+          document.getElementById('game-now-host').textContent = `Host: ${this.user.username}`;
+          endBtn.style.display = 'inline-flex';
+          this.gameManager.startHTML5Game(gid, this.currentChannel);
+        } catch (err) { this._showToast(err.message, 'error'); this._resetGameUI(); }
+      });
+    }
+    document.querySelectorAll('.game-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.game-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.game-tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        const target = document.getElementById(tab.dataset.tab);
+        if (target) target.classList.add('active');
+      });
+    });
+    gameBtn.addEventListener('click', () => {
+      gamePanel.style.display = gamePanel.style.display === 'none' ? 'block' : 'none';
+      if (gamePanel.style.display === 'block') this.socket.emit('game-get', { channelCode: this.currentChannel });
+    });
+    gameCloseBtn?.addEventListener('click', () => { gamePanel.style.display = 'none'; });
+    consoleSelect.addEventListener('change', () => {
+      const v = consoleSelect.value;
+      romBtn.disabled = !v;
+      startBtn.disabled = true;
+      romInput.value = '';
+    });
+    romBtn.addEventListener('click', () => romInput.click());
+    romInput.addEventListener('change', () => {
+      startBtn.disabled = !romInput.files?.length;
+    });
+    startBtn.addEventListener('click', async () => {
+      const cid = consoleSelect.value;
+      const rom = romInput.files?.[0];
+      if (!cid || !rom) return this._showToast('Select console and ROM', 'error');
+      try {
+        document.getElementById('game-host-controls').style.display = 'none';
+        document.getElementById('game-active-session').style.display = 'block';
+        document.getElementById('game-now-title').textContent = rom.name;
+        document.getElementById('game-now-host').textContent = `Host: ${this.user.username}`;
+        endBtn.style.display = 'inline-flex';
+        await this.gameManager.startGame(cid, rom, this.currentChannel);
+      } catch (e) {
+        this._showToast(e.message, 'error');
+        this._resetGameUI();
+      }
+    });
+    controllerSelect?.addEventListener('change', () => {
+      const v = controllerSelect.value;
+      v ? this.gameManager.requestController(parseInt(v)) : this.gameManager.releaseController();
+    });
+    fullscreenBtn?.addEventListener('click', () => {
+      const container = document.getElementById('game-container');
+      container?.requestFullscreen?.() || container?.webkitRequestFullscreen?.();
+    });
+    endBtn?.addEventListener('click', () => {
+      this.gameManager.endGame();
+      this._resetGameUI();
+    });
+    this.gameManager.onSessionUpdate = (session) => {
+      document.getElementById('game-host-controls').style.display = 'none';
+      document.getElementById('game-active-session').style.display = 'block';
+      document.getElementById('game-now-title').textContent = session.romName;
+      const host = session.players.find(p => p.id === session.hostId);
+      document.getElementById('game-now-host').textContent = `Host: ${host?.name || 'Unknown'}`;
+      endBtn.style.display = session.hostId === this.user.id ? 'inline-flex' : 'none';
+      const opts = controllerSelect.querySelectorAll('option');
+      opts.forEach(o => {
+        const v = parseInt(o.value);
+        if (isNaN(v)) return;
+        const taken = session.controllers?.find(c => c[0] === v);
+        o.disabled = !!taken && taken[1] !== this.user.id;
+        o.textContent = taken ? `Player ${v} (${session.players.find(p => p.id === taken[1])?.name || '?'})` : `Player ${v}`;
+      });
+    };
+    this.gameManager.onSessionEnd = () => this._resetGameUI();
+  }
+  _resetGameUI() {
+    document.getElementById('game-host-controls').style.display = 'block';
+    document.getElementById('game-active-session').style.display = 'none';
+    document.getElementById('game-end-btn').style.display = 'none';
+    document.getElementById('game-console-select').value = '';
+    document.getElementById('game-rom-input').value = '';
+    document.getElementById('game-rom-btn').disabled = true;
+    document.getElementById('game-start-btn').disabled = true;
+  }
+  _renderChannelMembers(data) {
+    const list = document.getElementById('channel-members-list');
+    const info = document.getElementById('channel-members-info');
+    if (!data || !data.users) { list.innerHTML = '<p class="muted-text">No data</p>'; return; }
+    info.textContent = data.isPrivate ? '🔒 Private channel - only listed users can access' : '🌐 Public channel - anyone with the code can join';
+    if (data.users.length === 0) { list.innerHTML = '<p class="muted-text">No users have explicit permission</p>'; return; }
+    list.innerHTML = data.users.map(u => `<div class="member-item" data-user-id="${u.id}"><span class="member-name">${this._escapeHtml(u.username)}</span>${this.user.isAdmin ? `<button class="btn-sm btn-danger-fill remove-member-btn" data-user-id="${u.id}">Remove</button>` : ''}</div>`).join('');
+    list.querySelectorAll('.remove-member-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const userId = parseInt(btn.dataset.userId);
+        this.socket.emit('remove-channel-user', { code: this.currentChannel, userId });
+      });
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // REACTIONS
+  // ═══════════════════════════════════════════════════════
+
+  _renderReactions(msgId, reactions) {
+    if (!reactions || reactions.length === 0) return '';
+    // Group by emoji
+    const grouped = {};
+    reactions.forEach(r => {
+      if (!grouped[r.emoji]) grouped[r.emoji] = { emoji: r.emoji, users: [] };
+      grouped[r.emoji].users.push({ id: r.user_id, username: r.username });
+    });
+
+    const badges = Object.values(grouped).map(g => {
+      const isOwn = g.users.some(u => u.id === this.user.id);
+      const names = g.users.map(u => u.username).join(', ');
+      return `<button class="reaction-badge${isOwn ? ' own' : ''}" data-emoji="${g.emoji}" title="${names}">${g.emoji} ${g.users.length}</button>`;
+    }).join('');
+
+    return `<div class="reactions-row">${badges}</div>`;
+  }
+
+  _updateMessageReactions(messageId, reactions) {
+    const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
+    if (!msgEl) return;
+
+    const wasAtBottom = this._isScrolledToBottom();
+
+    // Remove old reactions row
+    const oldRow = msgEl.querySelector('.reactions-row');
+    if (oldRow) oldRow.remove();
+
+    // Add new reactions
+    const html = this._renderReactions(messageId, reactions);
+    if (!html) { if (wasAtBottom) this._scrollToBottom(); return; }
+
+    // Find where to insert — after .message-content
+    const content = msgEl.querySelector('.message-content');
+    if (content) {
+      content.insertAdjacentHTML('afterend', html);
+    }
+
+    if (wasAtBottom) this._scrollToBottom();
+  }
+
+  _showReactionPicker(msgEl, msgId) {
+    // Remove any existing reaction picker
+    document.querySelectorAll('.reaction-picker').forEach(el => el.remove());
+
+    const picker = document.createElement('div');
+    picker.className = 'reaction-picker';
+    const quickEmojis = ['👍','👎','😂','❤️','🔥','💯','😮','😢'];
+    quickEmojis.forEach(emoji => {
+      const btn = document.createElement('button');
+      btn.className = 'reaction-pick-btn';
+      btn.textContent = emoji;
+      btn.addEventListener('click', () => {
+        this.socket.emit('add-reaction', { messageId: msgId, emoji });
+        picker.remove();
+      });
+      picker.appendChild(btn);
+    });
+
+    msgEl.appendChild(picker);
+
+    // Close on click outside
+    const close = (e) => {
+      if (!picker.contains(e.target)) {
+        picker.remove();
+        document.removeEventListener('click', close);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // REPLY
+  // ═══════════════════════════════════════════════════════
+
+  _renderReplyBanner(replyCtx) {
+    const previewText = replyCtx.content.length > 80
+      ? replyCtx.content.substring(0, 80) + '…'
+      : replyCtx.content;
+    const color = this._getUserColor(replyCtx.username);
+    return `
+      <div class="reply-banner" data-reply-msg-id="${replyCtx.id}">
+        <span class="reply-line" style="background:${color}"></span>
+        <span class="reply-author" style="color:${color}">${this._escapeHtml(replyCtx.username)}</span>
+        <span class="reply-preview">${this._escapeHtml(previewText)}</span>
+      </div>
+    `;
+  }
+
+  _setReply(msgEl, msgId) {
+    // Get message info — works for both full messages and compact messages
+    let author = msgEl.querySelector('.message-author')?.textContent;
+    if (!author) {
+      // Compact message — look up the previous full message's author
+      let prev = msgEl.previousElementSibling;
+      while (prev) {
+        const authorEl = prev.querySelector('.message-author');
+        if (authorEl) { author = authorEl.textContent; break; }
+        prev = prev.previousElementSibling;
+      }
+    }
+    author = author || 'someone';
+    const content = msgEl.querySelector('.message-content')?.textContent || '';
+    const preview = content.length > 60 ? content.substring(0, 60) + '…' : content;
+
+    this.replyingTo = { id: msgId, username: author, content };
+
+    const bar = document.getElementById('reply-bar');
+    bar.style.display = 'flex';
+    document.getElementById('reply-preview-text').innerHTML =
+      `Replying to <strong>${this._escapeHtml(author)}</strong>: ${this._escapeHtml(preview)}`;
+    document.getElementById('message-input').focus();
+  }
+
+  _clearReply() {
+    this.replyingTo = null;
+    const bar = document.getElementById('reply-bar');
+    if (bar) bar.style.display = 'none';
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // EDIT MESSAGE
+  // ═══════════════════════════════════════════════════════
+
+  _startEditMessage(msgEl, msgId) {
+    const contentEl = msgEl.querySelector('.message-content');
+    if (!contentEl) return;
+
+    // Get raw text (strip HTML)
+    const rawText = contentEl.textContent;
+
+    // Replace content with an editable textarea
+    const originalHtml = contentEl.innerHTML;
+    contentEl.innerHTML = '';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'edit-textarea';
+    textarea.value = rawText;
+    textarea.rows = 1;
+    textarea.maxLength = 2000;
+    contentEl.appendChild(textarea);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'edit-actions';
+    btnRow.innerHTML = '<button class="edit-save-btn">Save</button><button class="edit-cancel-btn">Cancel</button>';
+    contentEl.appendChild(btnRow);
+
+    textarea.focus();
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+
+    const cancel = () => {
+      contentEl.innerHTML = originalHtml;
+    };
+
+    btnRow.querySelector('.edit-cancel-btn').addEventListener('click', cancel);
+    btnRow.querySelector('.edit-save-btn').addEventListener('click', () => {
+      const newContent = textarea.value.trim();
+      if (!newContent) return cancel();
+      if (newContent === rawText) return cancel();
+      this.socket.emit('edit-message', { messageId: msgId, content: newContent });
+      cancel(); // will be updated by the server event
+    });
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        btnRow.querySelector('.edit-save-btn').click();
+      }
+      if (e.key === 'Escape') cancel();
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // ADMIN MODERATION UI
+  // ═══════════════════════════════════════════════════════
+
+  _showAdminActionModal(action, userId, username) {
+    this.adminActionTarget = { action, userId, username };
+    const modal = document.getElementById('admin-action-modal');
+    const title = document.getElementById('admin-action-title');
+    const desc = document.getElementById('admin-action-desc');
+    const durationGroup = document.getElementById('admin-duration-group');
+    const confirmBtn = document.getElementById('confirm-admin-action-btn');
+
+    const labels = { kick: 'Kick', ban: 'Ban', mute: 'Mute' };
+    title.textContent = `${labels[action]} — ${username}`;
+    desc.textContent = action === 'ban'
+      ? 'This user will be permanently banned until unbanned.'
+      : action === 'mute'
+        ? 'This user won\'t be able to send messages for the specified duration.'
+        : 'This user will be removed from the current channel.';
+
+    durationGroup.style.display = action === 'mute' ? 'block' : 'none';
+    confirmBtn.textContent = labels[action];
+
+    document.getElementById('admin-action-reason').value = '';
+    document.getElementById('admin-action-duration').value = '10';
+    modal.style.display = 'flex';
+  }
+
+  _applyServerSettings() {
+    const vis = document.getElementById('member-visibility-select');
+    if (vis && this.serverSettings.member_visibility) {
+      vis.value = this.serverSettings.member_visibility;
+    }
+    // Cleanup settings
+    const cleanupEnabled = document.getElementById('cleanup-enabled');
+    if (cleanupEnabled) {
+      cleanupEnabled.checked = this.serverSettings.cleanup_enabled === 'true';
+    }
+    const cleanupAge = document.getElementById('cleanup-max-age');
+    if (cleanupAge && this.serverSettings.cleanup_max_age_days) {
+      cleanupAge.value = this.serverSettings.cleanup_max_age_days;
+    }
+    const cleanupSize = document.getElementById('cleanup-max-size');
+    if (cleanupSize && this.serverSettings.cleanup_max_size_mb) {
+      cleanupSize.value = this.serverSettings.cleanup_max_size_mb;
+    }
+    // Whitelist setting
+    const whitelistToggle = document.getElementById('whitelist-enabled');
+    if (whitelistToggle) {
+      whitelistToggle.checked = this.serverSettings.whitelist_enabled === 'true';
+    }
+    const tunnelToggle = document.getElementById('tunnel-enabled');
+    if (tunnelToggle) tunnelToggle.checked = this.serverSettings.tunnel_enabled === 'true';
+    const tunnelProv = document.getElementById('tunnel-provider-select');
+    if (tunnelProv && this.serverSettings.tunnel_provider) tunnelProv.value = this.serverSettings.tunnel_provider;
+    if (this.user && this.user.isAdmin) {
+      this.socket.emit('get-whitelist');
+      fetch('/api/tunnel/status', { headers: { 'Authorization': `Bearer ${this.token}` } }).then(r => r.json()).then(s => {
+        const disp = document.getElementById('tunnel-status-display');
+        if (disp) disp.textContent = s.active ? `Active: ${s.url}` : 'Inactive';
+      }).catch(() => {});
+    }
+  }
+
+  _renderWhitelist(list) {
+    const el = document.getElementById('whitelist-list');
+    if (!el) return;
+    if (!list || list.length === 0) {
+      el.innerHTML = '<p class="muted-text">No whitelisted users</p>';
+      return;
+    }
+    el.innerHTML = list.map(w => `
+      <div class="whitelist-item">
+        <span class="whitelist-username">${this._escapeHtml(w.username)}</span>
+        <button class="btn-sm btn-danger-sm whitelist-remove-btn" data-username="${this._escapeHtml(w.username)}">✕</button>
+      </div>
+    `).join('');
+    el.querySelectorAll('.whitelist-remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.socket.emit('whitelist-remove', { username: btn.dataset.username });
+      });
+    });
+  }
+
+  _renderBanList(bans) {
+    const list = document.getElementById('bans-list');
+    if (bans.length === 0) {
+      list.innerHTML = '<p class="muted-text">No banned users</p>';
+      return;
+    }
+    list.innerHTML = bans.map(b => `
+      <div class="ban-item">
+        <div class="ban-info">
+          <strong>${this._escapeHtml(b.username)}</strong>
+          <span class="ban-reason">${b.reason ? this._escapeHtml(b.reason) : 'No reason'}</span>
+          <span class="ban-date">${new Date(b.created_at).toLocaleDateString()}</span>
+        </div>
+        <div class="ban-actions">
+          <button class="btn-sm btn-unban" data-uid="${b.user_id}">Unban</button>
+          <button class="btn-sm btn-delete-user" data-uid="${b.user_id}" data-uname="${this._escapeHtml(b.username)}" title="Delete user permanently (frees username)">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.btn-unban').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.socket.emit('unban-user', { userId: parseInt(btn.dataset.uid) });
+      });
+    });
+
+    list.querySelectorAll('.btn-delete-user').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.uname;
+        if (confirm(`Permanently delete user "${name}"? This frees their username but cannot be undone.`)) {
+          this.socket.emit('delete-user', { userId: parseInt(btn.dataset.uid) });
+        }
+      });
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // @MENTION AUTOCOMPLETE
+  // ═══════════════════════════════════════════════════════
+
+  _checkMentionTrigger() {
+    const input = document.getElementById('message-input');
+    const cursor = input.selectionStart;
+    const text = input.value.substring(0, cursor);
+
+    // Look backwards from cursor for an '@' that starts a word
+    const match = text.match(/@(\w{0,30})$/);
+    if (match) {
+      this.mentionStart = cursor - match[0].length;
+      this.mentionQuery = match[1].toLowerCase();
+      this._showMentionDropdown();
+    } else {
+      this._hideMentionDropdown();
+    }
+  }
+
+  _showMentionDropdown() {
+    const dropdown = document.getElementById('mention-dropdown');
+    const query = this.mentionQuery;
+    const filtered = this.channelMembers.filter(m =>
+      m.username.toLowerCase().startsWith(query)
+    ).slice(0, 8);
+
+    if (filtered.length === 0) {
+      dropdown.style.display = 'none';
+      return;
+    }
+
+    dropdown.innerHTML = filtered.map((m, i) =>
+      `<div class="mention-item${i === 0 ? ' active' : ''}" data-username="${this._escapeHtml(m.username)}">${this._escapeHtml(m.username)}</div>`
+    ).join('');
+
+    dropdown.style.display = 'block';
+
+    dropdown.querySelectorAll('.mention-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._insertMention(item.dataset.username);
+      });
+    });
+  }
+
+  _hideMentionDropdown() {
+    const dropdown = document.getElementById('mention-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
+    this.mentionStart = -1;
+    this.mentionQuery = '';
+  }
+
+  _navigateMentionDropdown(direction) {
+    const dropdown = document.getElementById('mention-dropdown');
+    const items = dropdown.querySelectorAll('.mention-item');
+    if (items.length === 0) return;
+
+    let activeIdx = -1;
+    items.forEach((item, i) => { if (item.classList.contains('active')) activeIdx = i; });
+
+    items.forEach(item => item.classList.remove('active'));
+    let next = activeIdx + direction;
+    if (next < 0) next = items.length - 1;
+    if (next >= items.length) next = 0;
+    items[next].classList.add('active');
+  }
+
+  _insertMention(username) {
+    const input = document.getElementById('message-input');
+    const before = input.value.substring(0, this.mentionStart);
+    const after = input.value.substring(input.selectionStart);
+    input.value = before + '@' + username + ' ' + after;
+    input.selectionStart = input.selectionEnd = this.mentionStart + username.length + 2;
+    input.focus();
+    this._hideMentionDropdown();
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // SLASH COMMAND AUTOCOMPLETE
+  // ═══════════════════════════════════════════════════════
+
+  _checkSlashTrigger() {
+    const input = document.getElementById('message-input');
+    const text = input.value;
+
+    // Only activate if text starts with / and cursor is in the first word
+    if (text.startsWith('/') && !text.includes(' ') && text.length < 25) {
+      const query = text.substring(1).toLowerCase();
+      this._showSlashDropdown(query);
+    } else {
+      this._hideSlashDropdown();
+    }
+  }
+
+  _showSlashDropdown(query) {
+    const dropdown = document.getElementById('slash-dropdown');
+    const filtered = this.slashCommands.filter(c =>
+      c.cmd.startsWith(query)
+    ).slice(0, 10);
+
+    if (filtered.length === 0 || (query === '' && filtered.length === this.slashCommands.length)) {
+      // Show all on empty query
+      if (query === '') {
+        // show all
+      } else {
+        dropdown.style.display = 'none';
+        return;
+      }
+    }
+
+    const shown = query === '' ? this.slashCommands.slice(0, 12) : filtered;
+
+    dropdown.innerHTML = shown.map((c, i) =>
+      `<div class="slash-item${i === 0 ? ' active' : ''}" data-cmd="${c.cmd}">
+        <span class="slash-cmd">/${c.cmd}</span>
+        ${c.args ? `<span class="slash-args">${this._escapeHtml(c.args)}</span>` : ''}
+        <span class="slash-desc">${this._escapeHtml(c.desc)}</span>
+      </div>`
+    ).join('');
+
+    dropdown.style.display = 'block';
+
+    dropdown.querySelectorAll('.slash-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._insertSlashCommand(item.dataset.cmd);
+      });
+    });
+  }
+
+  _hideSlashDropdown() {
+    const dropdown = document.getElementById('slash-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
+  }
+
+  _navigateSlashDropdown(direction) {
+    const dropdown = document.getElementById('slash-dropdown');
+    const items = dropdown.querySelectorAll('.slash-item');
+    if (items.length === 0) return;
+
+    let activeIdx = -1;
+    items.forEach((item, i) => { if (item.classList.contains('active')) activeIdx = i; });
+
+    items.forEach(item => item.classList.remove('active'));
+    let next = activeIdx + direction;
+    if (next < 0) next = items.length - 1;
+    if (next >= items.length) next = 0;
+    items[next].classList.add('active');
+    items[next].scrollIntoView({ block: 'nearest' });
+  }
+
+  _insertSlashCommand(cmd) {
+    const input = document.getElementById('message-input');
+    const cmdDef = this.slashCommands.find(c => c.cmd === cmd);
+    const needsArg = cmdDef && cmdDef.args && cmdDef.args.startsWith('<');
+    input.value = '/' + cmd + (needsArg ? ' ' : '');
+    input.selectionStart = input.selectionEnd = input.value.length;
+    input.focus();
+    this._hideSlashDropdown();
+  }
+  _renderDMs() {
+    const el = document.getElementById('dm-list');
+    if (!el) return;
+    if (!this.dms || this.dms.length === 0) {
+      el.innerHTML = '<p class="muted-text">No conversations yet</p>';
+      return;
+    }
+    el.innerHTML = this.dms.map(d => {
+      const active = this.currentDm === d.channel_code ? ' active' : '';
+      return `<div class="dm-item${active}" data-dm="${d.channel_code}"><span class="dm-user">${this._escapeHtml(d.other_username || d.username || 'DM')}</span></div>`;
+    }).join('');
+    el.querySelectorAll('.dm-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this.currentDm = item.dataset.dm;
+        this.currentChannel = null;
+        document.querySelectorAll('.dm-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+        document.querySelectorAll('.channel-item').forEach(c => c.classList.remove('active'));
+        document.getElementById('messages').innerHTML = '';
+        const dmName = item.querySelector('.dm-user').textContent;
+        document.getElementById('channel-header-name').textContent = `DM — ${dmName}`;
+        document.getElementById('no-channel-msg').style.display = 'none';
+        document.getElementById('message-area').style.display = 'flex';
+        // Load DM history
+        this.socket.emit('get-dm-messages', { code: this.currentDm });
+      });
+    });
+  }
+  _startDm(userId) {
+    if (!userId || userId === this.user.id) return;
+    this.socket.emit('create-dm', { userId });
+  }
+  _initiateCall(userId, type = 'audio') {
+    if (!userId || userId === this.user.id) return;
+    this.socket.emit('initiate-call', { targetUserId: userId, type });
+    this.activeCall = { targetUserId: userId, type, role: 'caller' };
+    const modal = document.getElementById('call-modal');
+    document.getElementById('call-modal-title').textContent = `Outgoing ${type} call`;
+    document.getElementById('call-modal-desc').textContent = 'Ringing...';
+    document.getElementById('call-accept-btn').style.display = 'none';
+    document.getElementById('call-reject-btn').style.display = 'none';
+    document.getElementById('call-end-btn').style.display = '';
+    modal.style.display = 'flex';
+  }
+  _toggleBlock(userId) {
+    if (!userId) return;
+    const action = this.blockedUsers.has(userId) ? 'unblock-user' : 'block-user';
+    this.socket.emit(action, { userId });
+  }
+  _setupAvatarSettings() {
+    // Avatar shape
+    const shapePicker = document.getElementById('avatar-shape-picker');
+    const savedShape = localStorage.getItem('haven_avatar_shape') || 'circle';
+    this._avatarShape = savedShape;
+    if (shapePicker) {
+      shapePicker.querySelectorAll('.avatar-shape-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.shape === savedShape);
+        btn.addEventListener('click', () => {
+          shapePicker.querySelectorAll('.avatar-shape-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this._avatarShape = btn.dataset.shape;
+          localStorage.setItem('haven_avatar_shape', btn.dataset.shape);
+          this._applyAvatarShape();
+        });
+      });
+    }
+    this._applyAvatarShape();
+
+    // Avatar color
+    const hueSlider = document.getElementById('avatar-hue-slider');
+    const colorPreview = document.getElementById('avatar-color-preview');
+    const savedColor = localStorage.getItem('haven_avatar_color');
+    if (savedColor && hueSlider) hueSlider.value = savedColor;
+    this._avatarColor = savedColor || null;
+    if (hueSlider) {
+      const updatePreview = () => {
+        const hue = hueSlider.value;
+        if (colorPreview) colorPreview.style.background = `hsl(${hue}, 65%, 50%)`;
+      };
+      updatePreview();
+      hueSlider.addEventListener('input', () => {
+        updatePreview();
+        this._avatarColor = hueSlider.value;
+        localStorage.setItem('haven_avatar_color', hueSlider.value);
+      });
+    }
+    const colorReset = document.getElementById('avatar-color-reset');
+    if (colorReset) {
+      colorReset.addEventListener('click', () => {
+        this._avatarColor = null;
+        localStorage.removeItem('haven_avatar_color');
+        if (hueSlider) hueSlider.value = 200;
+        if (colorPreview) colorPreview.style.background = '';
+      });
+    }
+
+    // Avatar image upload
+    const uploadBtn = document.getElementById('avatar-upload-btn');
+    const clearBtn = document.getElementById('avatar-clear-btn');
+    const fileInput = document.getElementById('avatar-file-input');
+    const preview = document.getElementById('avatar-upload-preview');
+    this._avatarImg = localStorage.getItem('haven_avatar_img') || null;
+    if (this._avatarImg && preview) {
+      preview.innerHTML = `<img src="${this._avatarImg}" alt="avatar">`;
+    }
+    if (uploadBtn && fileInput) {
+      uploadBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        if (file.size > 256 * 1024) {
+          this._showToast('Image too large (max 256KB)', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const size = Math.min(128, img.width, img.height);
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const sx = (img.width - size) / 2;
+            const sy = (img.height - size) / 2;
+            ctx.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+            const dataUrl = canvas.toDataURL('image/webp', 0.8);
+            this._avatarImg = dataUrl;
+            localStorage.setItem('haven_avatar_img', dataUrl);
+            if (preview) preview.innerHTML = `<img src="${dataUrl}" alt="avatar">`;
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+        fileInput.value = '';
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        this._avatarImg = null;
+        localStorage.removeItem('haven_avatar_img');
+        if (preview) preview.innerHTML = '';
+      });
+    }
+  }
+
+  _applyAvatarShape() {
+    const shapeClass = 'avatar-' + (this._avatarShape || 'circle');
+    document.querySelectorAll('.message-avatar').forEach(el => {
+      el.classList.remove('avatar-circle', 'avatar-rounded', 'avatar-hex', 'avatar-triangle', 'avatar-squircle');
+      el.classList.add(shapeClass);
+    });
+  }
+
+  _setupDensitySettings() {
+    const picker = document.getElementById('density-picker');
+    const saved = localStorage.getItem('haven_layout_density') || 'cozy';
+    document.documentElement.setAttribute('data-density', saved);
+    if (picker) {
+      picker.querySelectorAll('.density-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.density === saved);
+        btn.addEventListener('click', () => {
+          picker.querySelectorAll('.density-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const density = btn.dataset.density;
+          document.documentElement.setAttribute('data-density', density);
+          localStorage.setItem('haven_layout_density', density);
+        });
+      });
+    }
+  }
+
+  _setupContextMenu() {
+    const menu = document.getElementById('user-context-menu');
+    if (!menu) return;
+    let ctxUserId = null;
+    let ctxUsername = null;
+
+    // Right-click on user items
+    document.addEventListener('contextmenu', (e) => {
+      const userItem = e.target.closest('.user-item[data-user-id]');
+      if (!userItem) return;
+      e.preventDefault();
+      ctxUserId = parseInt(userItem.dataset.userId);
+      ctxUsername = userItem.dataset.username;
+      const isSelf = ctxUserId === this.user.id;
+      const isAdmin = this.user.isAdmin;
+      const isBlocked = this.blockedUsers.has(ctxUserId);
+
+      // Show/hide items based on context
+      menu.querySelectorAll('[data-requires="not-self"]').forEach(el => {
+        el.style.display = isSelf ? 'none' : '';
+      });
+      menu.querySelectorAll('[data-requires="admin"]').forEach(el => {
+        el.style.display = (!isSelf && isAdmin) ? '' : 'none';
+      });
+      // Hide DM/Call for self
+      const dmItem = menu.querySelector('[data-action="dm"]');
+      const callItem = menu.querySelector('[data-action="call"]');
+      if (dmItem) dmItem.style.display = isSelf ? 'none' : '';
+      if (callItem) callItem.style.display = isSelf ? 'none' : '';
+      // Update block label
+      const blockItem = menu.querySelector('[data-action="block"]');
+      if (blockItem) {
+        blockItem.innerHTML = isBlocked ? '🔓 <span>Unblock</span>' : '🚫 <span>Block</span>';
+      }
+
+      // Position the menu
+      const x = Math.min(e.clientX, window.innerWidth - 180);
+      const y = Math.min(e.clientY, window.innerHeight - 250);
+      menu.style.left = x + 'px';
+      menu.style.top = y + 'px';
+      menu.style.display = 'block';
+    });
+
+    // Long-press support for touch devices
+    let longPressTimer = null;
+    document.addEventListener('touchstart', (e) => {
+      const userItem = e.target.closest('.user-item[data-user-id]');
+      if (!userItem) return;
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        const touch = e.touches[0];
+        userItem.dispatchEvent(new MouseEvent('contextmenu', {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          bubbles: true
+        }));
+      }, 500);
+    }, { passive: true });
+    document.addEventListener('touchend', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }, { passive: true });
+    document.addEventListener('touchmove', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }, { passive: true });
+
+    // Close context menu
+    const closeMenu = () => { menu.style.display = 'none'; };
+    document.addEventListener('click', closeMenu);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+
+    // Handle context menu actions
+    menu.addEventListener('click', (e) => {
+      const item = e.target.closest('.context-menu-item');
+      if (!item || !ctxUserId) return;
+      const action = item.dataset.action;
+      switch (action) {
+        case 'dm': this._startDm(ctxUserId); break;
+        case 'call': this._initiateCall(ctxUserId, 'audio'); break;
+        case 'block': this._toggleBlock(ctxUserId); break;
+        case 'kick': this._showAdminActionModal('kick', ctxUserId, ctxUsername); break;
+        case 'mute': this._showAdminActionModal('mute', ctxUserId, ctxUsername); break;
+        case 'ban': this._showAdminActionModal('ban', ctxUserId, ctxUsername); break;
+      }
+      closeMenu();
+    });
+  }
+
+  _renderBlockList() {
+    const el = document.getElementById('block-list-content');
+    if (!el) return;
+    if (this.blockedUsers.size === 0) {
+      el.innerHTML = '<p class="muted-text">No blocked users</p>';
+      return;
+    }
+    const members = this._lastOnlineUsers || [];
+    el.innerHTML = [...this.blockedUsers].map(uid => {
+      const m = members.find(u => u.id === uid);
+      const name = m ? this._escapeHtml(m.username) : `User #${uid}`;
+      return `<div class="block-item"><span>${name}</span><button class="btn-sm btn-unblock" onclick="app._toggleBlock(${uid})">Unblock</button></div>`;
+    }).join('');
+  }
+}
+let app;
+document.addEventListener('DOMContentLoaded', () => { app = new HavenApp(); });

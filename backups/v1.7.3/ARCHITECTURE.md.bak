@@ -1,0 +1,45 @@
+# Amni-Haven Architecture Map
+## v1.7.2 (Right Sidebar Elimination + UI Consolidation)
+### Server-Side
+- `server.js` (~640 lines) — Express + Socket.IO + HTTPS/SSL, file uploads, GIF proxy (Giphy), Spotify OAuth routes (auth-url, callback, token, status, unlink), link preview, rate limiting, auto-cleanup, PixelCipher banner, tunnel auto-start, bot routes, CSP, `/api/health` (returns online user list), `/api/ping` POST endpoint (cross-server ping delivery), COOP/COEP headers for /games route
+- `src/auth.js` (212 lines) — bcrypt auth, JWT, rate limiter, register/login, whitelist check
+- `src/database.js` (~220 lines) — better-sqlite3, schema includes `spotify_tokens` table (user_id, access_token, refresh_token, expires_at, product, display_name)
+- `src/socketHandlers.js` (~1680 lines) — all socket events: channels, messages, voice WebRTC, reactions, mentions, admin moderation, settings, search, slash commands, blocks, DMs, private calls, bot handlers, listen-together, webhooks, globalOnline Map + emitGlobalOnlineCount
+- `src/pixelCipher.js` (~170 lines) — PixelCipher-256-CBC: AES-like cipher, 14 rounds, 256-bit key
+- `src/tunnel.js` (~60 lines) — secure tunneling via localtunnel or cloudflared
+- `src/botApi.js` (~90 lines) — REST API + socket handlers for bot/webhook CRUD
+- `src/paths.js` — data directory resolution
+### Client-Side
+- `public/app.html` (~786 lines) — main SPA shell, modals, left sidebar (channels+DMs+presence+voice users (collapsible)+voice/listen/games buttons+bottom bar (messages/online/settings gear)), NO right sidebar, voice toolbar (mute/deafen/share/filter/leave), status bar with clickable online overlay popup, Ruffle.js CDN for Flash games, settings modal includes theme selector; branding: ◆ AMNI sidebar brand
+- `public/index.html` (~165 lines) — login/register page, EULA modal, Amni-Haven branding (◆ logo, tagline), theme bar (25 themes)
+- `public/js/app.js` (~3715 lines) — HavenApp class: chat, UI, GIF picker, reactions, mentions, search, admin, DMs, blocks, private calls, noise suppression LED, screen-share collapse + fix, listen-together with Spotify SDK, resizable left sidebar only, voice toolbar visibility, cross-server ping UI, online overlay popup, sidebar voice/listen/games buttons, collapsible sections, messages bubble in sidebar bottom bar, sidebar-bottom-online-count sync from global-online-count
+- `public/js/spotify.js` (~110 lines) — SpotifyPlayer class: Web Playback SDK wrapper, OAuth token management
+- `public/js/voice.js` (~640 lines) — VoiceManager: WebRTC P2P, screen share, volume, talking indicators, noise suppression
+- `public/js/notifications.js` (~155 lines) — NotificationManager: 10 synthesized tones via Web Audio API
+- `public/js/theme.js` (~198 lines) — theme switcher with server persistence, RGB cycling, custom palette (default fallback: amni)
+- `public/js/theme-init.js` (5 lines) — FOUC prevention
+- `public/js/triangle-morph.js` (~120 lines) — TriangleMorph class with barycentric coordinate triangles
+- `public/js/tutorial.js` (~120 lines) — interactive tutorial (voice section + bottom bar steps, no right sidebar)
+- `public/js/servers.js` (~100 lines) — multi-server sidebar manager, statusCache with online users
+- `public/js/games.js` (~560 lines) — GameManager: HTML5_GAMES (5 canvas games), FLASH_GAMES (8 SWF games via Ruffle), EmulatorJS ROM loader
+- `public/js/auth.js` — login/register page logic, auto-login for localhost
+- `public/css/themes.css` (~1340 lines) — all theme variable definitions (25+ themes, no right-sidebar theme overrides)
+- `public/css/style.css` (~3900 lines) — layout (two-panel: sidebar+main, no right sidebar), reset, components, responsive, glassmorphism, sidebar-bottom-bar + sidebar-bottom-btn + sidebar-bottom-online, theme-selector-settings in modal, voice-sidebar-section, mobile breakpoints (left sidebar only)
+### Games
+- `public/games/roms/` — 8 Flash SWF files (Bubble Tanks 3, tanks, SSF2, SuperSmash, Learn to Fly variants, Flight)
+- `public/games/bios/` — BIOS files for emulator cores (GBA, N64, SNES, PS1, PS2, GC)
+- `public/games/library.json` — 36 console definitions for EmulatorJS
+- `public/games/saves/` — emulator save states
+### Docs
+- `docs/ARCHITECTURE.md` — this file
+- `docs/GUIDE.md` — setup/usage guide
+- `docs/SECURITY_AUDIT.md` — security review
+- `docs/GAME_FEATURE_DESIGN.md` — game feature design doc
+- `docs/checklist_*.md` — completed task checklists
+### Dependencies
+- express, socket.io, better-sqlite3, bcryptjs, jsonwebtoken, multer, helmet, dotenv
+- CDN: Ruffle.js (Flash emulation), EmulatorJS (retro ROM emulation)
+- CSS split: monolithic style.css → themes.css (variables) + style.css (layout/components)
+- Branding: ◆ logo, AMNI-HAVEN heading, "your server · your arcade · your rules" tagline
+- Root directory cleaned: docs moved into docs/ folder
+- Theme group labels (Dark/Light/Dynamic) in sidebar selector

@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(git show-ref:*)",
-      "Bash(node -e:*)",
-      "Bash(node --check:*)"
-    ]
-  }
-}

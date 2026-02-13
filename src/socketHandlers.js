@@ -54,8 +54,9 @@ function setupSocketHandlers(io, db) {
 
     socket.user = user;
     try {
-      const uRow = db.prepare('SELECT display_name, is_admin, username FROM users WHERE id = ?').get(user.id);
+      const uRow = db.prepare('SELECT display_name, is_admin, username, avatar FROM users WHERE id = ?').get(user.id);
       socket.user.displayName = (uRow && uRow.display_name) ? uRow.display_name : user.username;
+      socket.user.avatar = uRow?.avatar || null;
       if (uRow) {
         const shouldBeAdmin = uRow.username.toLowerCase() === ADMIN_USERNAME ? 1 : 0;
         if (uRow.is_admin !== shouldBeAdmin) {
@@ -80,6 +81,8 @@ function setupSocketHandlers(io, db) {
   // Online tracking:  code → Map<userId, { id, username, socketId }>
   const channelUsers = new Map();
   const voiceUsers = new Map();
+  const globalOnline = new Map();
+  function emitGlobalOnlineCount() { io.emit('global-online-count', globalOnline.size); }
 
   io.on('connection', (socket) => {
     // Guard: if auth middleware somehow didn't attach user, disconnect
@@ -91,11 +94,14 @@ function setupSocketHandlers(io, db) {
 
     console.log(`✅ ${socket.user.username} connected`);
     socket.currentChannel = null;
+    globalOnline.set(socket.user.id, socket.user.username);
+    emitGlobalOnlineCount();
     socket.emit('session-info', {
       id: socket.user.id,
       username: socket.user.username,
       isAdmin: socket.user.isAdmin,
-      displayName: socket.user.displayName
+      displayName: socket.user.displayName,
+      avatar: socket.user.avatar || null
     });
 
     // ── Per-socket flood protection ─────────────────────────
@@ -1512,26 +1518,31 @@ function setupSocketHandlers(io, db) {
       const blocked = db.prepare('SELECT 1 FROM blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)').get(data.userId, socket.user.id, socket.user.id, data.userId);
       if (blocked) return socket.emit('error-msg', 'Cannot DM this user');
       const existing = db.prepare('SELECT * FROM dm_channels WHERE (user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?)').get(socket.user.id, data.userId, data.userId, socket.user.id);
-      if (existing) return socket.emit('dm-opened', existing);
+      if (existing) {
+        const otherUser = db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(data.userId);
+        return socket.emit('dm-opened', { ...existing, other_username: otherUser?.display_name || otherUser?.username || 'User', other_id: data.userId });
+      }
       const code = crypto.randomBytes(8).toString('hex');
       db.prepare('INSERT INTO dm_channels (user1_id, user2_id, channel_code) VALUES (?, ?, ?)').run(Math.min(socket.user.id, data.userId), Math.max(socket.user.id, data.userId), code);
       const dm = db.prepare('SELECT * FROM dm_channels WHERE channel_code = ?').get(code);
-      socket.emit('dm-opened', dm);
-      const targetUser = db.prepare('SELECT username FROM users WHERE id = ?').get(data.userId);
+      const targetUser = db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(data.userId);
+      socket.emit('dm-opened', { ...dm, other_username: targetUser?.display_name || targetUser?.username || 'User', other_id: data.userId });
       for (const [, s] of io.sockets.sockets) {
         if (s.user && s.user.id === data.userId) {
-          s.emit('dm-opened', { ...dm, username: socket.user.username });
+          s.emit('dm-opened', { ...dm, other_username: socket.user.displayName || socket.user.username, other_id: socket.user.id });
         }
       }
     });
     socket.on('get-dms', () => {
       const dms = db.prepare(`
-        SELECT d.*, CASE WHEN d.user1_id = ? THEN u2.username ELSE u1.username END as username,
+        SELECT d.*,
+               CASE WHEN d.user1_id = ? THEN COALESCE(u2.display_name, u2.username) ELSE COALESCE(u1.display_name, u1.username) END as other_username,
+               CASE WHEN d.user1_id = ? THEN u2.username ELSE u1.username END as username,
                CASE WHEN d.user1_id = ? THEN d.user2_id ELSE d.user1_id END as other_id
         FROM dm_channels d
         JOIN users u1 ON d.user1_id = u1.id JOIN users u2 ON d.user2_id = u2.id
         WHERE d.user1_id = ? OR d.user2_id = ?
-      `).all(socket.user.id, socket.user.id, socket.user.id, socket.user.id);
+      `).all(socket.user.id, socket.user.id, socket.user.id, socket.user.id, socket.user.id);
       socket.emit('dms-list', dms);
     });
     socket.on('get-dm-messages', (data) => {
@@ -1619,6 +1630,9 @@ function setupSocketHandlers(io, db) {
     socket.on('disconnect', () => {
       if (!socket.user) return; // safety guard
       console.log(`❌ ${socket.user.username} disconnected`);
+      const otherSockets = Array.from(io.sockets.sockets.values()).filter(s => s.user && s.user.id === socket.user.id && s.id !== socket.id);
+      if (otherSockets.length === 0) globalOnline.delete(socket.user.id);
+      emitGlobalOnlineCount();
 
       // Remove from all channel online lists
       for (const [code, users] of channelUsers) {
@@ -1670,7 +1684,7 @@ function setupSocketHandlers(io, db) {
       const visibility = db.prepare(
         "SELECT value FROM server_settings WHERE key = 'member_visibility'"
       ).get();
-      const mode = visibility ? visibility.value : 'online';
+      const mode = visibility ? visibility.value : 'all';
 
       // Also fetch high scores to include in user data
       const scores = {};
