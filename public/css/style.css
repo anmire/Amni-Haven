@@ -4319,6 +4319,57 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 .screen-share-tile:hover .stream-popout-btn { opacity: 1; }
 .stream-popout-btn:hover { background: rgba(255,255,255,0.2); }
 
+/* ── Stream Hide Button ─────────────────────────────── */
+
+.stream-hide-btn {
+  position: absolute;
+  top: 4px;
+  left: 34px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 3;
+  line-height: 1;
+}
+.screen-share-tile:hover .stream-hide-btn { opacity: 1; }
+.stream-hide-btn:hover { background: rgba(255,255,255,0.2); }
+
+/* ── Hidden Streams Bar ──────────────────────────────── */
+
+.hidden-streams-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.hidden-stream-restore-btn {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.hidden-stream-restore-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 /* Dim tile when popped out */
 .screen-share-tile.stream-popped-out video { opacity: 0.4; }
 .screen-share-tile.stream-popped-out::after {

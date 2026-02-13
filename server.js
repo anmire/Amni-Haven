@@ -50,7 +50,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "https://www.youtube.com", "https://w.soundcloud.com"],
       styleSrc: ["'self'", "'unsafe-inline'"],  // inline styles needed for themes
       imgSrc: ["'self'", "data:", "blob:", "https:"],  // https: for link preview OG images + GIPHY
-      connectSrc: ["'self'", "wss:"],            // Socket.IO (wss only — no plaintext ws:)
+      connectSrc: ["'self'", "ws:", "wss:"],            // Socket.IO (ws for HTTP, wss for HTTPS)
       mediaSrc: ["'self'", "blob:", "data:"],  // WebRTC audio + notification sounds
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],

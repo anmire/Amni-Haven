@@ -697,6 +697,7 @@ class HavenApp {
     document.getElementById('music-close-btn').addEventListener('click', () => {
       this._minimizeMusicPanel();
     });
+    document.getElementById('music-popout-btn').addEventListener('click', () => this._popOutMusicPlayer());
     document.getElementById('music-play-pause-btn').addEventListener('click', () => this._toggleMusicPlayPause());
     document.getElementById('music-mute-btn').addEventListener('click', () => this._toggleMusicMute());
     document.getElementById('music-volume-slider').addEventListener('input', (e) => {
@@ -2808,6 +2809,17 @@ class HavenApp {
         });
         tile.appendChild(popoutBtn);
 
+        // Hide button — collapses tile with restore option
+        const hideBtn = document.createElement('button');
+        hideBtn.className = 'stream-hide-btn';
+        hideBtn.title = 'Hide this stream';
+        hideBtn.textContent = '👁‍🗨';
+        hideBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._hideStreamTile(tile, userId, who);
+        });
+        tile.appendChild(hideBtn);
+
         grid.appendChild(tile);
       }
       const videoEl = tile.querySelector('video');
@@ -2836,15 +2848,21 @@ class HavenApp {
     const container = document.getElementById('screen-share-container');
     const grid = document.getElementById('screen-share-grid');
     const label = document.getElementById('screen-share-label');
-    const count = grid.children.length;
-    if (count === 0) {
+    const totalCount = grid.children.length;
+    const visibleCount = grid.querySelectorAll('.screen-share-tile:not([data-hidden=\"true\"])').length;
+    const hiddenCount = totalCount - visibleCount;
+    if (totalCount === 0) {
       container.style.display = 'none';
       this._screenShareMinimized = false;
       this._removeScreenShareIndicator();
+      // Clean up hidden streams bar
+      document.getElementById('hidden-streams-bar')?.remove();
     } else if (this._screenShareMinimized) {
-      this._showScreenShareIndicator(count);
+      this._showScreenShareIndicator(totalCount);
     } else {
-      label.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''}`;
+      const labelParts = [`🖥️ ${visibleCount} stream${visibleCount !== 1 ? 's' : ''}`];
+      if (hiddenCount > 0) labelParts.push(`(${hiddenCount} hidden)`);
+      label.textContent = labelParts.join(' ');
     }
   }
 
@@ -2879,6 +2897,60 @@ class HavenApp {
 
   _removeScreenShareIndicator() {
     document.getElementById('screen-share-indicator')?.remove();
+  }
+
+  // ── Hide / Show individual stream tiles ─────────────
+
+  _hideStreamTile(tile, userId, who) {
+    tile.style.display = 'none';
+    tile.dataset.hidden = 'true';
+    this._updateHiddenStreamsBar();
+    this._updateScreenShareVisibility();
+  }
+
+  _showStreamTile(tileId) {
+    const tile = document.getElementById(tileId);
+    if (tile) {
+      tile.style.display = '';
+      delete tile.dataset.hidden;
+    }
+    this._updateHiddenStreamsBar();
+    this._updateScreenShareVisibility();
+  }
+
+  _updateHiddenStreamsBar() {
+    const grid = document.getElementById('screen-share-grid');
+    const container = document.getElementById('screen-share-container');
+    let bar = document.getElementById('hidden-streams-bar');
+    const hiddenTiles = grid.querySelectorAll('.screen-share-tile[data-hidden="true"]');
+
+    if (hiddenTiles.length === 0) {
+      if (bar) bar.remove();
+      return;
+    }
+
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'hidden-streams-bar';
+      bar.className = 'hidden-streams-bar';
+      // Insert bar after the grid
+      grid.parentNode.insertBefore(bar, grid.nextSibling);
+    }
+
+    bar.innerHTML = hiddenTiles.length + ' stream' + (hiddenTiles.length > 1 ? 's' : '') + ' hidden: ' +
+      Array.from(hiddenTiles).map(t => {
+        const lbl = t.querySelector('.screen-share-tile-label');
+        const name = lbl ? lbl.textContent : 'Stream';
+        return `<button class="hidden-stream-restore-btn" data-tile-id="${t.id}" title="Show ${name}'s stream">👁 ${name}</button>`;
+      }).join('');
+
+    // Bind restore buttons
+    bar.querySelectorAll('.hidden-stream-restore-btn').forEach(btn => {
+      btn.addEventListener('click', () => this._showStreamTile(btn.dataset.tileId));
+    });
+
+    // Ensure container stays visible when streams are hidden
+    container.style.display = 'flex';
   }
 
   // ── Screen Share Audio ──────────────────────────────
@@ -3300,6 +3372,47 @@ class HavenApp {
     }
   }
 
+  _popOutMusicPlayer() {
+    const iframe = document.getElementById('music-iframe');
+    if (!iframe || !iframe.src || iframe.src === 'about:blank') {
+      this._showToast('No music playing', 'error');
+      return;
+    }
+
+    const src = iframe.src;
+    const platform = this._musicPlatform || 'Music';
+    const label = document.getElementById('music-panel-label')?.textContent || 'Haven Music';
+
+    // Size based on platform
+    let w = 420, h = 200;
+    if (src.includes('spotify.com')) { w = 400; h = 180; }
+    else if (src.includes('soundcloud.com')) { w = 420; h = 200; }
+    else if (src.includes('youtube.com')) { w = 480; h = 300; }
+
+    const popWin = window.open('', 'haven-music-popout', `width=${w},height=${h},resizable=yes`);
+    if (!popWin) {
+      this._showToast('Pop-up blocked — allow pop-ups for this site', 'error');
+      return;
+    }
+
+    popWin.document.write(`<!DOCTYPE html><html><head><title>Haven — ${this._escapeHtml(platform)}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#1a1a2e;overflow:hidden;display:flex;align-items:center;justify-content:center;height:100vh}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src="${this._escapeHtml(src)}" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe></body></html>`);
+    popWin.document.close();
+
+    // Minimize the in-app panel while popped out
+    this._minimizeMusicPanel();
+
+    // When pop-out window closes, show indicator (music is still playing on the server)
+    const checkClosed = setInterval(() => {
+      if (popWin.closed) {
+        clearInterval(checkClosed);
+        // If music is still active, show the indicator
+        if (this._musicActive) {
+          this._showMusicIndicator();
+        }
+      }
+    }, 500);
+  }
+
   _showMusicIndicator() {
     let ind = document.getElementById('music-indicator');
     if (ind) return; // already showing
@@ -3355,9 +3468,9 @@ class HavenApp {
     const spotifyMatch = url.match(/open\.spotify\.com\/(track|album|playlist|episode|show)\/([a-zA-Z0-9]+)/);
     if (spotifyMatch) return `https://open.spotify.com/embed/${spotifyMatch[1]}/${spotifyMatch[2]}?theme=0&utm_source=generator`;
     const ytMusicMatch = url.match(/music\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/);
-    if (ytMusicMatch) return `https://www.youtube.com/embed/${ytMusicMatch[1]}?autoplay=1&enablejsapi=1`;
+    if (ytMusicMatch) return `https://www.youtube.com/embed/${ytMusicMatch[1]}?autoplay=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
     const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
-    if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1`;
+    if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
     if (url.includes('soundcloud.com/')) {
       return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=true&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=false`;
     }
@@ -4561,13 +4674,17 @@ class HavenApp {
     observer.observe(document.body, { childList: true, subtree: true });
 
     // Intercept programmatic .value sets so fill always stays in sync
-    const nativeDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-    const nativeSet = nativeDesc.set;
-    nativeDesc.set = function (v) {
-      nativeSet.call(this, v);
-      if (this.type === 'range' && this._fillHooked) update(this);
-    };
-    Object.defineProperty(HTMLInputElement.prototype, 'value', nativeDesc);
+    try {
+      const nativeDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      if (nativeDesc && nativeDesc.set && nativeDesc.configurable) {
+        const nativeSet = nativeDesc.set;
+        nativeDesc.set = function (v) {
+          nativeSet.call(this, v);
+          if (this.type === 'range' && this._fillHooked) update(this);
+        };
+        Object.defineProperty(HTMLInputElement.prototype, 'value', nativeDesc);
+      }
+    } catch { /* Some environments lock HTMLInputElement.prototype.value */ }
 
     // Re-render fills on theme change (accent / bg colours may have changed)
     const themeObserver = new MutationObserver(() => {
