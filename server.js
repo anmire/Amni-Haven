@@ -47,13 +47,14 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://www.youtube.com", "https://w.soundcloud.com"],
       styleSrc: ["'self'", "'unsafe-inline'"],  // inline styles needed for themes
       imgSrc: ["'self'", "data:", "blob:", "https:"],  // https: for link preview OG images + GIPHY
       connectSrc: ["'self'", "wss:"],            // Socket.IO (wss only — no plaintext ws:)
       mediaSrc: ["'self'", "blob:", "data:"],  // WebRTC audio + notification sounds
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
+      frameSrc: ["https://open.spotify.com", "https://www.youtube.com", "https://w.soundcloud.com"],  // Listen Together embeds
       baseUri: ["'self'"],
       formAction: ["'self'"],
       frameAncestors: ["'none'"],               // prevent clickjacking

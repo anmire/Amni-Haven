@@ -53,6 +53,7 @@ class HavenApp {
       { cmd: 'roll',       args: '[NdN]',    desc: 'Roll dice (e.g. /roll 2d6)' },
       { cmd: 'hug',        args: '<@user>',  desc: 'Send a hug to someone' },
       { cmd: 'wave',       args: '[text]',   desc: 'Wave at the chat 👋' },
+      { cmd: 'play',       args: '<url>',    desc: 'Share music (Spotify/YouTube/SoundCloud)' },
     ];
 
     // Emoji palette organized by category
@@ -315,6 +316,17 @@ class HavenApp {
       if (data.channelCode === this.currentChannel) {
         this._updateMessageReactions(data.messageId, data.reactions);
       }
+    });
+
+    // ── Music sharing ────────────────────────────────
+    this.socket.on('music-shared', (data) => {
+      this._handleMusicShared(data);
+    });
+    this.socket.on('music-stopped', (data) => {
+      this._handleMusicStopped(data);
+    });
+    this.socket.on('music-control', (data) => {
+      this._handleMusicControl(data);
     });
 
     // ── Channel members (for @mentions) ────────────────
@@ -674,17 +686,54 @@ class HavenApp {
     document.getElementById('screen-share-btn').addEventListener('click', () => this._toggleScreenShare());
     document.getElementById('screen-share-close').addEventListener('click', () => this._hideScreenShare());
 
+    // Music controls
+    document.getElementById('music-share-btn').addEventListener('click', () => this._openMusicModal());
+    document.getElementById('share-music-btn').addEventListener('click', () => this._shareMusic());
+    document.getElementById('cancel-music-btn').addEventListener('click', () => this._closeMusicModal());
+    document.getElementById('music-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'music-modal') this._closeMusicModal();
+    });
+    document.getElementById('music-stop-btn').addEventListener('click', () => this._stopMusic());
+    document.getElementById('music-close-btn').addEventListener('click', () => {
+      this._minimizeMusicPanel();
+    });
+    document.getElementById('music-play-pause-btn').addEventListener('click', () => this._toggleMusicPlayPause());
+    document.getElementById('music-mute-btn').addEventListener('click', () => this._toggleMusicMute());
+    document.getElementById('music-volume-slider').addEventListener('input', (e) => {
+      this._setMusicVolume(parseInt(e.target.value));
+    });
+    document.getElementById('music-link-input').addEventListener('input', (e) => {
+      this._previewMusicLink(e.target.value.trim());
+    });
+
     // Voice controls dropdown
+    // Create mobile backdrop element
+    const backdrop = document.createElement('div');
+    backdrop.className = 'voice-dropdown-backdrop';
+    document.body.appendChild(backdrop);
+
+    const toggleVoiceDropdown = (show) => {
+      const panel = document.getElementById('voice-dropdown-panel');
+      if (show) {
+        panel.style.display = 'flex';
+        backdrop.style.display = '';  // let CSS media query control visibility
+      } else {
+        panel.style.display = 'none';
+        backdrop.style.display = 'none';
+      }
+    };
+
     document.getElementById('voice-dropdown-toggle')?.addEventListener('click', (e) => {
       e.stopPropagation();
       const panel = document.getElementById('voice-dropdown-panel');
-      panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+      toggleVoiceDropdown(panel.style.display === 'none');
     });
+    backdrop.addEventListener('click', () => toggleVoiceDropdown(false));
     // Close dropdown when clicking elsewhere
     document.addEventListener('click', (e) => {
       const panel = document.getElementById('voice-dropdown-panel');
       if (panel && panel.style.display !== 'none' && !e.target.closest('.voice-dropdown')) {
-        panel.style.display = 'none';
+        toggleVoiceDropdown(false);
       }
     });
     // Stream size slider
@@ -712,6 +761,10 @@ class HavenApp {
 
     // Wire up the voice manager's video callback
     this.voice.onScreenStream = (userId, stream) => this._handleScreenStream(userId, stream);
+    // Wire up screen share audio callback
+    this.voice.onScreenAudio = (userId) => this._handleScreenAudio(userId);
+    // Wire up no-audio indicator for streams without audio
+    this.voice.onScreenNoAudio = (userId) => this._handleScreenNoAudio(userId);
 
     // Wire up voice join/leave audio cues
     this.voice.onVoiceJoin = (userId, username) => {
@@ -824,7 +877,7 @@ class HavenApp {
       this._gameScoreListenerAdded = true;
     }
     document.getElementById('play-flappy-btn')?.addEventListener('click', () => {
-      this._gameWindow = window.open('/games/flappy', '_blank', 'width=520,height=760');
+      this._gameWindow = window.open('/games/flappy', '_blank', 'width=740,height=860');
     });
 
     // Image click + spoiler click delegation (CSP-safe — no inline handlers)
@@ -910,6 +963,7 @@ class HavenApp {
       input.value = this.user.displayName || this.user.username;
       input.focus();
       input.select();
+      this._updateRenameAvatarPreview();
     });
 
     document.getElementById('cancel-rename-btn').addEventListener('click', () => {
@@ -1412,6 +1466,20 @@ class HavenApp {
       const initial = this.user.username.charAt(0).toUpperCase();
       preview.innerHTML = `<div style="background-color:${color};width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:24px;color:white">${initial}</div>`;
     }
+    // Also update rename modal's avatar preview
+    this._updateRenameAvatarPreview();
+  }
+
+  _updateRenameAvatarPreview() {
+    const preview = document.getElementById('rename-avatar-preview');
+    if (!preview) return;
+    if (this.user.avatar) {
+      preview.innerHTML = `<img src="${this._escapeHtml(this.user.avatar)}" alt="Avatar">`;
+    } else {
+      const color = this._getUserColor(this.user.username);
+      const initial = this.user.username.charAt(0).toUpperCase();
+      preview.innerHTML = `<div style="background-color:${color};width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:24px;color:white">${initial}</div>`;
+    }
   }
 
   _setupAvatarUpload() {
@@ -1464,6 +1532,53 @@ class HavenApp {
 
     if (removeBtn) {
       removeBtn.addEventListener('click', () => {
+        this.socket.emit('set-avatar', { url: '' });
+      });
+    }
+
+    // Also wire up rename modal's avatar buttons
+    const renameUploadBtn = document.getElementById('rename-avatar-upload-btn');
+    const renameRemoveBtn = document.getElementById('rename-avatar-remove-btn');
+    const renameFileInput = document.getElementById('rename-avatar-file-input');
+    if (renameUploadBtn && renameFileInput) {
+      renameUploadBtn.addEventListener('click', () => renameFileInput.click());
+      renameFileInput.addEventListener('change', async () => {
+        const file = renameFileInput.files[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) {
+          this._showToast('Avatar too large (max 2 MB)', 'error');
+          renameFileInput.value = '';
+          return;
+        }
+        if (!file.type.startsWith('image/')) {
+          this._showToast('Please select an image file', 'error');
+          renameFileInput.value = '';
+          return;
+        }
+        const formData = new FormData();
+        formData.append('image', file);
+        try {
+          this._showToast('Uploading avatar...', 'info');
+          const res = await fetch('/api/upload-avatar', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${this.token}` },
+            body: formData
+          });
+          if (!res.ok) {
+            let errMsg = `Upload failed (${res.status})`;
+            try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+            return this._showToast(errMsg, 'error');
+          }
+          const data = await res.json();
+          this.socket.emit('set-avatar', { url: data.url });
+        } catch {
+          this._showToast('Upload failed — check your connection', 'error');
+        }
+        renameFileInput.value = '';
+      });
+    }
+    if (renameRemoveBtn) {
+      renameRemoveBtn.addEventListener('click', () => {
         this.socket.emit('set-avatar', { url: '' });
       });
     }
@@ -1716,6 +1831,14 @@ class HavenApp {
         this.socket.emit('ping-check');
       }
     }, 5000);
+
+    // Periodic member list refresh every 30s to keep sidebar in sync
+    if (this._memberRefreshInterval) clearInterval(this._memberRefreshInterval);
+    this._memberRefreshInterval = setInterval(() => {
+      if (this.socket && this.socket.connected && this.currentChannel) {
+        this.socket.emit('request-online-users', { code: this.currentChannel });
+      }
+    }, 30000);
 
     this._pingStart = Date.now();
     this.socket.emit('ping-check');
@@ -1982,6 +2105,17 @@ class HavenApp {
         }
         if (cmd === 'nick' && arg) {
           this.socket.emit('rename-user', { username: arg });
+          input.value = '';
+          input.style.height = 'auto';
+          this._hideMentionDropdown();
+          this._hideSlashDropdown();
+          return;
+        }
+        if (cmd === 'play') {
+          if (!arg) { this._showToast('Usage: /play <url>', 'error'); }
+          else if (!this.voice || !this.voice.inVoice) { this._showToast('Join voice first to share music', 'error'); }
+          else if (!this._getMusicEmbed(arg)) { this._showToast('Unsupported link \u2014 try Spotify, YouTube, or SoundCloud', 'error'); }
+          else { this.socket.emit('music-share', { code: this.voice.currentChannel, url: arg }); }
           input.value = '';
           input.style.height = 'auto';
           this._hideMentionDropdown();
@@ -2433,6 +2567,7 @@ class HavenApp {
     this._updateVoiceButtons(false);
     this._updateVoiceStatus(false);
     this._updateVoiceBar();
+    this._hideMusicPanel();
     this._showToast('Left voice chat', 'info');
   }
 
@@ -2500,6 +2635,7 @@ class HavenApp {
       document.getElementById('screen-share-container').style.display = 'none';
       this._screenShareMinimized = false;
       this._removeScreenShareIndicator();
+      this._hideMusicPanel();
     }
   }
 
@@ -2546,8 +2682,14 @@ class HavenApp {
         document.getElementById('screen-share-btn').textContent = '🛑 Stop';
         document.getElementById('screen-share-btn').classList.add('sharing');
         this._showToast('Screen sharing started', 'success');
-        // Show our own screen in the viewer via the multi-stream handler
+        // Show our own screen in the viewer
         this._handleScreenStream(this.user.id, this.voice.screenStream);
+        // Show audio/no-audio badge
+        if (this.voice.screenHasAudio) {
+          this._handleScreenAudio(this.user.id);
+        } else {
+          this._handleScreenNoAudio(this.user.id);
+        }
       } else {
         this._showToast('Screen share cancelled or not supported', 'error');
       }
@@ -2580,6 +2722,89 @@ class HavenApp {
         const who = userId === null || userId === this.user.id ? 'You' : (peer ? peer.username : 'Someone');
         lbl.textContent = who;
         tile.appendChild(lbl);
+
+        // Audio controls overlay (volume + mute for stream audio)
+        const controls = document.createElement('div');
+        controls.className = 'stream-audio-controls';
+        controls.id = `stream-controls-${userId || 'self'}`;
+
+        const muteBtn = document.createElement('button');
+        muteBtn.className = 'stream-mute-btn';
+        muteBtn.title = 'Mute/Unmute stream audio';
+        muteBtn.textContent = '🔊';
+        muteBtn.dataset.muted = 'false';
+
+        const volSlider = document.createElement('input');
+        volSlider.type = 'range';
+        volSlider.className = 'stream-vol-slider';
+        volSlider.min = '0';
+        volSlider.max = '200';
+        volSlider.title = 'Stream volume (0–200%)';
+
+        const volPct = document.createElement('span');
+        volPct.className = 'stream-vol-pct';
+
+        // Restore saved volume
+        try {
+          const savedVols = JSON.parse(localStorage.getItem('haven_stream_volumes') || '{}');
+          const sv = savedVols[userId] ?? 100;
+          volSlider.value = String(sv);
+          volPct.textContent = sv + '%';
+        } catch { volSlider.value = '100'; volPct.textContent = '100%'; }
+
+        muteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isMuted = muteBtn.dataset.muted === 'true';
+          if (isMuted) {
+            const vol = parseFloat(volSlider.value) / 100;
+            this.voice.setStreamVolume(userId, vol);
+            muteBtn.textContent = '🔊';
+            muteBtn.dataset.muted = 'false';
+            muteBtn.classList.remove('muted');
+          } else {
+            this.voice.setStreamVolume(userId, 0);
+            muteBtn.textContent = '🔇';
+            muteBtn.dataset.muted = 'true';
+            muteBtn.classList.add('muted');
+          }
+        });
+
+        volSlider.addEventListener('input', (e) => {
+          e.stopPropagation();
+          const val = parseInt(volSlider.value);
+          this.voice.setStreamVolume(userId, val / 100);
+          volPct.textContent = val + '%';
+          muteBtn.textContent = val === 0 ? '🔇' : '🔊';
+          muteBtn.dataset.muted = val === 0 ? 'true' : 'false';
+          muteBtn.classList.toggle('muted', val === 0);
+          try {
+            const vols = JSON.parse(localStorage.getItem('haven_stream_volumes') || '{}');
+            vols[userId] = val;
+            localStorage.setItem('haven_stream_volumes', JSON.stringify(vols));
+          } catch {}
+        });
+
+        controls.appendChild(muteBtn);
+        controls.appendChild(volSlider);
+        controls.appendChild(volPct);
+        tile.appendChild(controls);
+
+        // Double-click to toggle focus mode (expand tile to fill chat area)
+        tile.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          this._toggleStreamFocus(tile);
+        });
+
+        // Pop-out button
+        const popoutBtn = document.createElement('button');
+        popoutBtn.className = 'stream-popout-btn';
+        popoutBtn.title = 'Pop out stream';
+        popoutBtn.textContent = '⧉';
+        popoutBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._popOutStream(tile, userId);
+        });
+        tile.appendChild(popoutBtn);
 
         grid.appendChild(tile);
       }
@@ -2652,6 +2877,498 @@ class HavenApp {
 
   _removeScreenShareIndicator() {
     document.getElementById('screen-share-indicator')?.remove();
+  }
+
+  // ── Screen Share Audio ──────────────────────────────
+
+  _handleScreenAudio(userId) {
+    const tileId = `screen-tile-${userId || 'self'}`;
+    const tile = document.getElementById(tileId);
+    if (tile && !tile.querySelector('.stream-audio-badge')) {
+      const badge = document.createElement('div');
+      badge.className = 'stream-audio-badge';
+      badge.innerHTML = '🔊 Audio';
+      tile.appendChild(badge);
+    }
+    // Flash controls visible briefly
+    const controls = document.getElementById(`stream-controls-${userId || 'self'}`);
+    if (controls) {
+      controls.style.opacity = '1';
+      setTimeout(() => { controls.style.opacity = ''; }, 3000);
+    }
+  }
+
+  _handleScreenNoAudio(userId) {
+    const tileId = `screen-tile-${userId || 'self'}`;
+    const tile = document.getElementById(tileId);
+    if (!tile) {
+      // Tile may not exist yet — defer until it's created
+      const checkInterval = setInterval(() => {
+        const t = document.getElementById(tileId);
+        if (t) {
+          clearInterval(checkInterval);
+          this._applyNoAudioBadge(t, userId);
+        }
+      }, 200);
+      setTimeout(() => clearInterval(checkInterval), 5000);
+      return;
+    }
+    this._applyNoAudioBadge(tile, userId);
+  }
+
+  _applyNoAudioBadge(tile, userId) {
+    if (tile.querySelector('.stream-no-audio-badge')) return;
+    // Add the no-audio badge
+    const badge = document.createElement('div');
+    badge.className = 'stream-no-audio-badge';
+    badge.innerHTML = '🔇 No Audio';
+    tile.appendChild(badge);
+    // Hide audio controls since there's no audio to control
+    const controls = document.getElementById(`stream-controls-${userId || 'self'}`);
+    if (controls) controls.style.display = 'none';
+  }
+
+  // ── Stream Focus & Pop-out ──────────────────────────
+
+  _toggleStreamFocus(tile) {
+    const container = document.getElementById('screen-share-container');
+    const grid = document.getElementById('screen-share-grid');
+    const wasFocused = tile.classList.contains('stream-focused');
+
+    // Remove focus from all tiles first
+    grid.querySelectorAll('.screen-share-tile').forEach(t => {
+      t.classList.remove('stream-focused');
+    });
+    container.classList.remove('stream-focus-mode');
+
+    if (!wasFocused) {
+      tile.classList.add('stream-focused');
+      container.classList.add('stream-focus-mode');
+    }
+  }
+
+  _popOutStream(tile, userId) {
+    const video = tile.querySelector('video');
+    if (!video || !video.srcObject) return;
+
+    // If already in Picture-in-Picture, exit it
+    if (document.pictureInPictureElement === video) {
+      document.exitPictureInPicture().catch(() => {});
+      return;
+    }
+
+    // If already popped out to a window, don't open another
+    if (tile.classList.contains('stream-popped-out')) return;
+
+    // Try native Picture-in-Picture first
+    if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
+      video.requestPictureInPicture().then(pipWindow => {
+        // Update button to show "pop back in"
+        const popoutBtn = tile.querySelector('.stream-popout-btn');
+        if (popoutBtn) {
+          popoutBtn.textContent = '⧈';
+          popoutBtn.title = 'Pop in stream';
+        }
+        tile.classList.add('stream-popped-out');
+
+        video.addEventListener('leavepictureinpicture', () => {
+          if (popoutBtn) {
+            popoutBtn.textContent = '⧉';
+            popoutBtn.title = 'Pop out stream';
+          }
+          tile.classList.remove('stream-popped-out');
+        }, { once: true });
+      }).catch(() => {
+        this._popOutStreamWindow(tile, userId);
+      });
+    } else {
+      this._popOutStreamWindow(tile, userId);
+    }
+  }
+
+  _popOutStreamWindow(tile, userId) {
+    const video = tile.querySelector('video');
+    if (!video || !video.srcObject) return;
+
+    // Fallback: open in a new window
+    const stream = video.srcObject;
+    const peer = this.voice.peers.get(userId);
+    const who = userId === null || userId === this.user.id ? 'You' : (peer ? peer.username : 'Stream');
+    const popWin = window.open('', `haven-stream-${userId || 'self'}`, 'width=800,height=500,resizable=yes');
+    if (!popWin) {
+      this._showToast('Pop-up blocked — please allow pop-ups for this site', 'error');
+      return;
+    }
+
+    popWin.document.title = `${who}'s Stream — Haven`;
+    popWin.document.body.style.cssText = 'margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden';
+    const popVideo = popWin.document.createElement('video');
+    popVideo.autoplay = true;
+    popVideo.playsInline = true;
+    popVideo.muted = true;
+    popVideo.srcObject = stream;
+    popVideo.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
+    popWin.document.body.appendChild(popVideo);
+    popVideo.play().catch(() => {});
+
+    const popoutBtn = tile.querySelector('.stream-popout-btn');
+    if (popoutBtn) {
+      popoutBtn.textContent = '⧈';
+      popoutBtn.title = 'Pop in stream';
+    }
+    tile.classList.add('stream-popped-out');
+
+    // When the pop-out window is closed, restore the tile
+    const checkClosed = setInterval(() => {
+      if (popWin.closed) {
+        clearInterval(checkClosed);
+        if (popoutBtn) {
+          popoutBtn.textContent = '⧉';
+          popoutBtn.title = 'Pop out stream';
+        }
+        tile.classList.remove('stream-popped-out');
+      }
+    }, 500);
+
+    // Also handle when stream ends
+    const origOnEnded = video.querySelector ? null : null;
+    const streamTrack = stream.getVideoTracks()[0];
+    if (streamTrack) {
+      const prevOnEnded = streamTrack.onended;
+      streamTrack.onended = () => {
+        if (prevOnEnded) prevOnEnded();
+        if (!popWin.closed) popWin.close();
+        clearInterval(checkClosed);
+      };
+    }
+  }
+
+  // ── Music Streaming ───────────────────────────────
+
+  _openMusicModal() {
+    if (!this.voice || !this.voice.inVoice) {
+      this._showToast('Join voice first to share music', 'error');
+      return;
+    }
+    document.getElementById('music-link-input').value = '';
+    document.getElementById('music-link-preview').innerHTML = '';
+    document.getElementById('music-link-preview').classList.remove('active');
+    document.getElementById('music-modal').style.display = 'flex';
+    setTimeout(() => document.getElementById('music-link-input').focus(), 100);
+  }
+
+  _closeMusicModal() {
+    document.getElementById('music-modal').style.display = 'none';
+  }
+
+  _previewMusicLink(url) {
+    const preview = document.getElementById('music-link-preview');
+    if (!url) { preview.innerHTML = ''; preview.classList.remove('active'); return; }
+    const platform = this._getMusicPlatform(url);
+    const embedUrl = this._getMusicEmbed(url);
+    if (platform && embedUrl) {
+      preview.classList.add('active');
+      preview.innerHTML = `${platform.icon} <strong>${platform.name}</strong> — Ready to share`;
+    } else {
+      preview.classList.remove('active');
+      preview.innerHTML = '';
+    }
+  }
+
+  _shareMusic() {
+    const url = document.getElementById('music-link-input').value.trim();
+    if (!url) { this._showToast('Please paste a music link', 'error'); return; }
+    if (!this._getMusicEmbed(url)) {
+      this._showToast('Unsupported link — try Spotify, YouTube, or SoundCloud', 'error');
+      return;
+    }
+    if (!this.voice || !this.voice.inVoice) { this._showToast('Join voice first', 'error'); return; }
+    this.socket.emit('music-share', { code: this.voice.currentChannel, url });
+    this._closeMusicModal();
+  }
+
+  _stopMusic() {
+    if (this.voice && this.voice.inVoice) {
+      this.socket.emit('music-stop', { code: this.voice.currentChannel });
+    }
+    this._hideMusicPanel();
+  }
+
+  _handleMusicShared(data) {
+    const embedUrl = this._getMusicEmbed(data.url);
+    if (!embedUrl) return;
+    const platform = this._getMusicPlatform(data.url);
+    const panel = document.getElementById('music-panel');
+    const container = document.getElementById('music-embed-container');
+    const label = document.getElementById('music-panel-label');
+
+    // Clean up previous player references
+    this._musicYTPlayer = null;
+    this._musicSCWidget = null;
+    this._musicPlatform = platform ? platform.name : null;
+    this._musicPlaying = true;
+    this._musicActive = true;
+    this._musicUrl = data.url;
+    this._removeMusicIndicator();
+
+    let iframeH = '152';
+    if (data.url.includes('spotify.com')) iframeH = '152';
+    else if (data.url.includes('soundcloud.com')) iframeH = '166';
+    else if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) iframeH = '200';
+
+    // Wrap iframe in a container that blocks direct interaction — all sync goes through Haven controls
+    container.innerHTML = `<div class="music-embed-wrapper"><iframe id="music-iframe" src="${embedUrl}" width="100%" height="${iframeH}" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe><div class="music-embed-overlay"></div></div>`;
+    label.textContent = `🎵 ${platform ? platform.name : 'Music'} — shared by ${data.username || 'someone'}`;
+    panel.style.display = 'flex';
+
+    // Update play/pause button
+    const ppBtn = document.getElementById('music-play-pause-btn');
+    if (ppBtn) ppBtn.textContent = '⏸';
+
+    // Apply saved volume
+    const savedVol = parseInt(localStorage.getItem('haven_music_volume') ?? '80');
+    document.getElementById('music-volume-slider').value = savedVol;
+    if (this._sliderFillUpdate) this._sliderFillUpdate(document.getElementById('music-volume-slider'));
+
+    // Initialize platform-specific APIs for volume & sync control
+    const iframe = document.getElementById('music-iframe');
+    if (iframe) {
+      if (data.url.includes('youtube.com') || data.url.includes('youtu.be') || data.url.includes('music.youtube.com')) {
+        this._initYouTubePlayer(iframe, savedVol);
+      } else if (data.url.includes('soundcloud.com')) {
+        this._initSoundCloudWidget(iframe, savedVol);
+      }
+    }
+
+    const who = data.userId === this.user?.id ? 'You shared' : `${data.username} shared`;
+    this._showToast(`${who} ${platform ? platform.name : 'music'}`, 'info');
+  }
+
+  _initYouTubePlayer(iframe, volume) {
+    // YouTube IFrame API — load the API script once, then create a player
+    if (!window.YT || !window.YT.Player) {
+      if (!document.getElementById('yt-iframe-api')) {
+        const tag = document.createElement('script');
+        tag.id = 'yt-iframe-api';
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+      }
+      // Wait for API to load, then retry
+      const check = setInterval(() => {
+        if (window.YT && window.YT.Player) {
+          clearInterval(check);
+          this._createYTPlayer(iframe, volume);
+        }
+      }, 200);
+      setTimeout(() => clearInterval(check), 10000); // give up after 10s
+    } else {
+      this._createYTPlayer(iframe, volume);
+    }
+  }
+
+  _createYTPlayer(iframe, volume) {
+    try {
+      this._musicYTPlayer = new YT.Player(iframe, {
+        events: {
+          onReady: (e) => {
+            e.target.setVolume(volume);
+          }
+        }
+      });
+    } catch { /* iframe may already be destroyed */ }
+  }
+
+  _initSoundCloudWidget(iframe, volume) {
+    // SoundCloud Widget API
+    if (!window.SC || !window.SC.Widget) {
+      if (!document.getElementById('sc-widget-api')) {
+        const tag = document.createElement('script');
+        tag.id = 'sc-widget-api';
+        tag.src = 'https://w.soundcloud.com/player/api.js';
+        document.head.appendChild(tag);
+      }
+      const check = setInterval(() => {
+        if (window.SC && window.SC.Widget) {
+          clearInterval(check);
+          this._createSCWidget(iframe, volume);
+        }
+      }, 200);
+      setTimeout(() => clearInterval(check), 10000);
+    } else {
+      this._createSCWidget(iframe, volume);
+    }
+  }
+
+  _createSCWidget(iframe, volume) {
+    try {
+      this._musicSCWidget = SC.Widget(iframe);
+      this._musicSCWidget.bind(SC.Widget.Events.READY, () => {
+        this._musicSCWidget.setVolume(volume);
+      });
+    } catch { /* iframe may already be destroyed */ }
+  }
+
+  _handleMusicStopped(data) {
+    this._musicYTPlayer = null;
+    this._musicSCWidget = null;
+    this._musicPlatform = null;
+    this._musicPlaying = false;
+    this._hideMusicPanel();
+    const who = data.userId === this.user?.id ? 'You' : (data.username || 'Someone');
+    this._showToast(`${who} stopped the music`, 'info');
+  }
+
+  _handleMusicControl(data) {
+    if (data.action === 'pause') {
+      this._pauseMusicEmbed();
+      this._musicPlaying = false;
+    } else if (data.action === 'play') {
+      this._playMusicEmbed();
+      this._musicPlaying = true;
+    }
+    const ppBtn = document.getElementById('music-play-pause-btn');
+    if (ppBtn) ppBtn.textContent = this._musicPlaying ? '⏸' : '▶';
+  }
+
+  _toggleMusicPlayPause() {
+    if (this._musicPlaying) {
+      this._pauseMusicEmbed();
+      this._musicPlaying = false;
+    } else {
+      this._playMusicEmbed();
+      this._musicPlaying = true;
+    }
+    const ppBtn = document.getElementById('music-play-pause-btn');
+    if (ppBtn) ppBtn.textContent = this._musicPlaying ? '⏸' : '▶';
+    // Broadcast to others in voice
+    if (this.voice && this.voice.inVoice) {
+      this.socket.emit('music-control', {
+        code: this.voice.currentChannel,
+        action: this._musicPlaying ? 'play' : 'pause'
+      });
+    }
+  }
+
+  _playMusicEmbed() {
+    try {
+      if (this._musicYTPlayer && this._musicYTPlayer.playVideo) {
+        this._musicYTPlayer.playVideo();
+      } else if (this._musicSCWidget) {
+        this._musicSCWidget.play();
+      } else {
+        // Spotify or fallback — reload iframe to resume
+        const iframe = document.getElementById('music-iframe');
+        if (iframe) { const src = iframe.src; iframe.src = src; }
+      }
+    } catch { /* player may be destroyed */ }
+  }
+
+  _pauseMusicEmbed() {
+    try {
+      if (this._musicYTPlayer && this._musicYTPlayer.pauseVideo) {
+        this._musicYTPlayer.pauseVideo();
+      } else if (this._musicSCWidget) {
+        this._musicSCWidget.pause();
+      } else {
+        // Spotify — no external API; remove src to pause, store for resume
+        const iframe = document.getElementById('music-iframe');
+        if (iframe) {
+          iframe.dataset.pausedSrc = iframe.src;
+          iframe.src = 'about:blank';
+        }
+      }
+    } catch { /* player may be destroyed */ }
+  }
+
+  _hideMusicPanel() {
+    const panel = document.getElementById('music-panel');
+    if (panel) {
+      document.getElementById('music-embed-container').innerHTML = '';
+      panel.style.display = 'none';
+    }
+    this._removeMusicIndicator();
+    this._musicActive = false;
+  }
+
+  _minimizeMusicPanel() {
+    document.getElementById('music-panel').style.display = 'none';
+    // Show an indicator in the channel header so user can reopen
+    if (this._musicActive) {
+      this._showMusicIndicator();
+    }
+  }
+
+  _showMusicIndicator() {
+    let ind = document.getElementById('music-indicator');
+    if (ind) return; // already showing
+    ind = document.createElement('button');
+    ind.id = 'music-indicator';
+    ind.className = 'music-indicator';
+    ind.textContent = '🎵 Music playing';
+    ind.title = 'Click to show music player';
+    ind.addEventListener('click', () => {
+      const panel = document.getElementById('music-panel');
+      panel.style.display = 'flex';
+      ind.remove();
+    });
+    document.querySelector('.channel-header')?.appendChild(ind);
+  }
+
+  _removeMusicIndicator() {
+    document.getElementById('music-indicator')?.remove();
+  }
+
+  _setMusicVolume(vol) {
+    localStorage.setItem('haven_music_volume', vol);
+    const muteBtn = document.getElementById('music-mute-btn');
+    if (muteBtn) muteBtn.textContent = vol === 0 ? '🔇' : '🔊';
+    // Apply to active player
+    try {
+      if (this._musicYTPlayer && this._musicYTPlayer.setVolume) {
+        this._musicYTPlayer.setVolume(vol);
+      } else if (this._musicSCWidget) {
+        this._musicSCWidget.setVolume(vol);
+      }
+    } catch { /* player may be gone */ }
+  }
+
+  _toggleMusicMute() {
+    const slider = document.getElementById('music-volume-slider');
+    const muteBtn = document.getElementById('music-mute-btn');
+    if (!slider) return;
+    if (parseInt(slider.value) > 0) {
+      slider.dataset.prevValue = slider.value;
+      slider.value = 0;
+      muteBtn.textContent = '🔇';
+    } else {
+      slider.value = slider.dataset.prevValue || 80;
+      muteBtn.textContent = '🔊';
+    }
+    this._setMusicVolume(parseInt(slider.value));
+    if (this._sliderFillUpdate) this._sliderFillUpdate(slider);
+  }
+
+  _getMusicEmbed(url) {
+    if (!url) return null;
+    const spotifyMatch = url.match(/open\.spotify\.com\/(track|album|playlist|episode|show)\/([a-zA-Z0-9]+)/);
+    if (spotifyMatch) return `https://open.spotify.com/embed/${spotifyMatch[1]}/${spotifyMatch[2]}?theme=0&utm_source=generator`;
+    const ytMusicMatch = url.match(/music\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/);
+    if (ytMusicMatch) return `https://www.youtube.com/embed/${ytMusicMatch[1]}?autoplay=1&enablejsapi=1`;
+    const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
+    if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1`;
+    if (url.includes('soundcloud.com/')) {
+      return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=true&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=false`;
+    }
+    return null;
+  }
+
+  _getMusicPlatform(url) {
+    if (!url) return null;
+    if (url.includes('spotify.com')) return { name: 'Spotify', icon: '🟢' };
+    if (url.includes('music.youtube.com')) return { name: 'YouTube Music', icon: '🔴' };
+    if (url.includes('youtube.com') || url.includes('youtu.be')) return { name: 'YouTube', icon: '🔴' };
+    if (url.includes('soundcloud.com')) return { name: 'SoundCloud', icon: '🟠' };
+    return null;
   }
 
   // ── Utilities ─────────────────────────────────────────
@@ -3234,6 +3951,9 @@ class HavenApp {
   // ═══════════════════════════════════════════════════════
 
   _startEditMessage(msgEl, msgId) {
+    // Guard against re-entering edit mode
+    if (msgEl.classList.contains('editing')) return;
+
     const contentEl = msgEl.querySelector('.message-content');
     if (!contentEl) return;
 
@@ -3243,6 +3963,7 @@ class HavenApp {
     // Replace content with an editable textarea
     const originalHtml = contentEl.innerHTML;
     contentEl.innerHTML = '';
+    msgEl.classList.add('editing'); // hide toolbar while editing
 
     const textarea = document.createElement('textarea');
     textarea.className = 'edit-textarea';
@@ -3261,11 +3982,18 @@ class HavenApp {
     textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
 
     const cancel = () => {
+      msgEl.classList.remove('editing');
       contentEl.innerHTML = originalHtml;
     };
 
-    btnRow.querySelector('.edit-cancel-btn').addEventListener('click', cancel);
-    btnRow.querySelector('.edit-save-btn').addEventListener('click', () => {
+    btnRow.querySelector('.edit-cancel-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      cancel();
+    });
+    btnRow.querySelector('.edit-save-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
       const newContent = textarea.value.trim();
       if (!newContent) return cancel();
       if (newContent === rawText) return cancel();
@@ -3274,12 +4002,21 @@ class HavenApp {
     });
 
     textarea.addEventListener('keydown', (e) => {
+      e.stopPropagation();
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         btnRow.querySelector('.edit-save-btn').click();
       }
-      if (e.key === 'Escape') cancel();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
     });
+
+    // Click inside edit area should not bubble to delegation handler
+    contentEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+    }, { once: false });
   }
 
   // ═══════════════════════════════════════════════════════
@@ -3755,19 +4492,88 @@ class HavenApp {
   // ═══════════════════════════════════════════════════════
 
   _initSliderFills() {
-    const update = (slider) => {
-      const min = parseFloat(slider.min) || 0;
-      const max = parseFloat(slider.max) || 100;
-      const val = parseFloat(slider.value) || 0;
-      const pct = ((val - min) / (max - min)) * 100;
-      slider.style.setProperty('--fill', pct + '%');
+    // Inject a <style> element that we rewrite with per-slider gradient rules.
+    // This is the only reliable approach for Chrome: `::-webkit-slider-runnable-track`
+    // is a shadow-DOM pseudo-element, and Chrome does NOT repaint it when an
+    // inline CSS custom-property on the host <input> changes.
+    const styleEl = document.createElement('style');
+    styleEl.id = 'haven-slider-fills';
+    document.head.appendChild(styleEl);
+    let nextId = 0;
+    const rules = new Map();          // sfid → CSS rule text
+    let rafPending = false;
+
+    const flush = () => {
+      styleEl.textContent = Array.from(rules.values()).join('\n');
+      rafPending = false;
     };
-    document.querySelectorAll('input[type="range"]').forEach(s => {
-      update(s);
+
+    const update = (slider) => {
+      const min  = parseFloat(slider.min) || 0;
+      const max  = parseFloat(slider.max) || 100;
+      const val  = parseFloat(slider.value) || 0;
+      const pct  = ((val - min) / (max - min)) * 100;
+
+      // Read themed colours from the element's computed style
+      const cs   = getComputedStyle(slider);
+      const fill = cs.getPropertyValue('--track-fill').trim()
+                || cs.getPropertyValue('--accent').trim() || '#7c5cfc';
+      const bg   = cs.getPropertyValue('--track-bg').trim()
+                || cs.getPropertyValue('--bg-tertiary').trim() || '#2a2a3d';
+
+      const id = slider.dataset.sfid;
+      rules.set(id,
+        `input[data-sfid="${id}"]::-webkit-slider-runnable-track{` +
+        `background:linear-gradient(to right,${fill} ${pct}%,${bg} ${pct}%)!important;}`
+      );
+
+      // Firefox uses ::-moz-range-progress natively, but set --fill as well
+      slider.style.setProperty('--fill', pct + '%');
+
+      if (!rafPending) { rafPending = true; requestAnimationFrame(flush); }
+    };
+
+    const hookSlider = (s) => {
+      if (s._fillHooked) return;
+      s._fillHooked = true;
+      s.dataset.sfid = String(nextId++);
+      // Defer first paint so computed styles are available
+      requestAnimationFrame(() => update(s));
       s.addEventListener('input', () => update(s));
-    });
-    // Observe future sliders (e.g. settings modal)
+      s.addEventListener('change', () => update(s));
+    };
+
+    document.querySelectorAll('input[type="range"]').forEach(hookSlider);
     this._sliderFillUpdate = update;
+
+    // Observe future sliders (dynamically created — voice, stream, music, etc.)
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.matches && node.matches('input[type="range"]')) hookSlider(node);
+          if (node.querySelectorAll) node.querySelectorAll('input[type="range"]').forEach(hookSlider);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Intercept programmatic .value sets so fill always stays in sync
+    const nativeDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    const nativeSet = nativeDesc.set;
+    nativeDesc.set = function (v) {
+      nativeSet.call(this, v);
+      if (this.type === 'range' && this._fillHooked) update(this);
+    };
+    Object.defineProperty(HTMLInputElement.prototype, 'value', nativeDesc);
+
+    // Re-render fills on theme change (accent / bg colours may have changed)
+    const themeObserver = new MutationObserver(() => {
+      document.querySelectorAll('input[type="range"]').forEach(s => {
+        if (s._fillHooked) requestAnimationFrame(() => update(s));
+      });
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
   }
 }
 

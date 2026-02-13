@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="mobile-web-app-capable" content="yes">
   <title>Haven</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4NCiAgPGRlZnM+DQogICAgPGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCUiIHkxPSIwJSIgeDI9IjEwMCUiIHkyPSIxMDAlIj4NCiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiM5NDc4ZmYiLz4NCiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzZiNGZkYiIvPg0KICAgIDwvbGluZWFyR3JhZGllbnQ+DQogICAgPGZpbHRlciBpZD0icyIgeD0iLTEwJSIgeT0iLTEwJSIgd2lkdGg9IjEyMCUiIGhlaWdodD0iMTIwJSI+DQogICAgICA8ZmVEcm9wU2hhZG93IGR4PSIwIiBkeT0iMiIgc3RkRGV2aWF0aW9uPSIzIiBmbG9vZC1jb2xvcj0iIzVhM2ZkNCIgZmxvb2Qtb3BhY2l0eT0iMC41Ii8+DQogICAgPC9maWx0ZXI+DQogIDwvZGVmcz4NCiAgPHBvbHlnb24gcG9pbnRzPSI1MCwzIDkzLDI4IDkzLDcyIDUwLDk3IDcsNzIgNywyOCIgZmlsbD0idXJsKCNnKSIgZmlsdGVyPSJ1cmwoI3MpIi8+DQogIDxwb2x5Z29uIHBvaW50cz0iNTAsMTUgODIsMzMgODIsNjcgNTAsODUgMTgsNjcgMTgsMzMiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjE1KSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4NCiAgPHRleHQgeD0iNTAiIHk9IjYyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIiBmb250LXNpemU9IjM4IiBmaWxsPSJ3aGl0ZSIgb3BhY2l0eT0iMC45NSI+SDwvdGV4dD4NCjwvc3ZnPg0K">
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/theme-init.js"></script>
 </head>
@@ -170,6 +170,7 @@
                 <button id="voice-mute-btn" class="btn-voice">🔇 Mute</button>
                 <button id="voice-deafen-btn" class="btn-voice">🔇 Deafen</button>
                 <button id="screen-share-btn" class="btn-voice" title="Share Screen">🖥️ Share</button>
+                <button id="music-share-btn" class="btn-voice" title="Listen Together">🎵 Music</button>
                 <div class="voice-ns-wrap">
                   <label class="ns-label" title="Noise suppression sensitivity">🤫</label>
                   <input type="range" id="voice-ns-slider" class="ns-slider" min="0" max="100" value="10" title="Noise gate: 0 = off, 100 = aggressive">
@@ -206,6 +207,20 @@
               </div>
             </div>
             <div id="screen-share-grid" class="screen-share-grid"></div>
+          </div>
+          <!-- Music Player Panel -->
+          <div id="music-panel" class="music-panel" style="display:none">
+            <div class="music-panel-header">
+              <span id="music-panel-label">🎵 Listening Together</span>
+              <div class="music-panel-controls">
+                <button id="music-play-pause-btn" class="icon-btn small" title="Play/Pause">⏸</button>
+                <button id="music-mute-btn" class="icon-btn small" title="Mute music">🔊</button>
+                <input type="range" id="music-volume-slider" class="stream-vol-slider" min="0" max="100" value="80" title="Music volume">
+                <button id="music-stop-btn" class="icon-btn small" title="Stop music">⏹</button>
+                <button id="music-close-btn" class="icon-btn small" title="Minimize">&times;</button>
+              </div>
+            </div>
+            <div id="music-embed-container" class="music-embed-container"></div>
           </div>
           <div id="search-results-panel" class="search-results-panel" style="display:none">
             <div class="search-results-header">
@@ -355,13 +370,28 @@
     </div>
   </div>
 
-  <!-- Rename Modal -->
+  <!-- Rename / Profile Modal -->
   <div class="modal-overlay" id="rename-modal" style="display:none">
     <div class="modal">
-      <h3>Change Display Name</h3>
+      <h3>Edit Profile</h3>
+
+      <!-- Avatar Section -->
+      <div class="avatar-settings" style="margin-bottom: 16px;">
+        <div class="avatar-preview-row">
+          <div class="avatar-preview-circle" id="rename-avatar-preview"></div>
+          <div class="avatar-actions">
+            <button class="btn-sm btn-accent" id="rename-avatar-upload-btn">Upload Image</button>
+            <button class="btn-sm" id="rename-avatar-remove-btn">Remove</button>
+            <input type="file" id="rename-avatar-file-input" accept="image/*" style="display:none">
+          </div>
+        </div>
+        <small class="settings-hint">Max 2 MB. Square images work best.</small>
+      </div>
+
+      <!-- Display Name -->
       <p class="modal-desc">Letters, numbers, underscores, and spaces (2–20 chars)</p>
       <div class="form-group">
-        <label>New Display Name</label>
+        <label>Display Name</label>
         <input type="text" id="rename-input" placeholder="New display name..." maxlength="20">
       </div>
       <div class="modal-actions">
@@ -579,6 +609,28 @@
       </div>
       <div class="modal-actions">
         <button class="btn-sm" id="close-bans-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Music Share Modal -->
+  <div class="modal-overlay" id="music-modal" style="display:none">
+    <div class="modal">
+      <h3>🎵 Listen Together</h3>
+      <p class="modal-desc">Paste a link from Spotify, YouTube, or SoundCloud to share with everyone in voice</p>
+      <div class="form-group">
+        <label>Music Link</label>
+        <input type="text" id="music-link-input" placeholder="https://open.spotify.com/track/..." maxlength="500">
+      </div>
+      <div class="music-link-preview" id="music-link-preview"></div>
+      <div class="music-platforms-hint">
+        <span class="platform-badge spotify">Spotify</span>
+        <span class="platform-badge youtube">YouTube</span>
+        <span class="platform-badge soundcloud">SoundCloud</span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-sm" id="cancel-music-btn">Cancel</button>
+        <button class="btn-sm btn-accent" id="share-music-btn">Share with Channel</button>
       </div>
     </div>
   </div>

@@ -101,6 +101,8 @@ function setupSocketHandlers(io, db) {
   // Online tracking:  code → Map<userId, { id, username, socketId }>
   const channelUsers = new Map();
   const voiceUsers = new Map();
+  // Active music per voice room:  code → { url, userId, username } | null
+  const activeMusic = new Map();
 
   io.on('connection', (socket) => {
     // Guard: if auth middleware somehow didn't attach user, disconnect
@@ -638,6 +640,26 @@ function setupSocketHandlers(io, db) {
 
       // Update voice user list for voice participants + text viewers
       broadcastVoiceUsers(code);
+
+      // Send active music state to late joiner
+      const music = activeMusic.get(code);
+      if (music) {
+        socket.emit('music-shared', {
+          userId: music.userId,
+          username: music.username,
+          url: music.url,
+          channelCode: code
+        });
+      }
+
+      // Send active screen share info to late joiner
+      const sharers = [];
+      for (const [uid, u] of voiceUsers.get(code)) {
+        if (uid !== socket.user.id) {
+          // We don't track screen-share state per user on server,
+          // but WebRTC renegotiation handles this automatically
+        }
+      }
     });
 
     socket.on('voice-offer', (data) => {
@@ -702,7 +724,8 @@ function setupSocketHandlers(io, db) {
           io.to(user.socketId).emit('screen-share-started', {
             userId: socket.user.id,
             username: socket.user.displayName,
-            channelCode: data.code
+            channelCode: data.code,
+            hasAudio: !!data.hasAudio
           });
         }
       }
@@ -720,6 +743,65 @@ function setupSocketHandlers(io, db) {
             channelCode: data.code
           });
         }
+      }
+    });
+
+    // ── Music Sharing ───────────────────────────────────
+
+    socket.on('music-share', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!isString(data.code, 8, 8)) return;
+      if (!isString(data.url, 1, 500)) return;
+      const voiceRoom = voiceUsers.get(data.code);
+      if (!voiceRoom || !voiceRoom.has(socket.user.id)) return;
+      // Store active music for late joiners
+      activeMusic.set(data.code, {
+        url: data.url,
+        userId: socket.user.id,
+        username: socket.user.displayName
+      });
+      for (const [uid, user] of voiceRoom) {
+        io.to(user.socketId).emit('music-shared', {
+          userId: socket.user.id,
+          username: socket.user.displayName,
+          url: data.url,
+          channelCode: data.code
+        });
+      }
+    });
+
+    socket.on('music-stop', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!isString(data.code, 8, 8)) return;
+      const voiceRoom = voiceUsers.get(data.code);
+      if (!voiceRoom || !voiceRoom.has(socket.user.id)) return;
+      // Clear active music
+      activeMusic.delete(data.code);
+      for (const [uid, user] of voiceRoom) {
+        io.to(user.socketId).emit('music-stopped', {
+          userId: socket.user.id,
+          username: socket.user.displayName,
+          channelCode: data.code
+        });
+      }
+    });
+
+    // Music playback control sync (play/pause)
+    socket.on('music-control', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!isString(data.code, 8, 8)) return;
+      const action = data.action;
+      if (action !== 'play' && action !== 'pause') return;
+      const voiceRoom = voiceUsers.get(data.code);
+      if (!voiceRoom || !voiceRoom.has(socket.user.id)) return;
+      for (const [uid, user] of voiceRoom) {
+        if (uid === socket.user.id) continue; // don't echo back to sender
+        io.to(user.socketId).emit('music-control', {
+          action,
+          userId: socket.user.id,
+          username: socket.user.displayName,
+          channelCode: data.code
+        });
       }
     });
 
@@ -792,6 +874,14 @@ function setupSocketHandlers(io, db) {
     });
 
     // ═══════════════ CHANNEL MEMBERS (for @mentions) ═════════
+
+    // Periodic member list refresh — client sends this every 30s
+    socket.on('request-online-users', (data) => {
+      if (!data || typeof data !== 'object') return;
+      const code = typeof data.code === 'string' ? data.code.trim() : '';
+      if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
+      emitOnlineUsers(code);
+    });
 
     socket.on('get-channel-members', (data) => {
       if (!data || typeof data !== 'object') return;

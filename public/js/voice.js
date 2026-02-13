@@ -22,6 +22,8 @@ class VoiceManager {
     this.onVoiceLeave = null;       // callback(userId, username)
     this.onTalkingChange = null;    // callback(userId, isTalking)
     this.screenSharers = new Set();  // userIds currently sharing
+    this.screenGainNodes = new Map(); // userId → GainNode for screen share audio
+    this.onScreenAudio = null;       // callback(userId) — screen share audio available
     this.talkingState = new Map();  // userId → boolean
     this.analysers = new Map();     // userId → { analyser, dataArray, interval }
     this._localTalkInterval = null;
@@ -134,6 +136,10 @@ class VoiceManager {
     // Someone started screen sharing
     this.socket.on('screen-share-started', (data) => {
       this.screenSharers.add(data.userId);
+      // Notify UI about audio availability for this stream
+      if (!data.hasAudio && this.onScreenNoAudio) {
+        this.onScreenNoAudio(data.userId);
+      }
     });
 
     // Someone stopped screen sharing
@@ -237,6 +243,7 @@ class VoiceManager {
     this.isMuted = false;
     this.isDeafened = false;
     this.screenSharers.clear();
+    this.screenGainNodes.clear();
   }
 
   toggleMute() {
@@ -256,9 +263,13 @@ class VoiceManager {
 
   toggleDeafen() {
     this.isDeafened = !this.isDeafened;
-    // Mute/unmute all incoming audio
+    // Mute/unmute all incoming audio (voice)
     for (const [userId, gainNode] of this.gainNodes) {
       gainNode.gain.value = this.isDeafened ? 0 : this._getSavedVolume(userId);
+    }
+    // Mute/unmute screen share audio
+    for (const [userId, gainNode] of this.screenGainNodes) {
+      gainNode.gain.value = this.isDeafened ? 0 : this._getSavedStreamVolume(userId);
     }
     // Also mute all audio elements as fallback
     document.querySelectorAll('#audio-container audio').forEach(el => {
@@ -277,10 +288,21 @@ class VoiceManager {
   async shareScreen() {
     if (!this.inVoice || this.isScreenSharing) return false;
     try {
-      this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+      const displayMediaOptions = {
         video: { cursor: 'always' },
-        audio: true // capture tab/system audio if available
-      });
+        audio: true, // capture tab/system audio if available
+        surfaceSwitching: 'exclude', // prevent re-picker on alt-tab / focus changes
+        selfBrowserSurface: 'include',
+        monitorTypeSurfaces: 'include'
+      };
+
+      // Use CaptureController if available to manage the capture session
+      if (typeof CaptureController !== 'undefined') {
+        this._captureController = new CaptureController();
+        displayMediaOptions.controller = this._captureController;
+      }
+
+      this.screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
 
       this.isScreenSharing = true;
 
@@ -298,8 +320,11 @@ class VoiceManager {
         await this._renegotiate(userId, peer.connection);
       }
 
-      // Tell the server we're sharing
-      this.socket.emit('screen-share-started', { code: this.currentChannel });
+      // Tell the server we're sharing (include audio availability)
+      const hasAudio = this.screenStream.getAudioTracks().length > 0;
+      this.screenHasAudio = hasAudio;
+      this.socket.emit('screen-share-started', { code: this.currentChannel, hasAudio });
+
       return true;
     } catch (err) {
       console.error('Screen share failed:', err);
@@ -326,6 +351,7 @@ class VoiceManager {
 
     this.screenStream = null;
     this.isScreenSharing = false;
+    this._captureController = null;
 
     this.socket.emit('screen-share-stopped', { code: this.currentChannel });
     // Notify local UI
@@ -367,23 +393,49 @@ class VoiceManager {
 
     // Handle incoming remote tracks — route audio and video separately
     const remoteAudioStream = new MediaStream();
+    const knownScreenStreamIds = new Set();
+    let voiceStreamId = null;
+    const deferredAudio = []; // audio tracks that arrived before their video
+
     connection.ontrack = (event) => {
       const track = event.track;
+      const sourceStream = event.streams?.[0];
       if (track.kind === 'video') {
-        // Incoming screen share — prefer the sender's stream for proper track association
-        const videoStream = event.streams?.[0] || new MediaStream([track]);
+        if (sourceStream) knownScreenStreamIds.add(sourceStream.id);
+        const videoStream = sourceStream || new MediaStream([track]);
         if (this.onScreenStream) this.onScreenStream(userId, videoStream);
-
-        // Re-fire when track actually starts receiving data (may arrive muted)
         track.onunmute = () => {
           if (this.onScreenStream) this.onScreenStream(userId, videoStream);
         };
         track.onended = () => {
           if (this.onScreenStream) this.onScreenStream(userId, null);
         };
+        // Check if any deferred audio belongs to this screen stream
+        for (let i = deferredAudio.length - 1; i >= 0; i--) {
+          const d = deferredAudio[i];
+          if (d.sourceStream && knownScreenStreamIds.has(d.sourceStream.id)) {
+            deferredAudio.splice(i, 1);
+            this._playScreenAudio(userId, d.sourceStream);
+          }
+        }
       } else {
-        remoteAudioStream.addTrack(track);
-        this._playAudio(userId, remoteAudioStream);
+        // Is this audio from a screen share stream?
+        const isScreenAudio = sourceStream && (
+          knownScreenStreamIds.has(sourceStream.id) ||
+          sourceStream.getVideoTracks().length > 0 ||
+          (voiceStreamId && sourceStream.id !== voiceStreamId)
+        );
+        if (isScreenAudio) {
+          this._playScreenAudio(userId, sourceStream);
+        } else if (!voiceStreamId && sourceStream) {
+          // First audio — assume voice, but defer re-check in case it's actually screen audio
+          voiceStreamId = sourceStream.id;
+          remoteAudioStream.addTrack(track);
+          this._playAudio(userId, remoteAudioStream);
+        } else {
+          remoteAudioStream.addTrack(track);
+          this._playAudio(userId, remoteAudioStream);
+        }
       }
     };
 
@@ -430,6 +482,9 @@ class VoiceManager {
       peer.connection.close();
       const audioEl = document.getElementById(`voice-audio-${userId}`);
       if (audioEl) audioEl.remove();
+      const screenAudioEl = document.getElementById(`voice-audio-screen-${userId}`);
+      if (screenAudioEl) screenAudioEl.remove();
+      this.screenGainNodes.delete(userId);
       this.gainNodes.delete(userId);
       this.peers.delete(userId);
     }
@@ -452,6 +507,55 @@ class VoiceManager {
   _getSavedVolume(userId) {
     try {
       const vols = JSON.parse(localStorage.getItem('haven_voice_volumes') || '{}');
+      return (vols[userId] ?? 100) / 100;
+    } catch { return 1; }
+  }
+
+  // ── Screen Share Audio ────────────────────────────────
+
+  _playScreenAudio(userId, stream) {
+    const key = `screen-${userId}`;
+    let audioEl = document.getElementById(`voice-audio-${key}`);
+    if (!audioEl) {
+      audioEl = document.createElement('audio');
+      audioEl.id = `voice-audio-${key}`;
+      audioEl.autoplay = true;
+      audioEl.playsInline = true;
+      document.getElementById('audio-container').appendChild(audioEl);
+    }
+    audioEl.srcObject = stream;
+
+    if (this.screenGainNodes.has(userId)) { audioEl.volume = 0; return; }
+
+    try {
+      if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
+      const source = this.audioCtx.createMediaStreamSource(stream);
+      const gainNode = this.audioCtx.createGain();
+      gainNode.gain.value = this._getSavedStreamVolume(userId);
+      source.connect(gainNode);
+      gainNode.connect(this.audioCtx.destination);
+      this.screenGainNodes.set(userId, gainNode);
+      audioEl.volume = 0;
+    } catch {
+      audioEl.volume = Math.min(1, this._getSavedStreamVolume(userId));
+    }
+    if (this.onScreenAudio) this.onScreenAudio(userId);
+  }
+
+  setStreamVolume(userId, volume) {
+    const gainNode = this.screenGainNodes.get(userId);
+    if (gainNode) {
+      gainNode.gain.value = Math.max(0, Math.min(2, volume));
+    } else {
+      const audioEl = document.getElementById(`voice-audio-screen-${userId}`);
+      if (audioEl) audioEl.volume = Math.max(0, Math.min(1, volume));
+    }
+  }
+
+  _getSavedStreamVolume(userId) {
+    try {
+      const vols = JSON.parse(localStorage.getItem('haven_stream_volumes') || '{}');
       return (vols[userId] ?? 100) / 100;
     } catch { return 1; }
   }

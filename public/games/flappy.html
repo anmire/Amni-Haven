@@ -14,10 +14,11 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
       height: 100vh;
       font-family: var(--font-body, 'Segoe UI', sans-serif);
       color: var(--text-primary, #e6e6e6);
+      padding: 10px;
+      box-sizing: border-box;
     }
     .game-header {
       display: flex;
@@ -81,16 +82,37 @@
       color: var(--accent, #7c5cfc);
     }
     /* ── Leaderboard Panel ─────────────────────── */
-    .game-bottom { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; }
-    .game-left { display: flex; flex-direction: column; align-items: center; }
+    .game-wrapper {
+      display: flex;
+      flex-direction: row;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .game-left {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
     .leaderboard-panel {
       width: 200px;
-      max-height: 360px;
+      max-height: 640px;
       overflow-y: auto;
       background: var(--bg-secondary, #161b22);
       border: 1px solid var(--border, #30363d);
       border-radius: 8px;
       padding: 8px;
+      flex-shrink: 0;
+    }
+    @media (max-width: 730px) {
+      .game-wrapper {
+        flex-direction: column;
+        align-items: center;
+      }
+      .leaderboard-panel {
+        width: 100%;
+        max-width: 480px;
+        max-height: 200px;
+      }
     }
     .leaderboard-panel h3 {
       font-size: 13px;
@@ -118,7 +140,7 @@
     <button class="back-btn" id="back-btn">← Back to Haven</button>
     <h1>🚢 Shippy Container</h1>
   </div>
-  <div class="game-bottom">
+  <div class="game-wrapper">
     <div class="game-left">
       <canvas id="game" width="480" height="640"></canvas>
       <div class="score-bar">
