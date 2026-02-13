@@ -144,16 +144,27 @@
             <span class="channel-code-tag" id="channel-code-display" title="Channel code"></span>
             <button id="copy-code-btn" class="icon-btn small" title="Copy code"
                     style="display:none">📋</button>
-            <button id="delete-channel-btn" class="icon-btn small danger" title="Delete channel"
-                    style="display:none">🗑️</button>
           </div>
-          <div class="voice-controls">
+          <!-- Left-side utility buttons (next to channel name) -->
+          <div class="header-left-actions">
+            <button id="search-toggle-btn" class="icon-btn small" title="Search messages (Ctrl+F)" style="display:none">🔍</button>
+            <button id="pinned-toggle-btn" class="icon-btn small" title="Pinned messages" style="display:none">📌</button>
+            <!-- Channel settings gear (contains delete) -->
+            <div class="channel-settings-wrap" id="channel-settings-wrap" style="display:none;position:relative">
+              <button id="channel-settings-btn" class="icon-btn small" title="Channel settings">⚙️</button>
+              <div id="channel-settings-dropdown" class="channel-settings-dropdown" style="display:none">
+                <button id="delete-channel-btn" class="channel-settings-item danger">🗑️ Delete Channel</button>
+              </div>
+            </div>
             <div class="search-container" id="search-container" style="display:none">
               <input type="text" id="search-input" class="search-input" placeholder="Search messages..." maxlength="100">
               <button id="search-close-btn" class="icon-btn small" title="Close search">&times;</button>
             </div>
-            <button id="search-toggle-btn" class="icon-btn small" title="Search messages (Ctrl+F)" style="display:none">🔍</button>
-            <button id="pinned-toggle-btn" class="icon-btn small" title="Pinned messages" style="display:none">📌</button>
+          </div>
+          <!-- Spacer pushes voice controls to the right -->
+          <div style="flex:1"></div>
+          <!-- Right-side: dynamic indicators, then voice (always furthest right) -->
+          <div class="voice-controls">
             <button id="mobile-users-btn" class="mobile-users-btn" title="Members" aria-label="Members">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -162,6 +173,7 @@
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
             </button>
+            <!-- Dynamic indicators (music, streams) inject here via JS -->
             <button id="voice-join-btn" class="btn-voice" style="display:none">
               🎤 Join Voice
             </button>

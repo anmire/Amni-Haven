@@ -394,12 +394,12 @@ class HavenApp {
         document.getElementById('admin-controls').style.display = 'block';
         document.getElementById('admin-mod-panel').style.display = 'block';
         if (this.currentChannel) {
-          document.getElementById('delete-channel-btn').style.display = 'inline-flex';
+          document.getElementById('channel-settings-wrap').style.display = '';
         }
       } else {
         document.getElementById('admin-controls').style.display = 'none';
         document.getElementById('admin-mod-panel').style.display = 'none';
-        document.getElementById('delete-channel-btn').style.display = 'none';
+        document.getElementById('channel-settings-wrap').style.display = 'none';
       }
     });
 
@@ -673,10 +673,24 @@ class HavenApp {
     });
 
     // Delete channel
-    document.getElementById('delete-channel-btn').addEventListener('click', () => {
-      if (this.currentChannel && confirm('Delete this channel? All messages will be lost.')) {
-        this.socket.emit('delete-channel', { code: this.currentChannel });
-      }
+    // Channel settings gear dropdown toggle
+    document.getElementById('channel-settings-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dd = document.getElementById('channel-settings-dropdown');
+      dd.style.display = dd.style.display === 'none' ? 'flex' : 'none';
+    });
+    // Close dropdown on outside click
+    document.addEventListener('click', () => {
+      document.getElementById('channel-settings-dropdown').style.display = 'none';
+    });
+    // Delete channel with TWO confirmations
+    document.getElementById('delete-channel-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('channel-settings-dropdown').style.display = 'none';
+      if (!this.currentChannel) return;
+      if (!confirm('⚠️ Delete this channel?\nAll messages will be permanently lost.')) return;
+      if (!confirm('⚠️ Are you ABSOLUTELY sure?\nThis action cannot be undone!')) return;
+      this.socket.emit('delete-channel', { code: this.currentChannel });
     });
 
     // Voice buttons
@@ -1892,9 +1906,9 @@ class HavenApp {
     this._updateTopicBar(channel?.topic || '');
 
     if (this.user.isAdmin && !isDm) {
-      document.getElementById('delete-channel-btn').style.display = 'inline-flex';
+      document.getElementById('channel-settings-wrap').style.display = '';
     } else {
-      document.getElementById('delete-channel-btn').style.display = 'none';
+      document.getElementById('channel-settings-wrap').style.display = 'none';
     }
 
     document.getElementById('messages').innerHTML = '';
@@ -1960,7 +1974,7 @@ class HavenApp {
     document.getElementById('channel-header-name').textContent = 'Select a channel';
     document.getElementById('channel-code-display').textContent = '';
     document.getElementById('copy-code-btn').style.display = 'none';
-    document.getElementById('delete-channel-btn').style.display = 'none';
+    document.getElementById('channel-settings-wrap').style.display = 'none';
     document.getElementById('voice-join-btn').style.display = 'none';
     document.getElementById('voice-dropdown-toggle').style.display = 'none';
     document.getElementById('voice-leave-btn').style.display = 'none';

@@ -1429,8 +1429,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 }
 
 /* ── Dark Souls: Ember / campfire glow ─────────────── */
-[data-theme="dark-souls"] .sidebar { position: relative; }
-[data-theme="dark-souls"] .sidebar::after {
+[data-theme="darksouls"] .sidebar::after {
   content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 300px;
   pointer-events: none; z-index: 1;
   background: linear-gradient(0deg,
@@ -1441,8 +1440,8 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   );
   animation: ds-ember 2s ease-in-out infinite;
 }
-[data-theme="dark-souls"] .main { position: relative; }
-[data-theme="dark-souls"] .main::before {
+[data-theme="darksouls"] .main { position: relative; }
+[data-theme="darksouls"] .main::before {
   content: ''; position: fixed; bottom: 0; left: 0; right: 0; height: 16px;
   pointer-events: none; z-index: 99998;
   background: linear-gradient(90deg,
@@ -1457,7 +1456,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   filter: blur(4px);
   animation: ds-fireline 2.5s ease-in-out infinite alternate;
 }
-[data-theme="dark-souls"] .main::after {
+[data-theme="darksouls"] .main::after {
   content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 99997;
   background: radial-gradient(ellipse at 50% 100%, rgba(255, 100, 20, 0.22), transparent 55%);
   animation: ds-ambient 3s ease-in-out infinite;
@@ -1957,6 +1956,49 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 
 .channel-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
+.header-left-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+/* Channel settings gear dropdown */
+.channel-settings-wrap { position: relative; }
+.channel-settings-dropdown {
+  display: none;
+  flex-direction: column;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  z-index: 1000;
+  min-width: 160px;
+  padding: 4px;
+}
+.channel-settings-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  width: 100%;
+  text-align: left;
+}
+.channel-settings-item:hover { background: var(--bg-hover); }
+.channel-settings-item.danger { color: var(--danger); }
+.channel-settings-item.danger:hover { background: rgba(var(--danger), 0.1); background: #3a1515; }
+
 .channel-info h3 {
   font-size: 16px;
   font-weight: 600;
@@ -2049,13 +2091,23 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 }
 .ns-slider {
   width: 60px;
-  height: 4px;
+  height: 14px;
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
   border-radius: 2px;
   outline: none;
   cursor: pointer;
+}
+.ns-slider::-webkit-slider-runnable-track {
+  background: var(--track-bg, var(--bg-tertiary));
+  height: 4px;
+  border-radius: 2px;
+}
+.ns-slider::-moz-range-track {
+  background: var(--track-bg, var(--bg-tertiary));
+  height: 4px;
+  border-radius: 2px;
 }
 .ns-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -2064,6 +2116,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   border-radius: 50%;
   background: var(--accent);
   cursor: pointer;
+  margin-top: -3px;
   box-shadow: 0 0 4px var(--accent-glow, rgba(124,92,252,0.3));
 }
 .ns-slider::-moz-range-thumb {
@@ -2678,7 +2731,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 
 .volume-slider {
   width: 100%;
-  height: 4px;
+  height: 14px;
   margin-top: 4px;
   -webkit-appearance: none;
   appearance: none;
@@ -2688,6 +2741,18 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   cursor: pointer;
 }
 
+.volume-slider::-webkit-slider-runnable-track {
+  background: var(--track-bg, var(--bg-tertiary));
+  height: 4px;
+  border-radius: 2px;
+}
+
+.volume-slider::-moz-range-track {
+  background: var(--track-bg, var(--bg-tertiary));
+  height: 4px;
+  border-radius: 2px;
+}
+
 .volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 12px;
@@ -2695,6 +2760,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   border-radius: 50%;
   background: var(--accent);
   cursor: pointer;
+  margin-top: -4px;
 }
 
 .volume-slider::-moz-range-thumb {
@@ -2731,13 +2797,25 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 
 .slider-sm {
   width: 80px;
-  height: 4px;
+  height: 14px;
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
   border-radius: 2px;
   outline: none;
   cursor: pointer;
+}
+
+.slider-sm::-webkit-slider-runnable-track {
+  background: var(--track-bg, var(--bg-tertiary));
+  height: 4px;
+  border-radius: 2px;
+}
+
+.slider-sm::-moz-range-track {
+  background: var(--track-bg, var(--bg-tertiary));
+  height: 4px;
+  border-radius: 2px;
 }
 
 .slider-sm::-webkit-slider-thumb {
@@ -2747,6 +2825,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   border-radius: 50%;
   background: var(--accent);
   cursor: pointer;
+  margin-top: -4px;
   box-shadow: 0 0 4px var(--accent-glow, rgba(124,92,252,0.3));
 }
 
@@ -4693,7 +4772,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 .stream-vol-slider {
   --track-bg: rgba(255,255,255,0.2);
   width: 60px;
-  height: 4px;
+  height: 14px;
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
@@ -4702,12 +4781,23 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   outline: none;
   vertical-align: middle;
 }
+.stream-vol-slider::-webkit-slider-runnable-track {
+  background: var(--track-bg, rgba(255,255,255,0.2));
+  height: 4px;
+  border-radius: 2px;
+}
+.stream-vol-slider::-moz-range-track {
+  background: var(--track-bg, rgba(255,255,255,0.2));
+  height: 4px;
+  border-radius: 2px;
+}
 .stream-vol-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 10px; height: 10px;
   border-radius: 50%;
   background: var(--accent, #7c5cfc);
   cursor: pointer;
+  margin-top: -3px;
   box-shadow: 0 0 4px rgba(124,92,252,0.4);
 }
 .stream-vol-slider::-moz-range-thumb {
