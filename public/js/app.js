@@ -375,6 +375,39 @@ class HavenApp {
       document.querySelectorAll('.user-dm-btn[disabled]').forEach(b => { b.disabled = false; b.style.opacity = ''; });
     });
 
+    // ── Channel code rotated (dynamic codes) ────────
+    this.socket.on('channel-code-rotated', (data) => {
+      const ch = this.channels.find(c => c.id === data.channelId);
+      if (ch) {
+        ch.code = data.newCode;
+        this._renderChannels();
+        // If currently viewing this channel, update the header code display
+        if (this.currentChannel === data.oldCode) {
+          this.currentChannel = data.newCode;
+          const codeDisplay = document.getElementById('channel-code-display');
+          if (codeDisplay) codeDisplay.textContent = data.newCode;
+          // Update the active class on the new code
+          document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+          const activeEl = document.querySelector(`.channel-item[data-code="${data.newCode}"]`);
+          if (activeEl) activeEl.classList.add('active');
+        }
+        if (this.isAdmin) {
+          this._showToast(`Channel code rotated for #${ch.name}`, 'info');
+        }
+      }
+    });
+
+    // ── Channel code settings updated ───────────────
+    this.socket.on('channel-code-settings-updated', (data) => {
+      const ch = this.channels.find(c => c.id === data.channelId);
+      if (ch && data.settings) {
+        ch.code_visibility = data.settings.code_visibility;
+        ch.code_mode = data.settings.code_mode;
+        ch.code_rotation_type = data.settings.code_rotation_type;
+        ch.code_rotation_interval = data.settings.code_rotation_interval;
+      }
+    });
+
     // ── Status updated ──────────────────────────────
     this.socket.on('status-updated', (data) => {
       this.userStatus = data.status;
@@ -664,7 +697,7 @@ class HavenApp {
 
     // Copy code
     document.getElementById('copy-code-btn').addEventListener('click', () => {
-      if (this.currentChannel) {
+      if (this.currentChannel && this.currentChannel !== '••••••••') {
         navigator.clipboard.writeText(this.currentChannel).then(() => {
           this._showToast('Channel code copied!', 'success');
         });
@@ -1245,6 +1278,71 @@ class HavenApp {
     document.getElementById('add-server-modal').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
     });
+
+    // ── Channel Code Settings Modal ─────────────────────
+    document.getElementById('channel-code-settings-btn')?.addEventListener('click', () => {
+      if (!this.currentChannel || !this.isAdmin) return;
+      const channel = this.channels.find(c => c.code === this.currentChannel);
+      if (!channel || channel.is_dm) return;
+
+      document.getElementById('code-settings-channel-name').textContent = `# ${channel.name}`;
+      document.getElementById('code-visibility-select').value = channel.code_visibility || 'public';
+      document.getElementById('code-mode-select').value = channel.code_mode || 'static';
+      document.getElementById('code-rotation-type-select').value = channel.code_rotation_type || 'time';
+      document.getElementById('code-rotation-interval').value = channel.code_rotation_interval || 60;
+
+      this._toggleCodeRotationFields();
+      document.getElementById('code-settings-modal').style.display = 'flex';
+    });
+
+    document.getElementById('code-mode-select')?.addEventListener('change', () => this._toggleCodeRotationFields());
+    document.getElementById('code-rotation-type-select')?.addEventListener('change', () => {
+      const type = document.getElementById('code-rotation-type-select').value;
+      const label = document.getElementById('rotation-interval-label');
+      if (label) label.textContent = type === 'time' ? 'Rotation Interval (minutes)' : 'Rotate After X Joins';
+    });
+
+    document.getElementById('code-settings-cancel-btn')?.addEventListener('click', () => {
+      document.getElementById('code-settings-modal').style.display = 'none';
+    });
+
+    document.getElementById('code-settings-modal')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+    });
+
+    document.getElementById('code-settings-save-btn')?.addEventListener('click', () => {
+      const channel = this.channels.find(c => c.code === this.currentChannel);
+      if (!channel) return;
+
+      this.socket.emit('update-channel-code-settings', {
+        channelId: channel.id,
+        code_visibility: document.getElementById('code-visibility-select').value,
+        code_mode: document.getElementById('code-mode-select').value,
+        code_rotation_type: document.getElementById('code-rotation-type-select').value,
+        code_rotation_interval: parseInt(document.getElementById('code-rotation-interval').value) || 60
+      });
+
+      document.getElementById('code-settings-modal').style.display = 'none';
+    });
+
+    document.getElementById('code-rotate-now-btn')?.addEventListener('click', () => {
+      const channel = this.channels.find(c => c.code === this.currentChannel);
+      if (!channel) return;
+
+      if (!confirm('Rotate the channel code now? Current code will become invalid.')) return;
+      this.socket.emit('rotate-channel-code', { channelId: channel.id });
+      document.getElementById('code-settings-modal').style.display = 'none';
+    });
+  }
+
+  _toggleCodeRotationFields() {
+    const isDynamic = document.getElementById('code-mode-select').value === 'dynamic';
+    document.getElementById('rotation-type-group').style.display = isDynamic ? '' : 'none';
+    document.getElementById('rotation-interval-group').style.display = isDynamic ? '' : 'none';
+    // Update interval label based on rotation type
+    const type = document.getElementById('code-rotation-type-select').value;
+    const label = document.getElementById('rotation-interval-label');
+    if (label) label.textContent = type === 'time' ? 'Rotation Interval (minutes)' : 'Rotate After X Joins';
   }
 
   _addServer() {
@@ -1917,8 +2015,15 @@ class HavenApp {
       : channel ? `# ${channel.name}` : code;
 
     document.getElementById('channel-header-name').textContent = displayName;
+    const isMaskedCode = (code === '••••••••');
     document.getElementById('channel-code-display').textContent = isDm ? '' : code;
-    document.getElementById('copy-code-btn').style.display = isDm ? 'none' : 'inline-flex';
+    document.getElementById('copy-code-btn').style.display = (isDm || isMaskedCode) ? 'none' : 'inline-flex';
+
+    // Show channel code settings gear for admins on non-DM channels
+    const codeSettingsBtn = document.getElementById('channel-code-settings-btn');
+    if (codeSettingsBtn) {
+      codeSettingsBtn.style.display = (!isDm && this.isAdmin) ? 'inline-flex' : 'none';
+    }
     // Update voice button state — persist controls if in voice anywhere
     if (this.voice && this.voice.inVoice) {
       this._updateVoiceButtons(true);

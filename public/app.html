@@ -98,6 +98,9 @@
               <button class="theme-btn" data-theme="ffx" title="Final Fantasy X"><span class="theme-icon">⚔️</span></button>
               <button class="theme-btn" data-theme="zelda" title="Zelda"><span class="theme-icon">🗡️</span></button>
               <button class="theme-btn" data-theme="fallout" title="Fallout (PIP Boy)"><span class="theme-icon">☢️</span></button>
+              <button class="theme-btn" data-theme="scripture" title="Scripture"><span class="theme-icon">✝️</span></button>
+              <button class="theme-btn" data-theme="chapel" title="Chapel"><span class="theme-icon">⛪</span></button>
+              <button class="theme-btn" data-theme="gospel" title="Gospel"><span class="theme-icon">🕊️</span></button>
               <button class="theme-btn" data-theme="crt" title="CRT"><span class="theme-icon">📺</span></button>
               <button class="theme-btn" data-theme="win95" title="Windows 95"><span class="theme-icon">🪟</span></button>
               <button class="theme-btn" data-theme="custom" title="Custom"><span class="theme-icon" id="custom-theme-swatch">🎨</span></button>
@@ -151,6 +154,8 @@
             <span class="channel-code-tag" id="channel-code-display" title="Channel code"></span>
             <button id="copy-code-btn" class="icon-btn small" title="Copy code"
                     style="display:none">📋</button>
+            <button id="channel-code-settings-btn" class="icon-btn small" title="Channel code settings"
+                    style="display:none">⚙️</button>
           </div>
           <!-- Left-side utility buttons (next to channel name) -->
           <div class="header-left-actions">
@@ -369,6 +374,44 @@
 
   <!-- Toast notifications -->
   <div id="toast-container"></div>
+
+  <!-- Channel Code Settings Modal (Admin) -->
+  <div class="modal-overlay" id="code-settings-modal" style="display:none">
+    <div class="modal">
+      <h3>Channel Code Settings</h3>
+      <p class="modal-desc" id="code-settings-channel-name"></p>
+      <div class="form-group">
+        <label>Code Visibility</label>
+        <select id="code-visibility-select" class="form-select">
+          <option value="public">Public — everyone can see the code</option>
+          <option value="private">Private — only admins see the code</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Code Mode</label>
+        <select id="code-mode-select" class="form-select">
+          <option value="static">Static — code never changes</option>
+          <option value="dynamic">Dynamic — code rotates automatically</option>
+        </select>
+      </div>
+      <div class="form-group" id="rotation-type-group" style="display:none">
+        <label>Rotation Trigger</label>
+        <select id="code-rotation-type-select" class="form-select">
+          <option value="time">Time-based — rotate every X minutes</option>
+          <option value="joins">Join-based — rotate after X new joins</option>
+        </select>
+      </div>
+      <div class="form-group" id="rotation-interval-group" style="display:none">
+        <label id="rotation-interval-label">Rotation Interval (minutes)</label>
+        <input type="number" id="code-rotation-interval" min="1" max="10000" value="60">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-sm" id="code-settings-cancel-btn">Cancel</button>
+        <button class="btn-sm btn-accent" id="code-rotate-now-btn">🔄 Rotate Now</button>
+        <button class="btn-sm btn-accent" id="code-settings-save-btn">Save</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Add Server Modal -->
   <div class="modal-overlay" id="add-server-modal" style="display:none">

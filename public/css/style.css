@@ -838,6 +838,148 @@
 [data-theme="fallout"] .message-input-container { border: 1px solid rgba(20, 254, 23, 0.2); border-radius: 2px; }
 [data-theme="fallout"] ::selection { background: #14fe17; color: #0a0e08; }
 
+/* ─── THEME: Scripture (Parchment & Gold) ──────────────── */
+[data-theme="scripture"] {
+  --bg-primary:    #1a1610;
+  --bg-secondary:  #201c14;
+  --bg-tertiary:   #2a2418;
+  --bg-hover:      #342c20;
+  --bg-active:     #3e3428;
+  --bg-input:      #14120c;
+  --bg-card:       #1e1a12;
+
+  --accent:        #c8a84c;
+  --accent-hover:  #dcc06a;
+  --accent-dim:    #a08030;
+  --accent-glow:   rgba(200, 168, 76, 0.25);
+
+  --text-primary:  #e8dcc8;
+  --text-secondary:#b8a888;
+  --text-muted:    #6e6048;
+  --text-link:     #dcc06a;
+
+  --border:        #302818;
+  --border-light:  #3e3422;
+
+  --success:       #6aaa4a;
+  --danger:        #b84030;
+  --warning:       #d4a030;
+
+  --led-on:        #c8a84c;
+  --led-off:       #1a1408;
+  --led-glow:      rgba(200, 168, 76, 0.5);
+
+  --font-main:     'Georgia', 'Times New Roman', serif;
+  --font-heading:  'Georgia', 'Times New Roman', serif;
+  --font-mono:     'Consolas', monospace;
+
+  --theme-logo:    "✝️";
+}
+[data-theme="scripture"] .brand-text { color: #c8a84c; text-shadow: 0 0 10px rgba(200, 168, 76, 0.3); font-style: italic; }
+[data-theme="scripture"] .server-icon.home { background: linear-gradient(135deg, #2a2010, #c8a84c); box-shadow: 0 0 8px rgba(200, 168, 76, 0.2); }
+[data-theme="scripture"] .channel-item.active::before { background: #c8a84c; box-shadow: 0 0 6px rgba(200, 168, 76, 0.4); }
+[data-theme="scripture"] .inline-code { color: #dcc06a; background: rgba(200, 168, 76, 0.08); }
+[data-theme="scripture"] .mention { background: rgba(200, 168, 76, 0.12); color: #dcc06a; }
+[data-theme="scripture"] .message-avatar, [data-theme="scripture"] .message-avatar-img { border: 1px solid rgba(200, 168, 76, 0.2); }
+[data-theme="scripture"] .channel-badge { background: #c8a84c; color: #1a1610; }
+[data-theme="scripture"] .modal { border: 1px solid rgba(200, 168, 76, 0.2); box-shadow: 0 0 20px rgba(200, 168, 76, 0.08); }
+[data-theme="scripture"] ::selection { background: #c8a84c; color: #1a1610; }
+
+/* ─── THEME: Chapel (Stained Glass) ────────────────────── */
+[data-theme="chapel"] {
+  --bg-primary:    #0e0c18;
+  --bg-secondary:  #12101e;
+  --bg-tertiary:   #1a1628;
+  --bg-hover:      #221e32;
+  --bg-active:     #2a263c;
+  --bg-input:      #0a0814;
+  --bg-card:       #12101e;
+
+  --accent:        #8a5cf0;
+  --accent-hover:  #a07af8;
+  --accent-dim:    #6a3cc8;
+  --accent-glow:   rgba(138, 92, 240, 0.25);
+
+  --text-primary:  #e0d8f0;
+  --text-secondary:#a898c8;
+  --text-muted:    #5e5078;
+  --text-link:     #70b8ff;
+
+  --border:        #201a30;
+  --border-light:  #2c2640;
+
+  --success:       #4acc70;
+  --danger:        #cc4040;
+  --warning:       #e8b840;
+
+  --led-on:        #8a5cf0;
+  --led-off:       #0e0a18;
+  --led-glow:      rgba(138, 92, 240, 0.5);
+
+  --font-main:     'Georgia', 'Times New Roman', serif;
+  --font-heading:  'Georgia', 'Times New Roman', serif;
+  --font-mono:     'Consolas', monospace;
+
+  --theme-logo:    "⛪";
+}
+[data-theme="chapel"] .brand-text { background: linear-gradient(90deg, #8a5cf0, #70b8ff, #e8b840); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+[data-theme="chapel"] .server-icon.home { background: linear-gradient(135deg, #4a2ca0, #8a5cf0); box-shadow: 0 0 10px rgba(138, 92, 240, 0.3); }
+[data-theme="chapel"] .channel-item.active::before { background: #8a5cf0; box-shadow: 0 0 6px rgba(138, 92, 240, 0.5); }
+[data-theme="chapel"] .inline-code { color: #a07af8; background: rgba(138, 92, 240, 0.08); }
+[data-theme="chapel"] .mention { background: rgba(138, 92, 240, 0.12); color: #a07af8; }
+[data-theme="chapel"] .message-avatar, [data-theme="chapel"] .message-avatar-img { border: 1px solid rgba(138, 92, 240, 0.2); }
+[data-theme="chapel"] .channel-badge { background: #8a5cf0; color: #0e0c18; }
+[data-theme="chapel"] .modal { border: 1px solid rgba(138, 92, 240, 0.2); box-shadow: 0 0 20px rgba(138, 92, 240, 0.1); }
+[data-theme="chapel"] ::selection { background: #8a5cf0; color: #0e0c18; }
+
+/* ─── THEME: Gospel (Light Cream & Ruby) ───────────────── */
+[data-theme="gospel"] {
+  --bg-primary:    #f5f0e8;
+  --bg-secondary:  #ebe4d8;
+  --bg-tertiary:   #ddd5c8;
+  --bg-hover:      #d0c8b8;
+  --bg-active:     #c5bca8;
+  --bg-input:      #faf7f0;
+  --bg-card:       #eee8dc;
+
+  --accent:        #8b2032;
+  --accent-hover:  #a83040;
+  --accent-dim:    #6e1828;
+  --accent-glow:   rgba(139, 32, 50, 0.2);
+
+  --text-primary:  #2a2018;
+  --text-secondary:#5a4e40;
+  --text-muted:    #8a7e70;
+  --text-link:     #8b2032;
+
+  --border:        #d0c4b0;
+  --border-light:  #c0b4a0;
+
+  --success:       #3a7a30;
+  --danger:        #b83030;
+  --warning:       #c08a20;
+
+  --led-on:        #3a7a30;
+  --led-off:       #c0b4a0;
+  --led-glow:      rgba(58, 122, 48, 0.5);
+
+  --font-main:     'Georgia', 'Times New Roman', serif;
+  --font-heading:  'Georgia', 'Times New Roman', serif;
+  --font-mono:     'Consolas', monospace;
+
+  --theme-logo:    "🕊️";
+}
+[data-theme="gospel"] .brand-text { color: #8b2032; font-style: italic; }
+[data-theme="gospel"] .server-icon.home { background: linear-gradient(135deg, #8b2032, #c8a84c); color: #fff; }
+[data-theme="gospel"] .channel-item.active::before { background: #8b2032; box-shadow: 0 0 4px rgba(139, 32, 50, 0.3); }
+[data-theme="gospel"] .inline-code { color: #8b2032; background: rgba(139, 32, 50, 0.06); border: 1px solid rgba(139, 32, 50, 0.12); }
+[data-theme="gospel"] .mention { background: rgba(139, 32, 50, 0.08); color: #8b2032; }
+[data-theme="gospel"] .message-avatar, [data-theme="gospel"] .message-avatar-img { border: 1px solid rgba(139, 32, 50, 0.15); }
+[data-theme="gospel"] .channel-badge { background: #8b2032; color: #f5f0e8; }
+[data-theme="gospel"] .sidebar { background: var(--bg-secondary); border-right: 1px solid var(--border); }
+[data-theme="gospel"] .modal { border: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); }
+[data-theme="gospel"] ::selection { background: #8b2032; color: #f5f0e8; }
+
 /* ─── THEME: CRT ───────────────────────────────────────── */
 [data-theme="crt"] {
   --bg-primary:    #080808;
@@ -1249,6 +1391,9 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 .theme-btn[data-theme="ffx"]    { background: #080e1a; color: #40a8e0; }
 .theme-btn[data-theme="zelda"]  { background: #0a120a; color: #44bb44; }
 .theme-btn[data-theme="fallout"]{ background: #0a0e08; color: #14fe17; text-shadow: 0 0 4px rgba(20,254,23,0.6); }
+.theme-btn[data-theme="scripture"]{ background: #1a1610; color: #c8a84c; }
+.theme-btn[data-theme="chapel"] { background: #0e0c18; color: #8a5cf0; }
+.theme-btn[data-theme="gospel"] { background: #f5f0e8; color: #8b2032; }
 .theme-btn[data-theme="crt"]    { background: #080808; color: #ffb000; text-shadow: 0 0 4px rgba(255,176,0,0.5); }
 .theme-btn[data-theme="win95"]  { background: #c0c0c0; color: #000; border: 2px outset #fff; }
 .theme-btn[data-theme="custom"] { background: linear-gradient(135deg, #ff2d6f, #faa61a, #43b581, #7c5cfc); color: #fff; }
@@ -1707,6 +1852,19 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 
 .form-group input:focus { border-color: var(--accent); }
 .form-group small { font-size: 11px; color: var(--text-muted); }
+
+.form-select {
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: border-color var(--transition);
+  cursor: pointer;
+  appearance: auto;
+}
+.form-select:focus { border-color: var(--accent); outline: none; }
 
 .btn-primary {
   padding: 11px 20px;

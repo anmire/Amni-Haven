@@ -186,6 +186,65 @@ function setupSocketHandlers(io, db) {
   // Active screen sharers per voice room:  code → Set<userId>
   const activeScreenSharers = new Map();
 
+  // ── Time-based channel code rotation (check every 30s) ───
+  setInterval(() => {
+    try {
+      const dynamicChannels = db.prepare(
+        "SELECT * FROM channels WHERE code_mode = 'dynamic' AND code_rotation_type = 'time' AND is_dm = 0"
+      ).all();
+
+      const now = Date.now();
+
+      for (const ch of dynamicChannels) {
+        const lastRotated = new Date(ch.code_last_rotated + 'Z').getTime();
+        const intervalMs = (ch.code_rotation_interval || 60) * 60 * 1000;
+
+        if (now - lastRotated >= intervalMs) {
+          const oldCode = ch.code;
+          const newCode = generateChannelCode();
+
+          db.prepare(
+            'UPDATE channels SET code = ?, code_rotation_counter = 0, code_last_rotated = CURRENT_TIMESTAMP WHERE id = ?'
+          ).run(newCode, ch.id);
+
+          // Move all sockets from old room to new room
+          const oldRoom = `channel:${oldCode}`;
+          const newRoom = `channel:${newCode}`;
+          const roomSockets = io.sockets.adapter.rooms.get(oldRoom);
+          if (roomSockets) {
+            for (const sid of [...roomSockets]) {
+              const s = io.sockets.sockets.get(sid);
+              if (s) { s.leave(oldRoom); s.join(newRoom); }
+            }
+          }
+
+          // Update channelUsers map key
+          if (channelUsers.has(oldCode)) {
+            channelUsers.set(newCode, channelUsers.get(oldCode));
+            channelUsers.delete(oldCode);
+          }
+
+          // Update voiceUsers map key
+          if (voiceUsers.has(oldCode)) {
+            voiceUsers.set(newCode, voiceUsers.get(oldCode));
+            voiceUsers.delete(oldCode);
+          }
+
+          // Notify all members of the code change
+          io.to(newRoom).emit('channel-code-rotated', {
+            channelId: ch.id,
+            oldCode,
+            newCode
+          });
+
+          console.log(`🔄 Auto-rotated code for channel "${ch.name}": ${oldCode} → ${newCode}`);
+        }
+      }
+    } catch (err) {
+      console.error('Channel code rotation error:', err);
+    }
+  }, 30 * 1000);
+
   io.on('connection', (socket) => {
     // Guard: if auth middleware somehow didn't attach user, disconnect
     if (!socket.user || !socket.user.username) {
@@ -240,7 +299,8 @@ function setupSocketHandlers(io, db) {
     // ── Get user's channels ─────────────────────────────────
     socket.on('get-channels', () => {
       const channels = db.prepare(`
-        SELECT c.id, c.name, c.code, c.created_by, c.topic, c.is_dm
+        SELECT c.id, c.name, c.code, c.created_by, c.topic, c.is_dm,
+               c.code_visibility, c.code_mode, c.code_rotation_type, c.code_rotation_interval
         FROM channels c
         JOIN channel_members cm ON c.id = cm.channel_id
         WHERE cm.user_id = ?
@@ -293,6 +353,13 @@ function setupSocketHandlers(io, db) {
 
       // Join all channel rooms for message delivery
       channels.forEach(ch => socket.join(`channel:${ch.code}`));
+
+      // Hide channel codes for non-admins when visibility is private
+      if (!socket.user.isAdmin) {
+        channels.forEach(ch => {
+          if (ch.code_visibility === 'private') ch.code = '••••••••';
+        });
+      }
 
       socket.emit('channels-list', channels);
     });
@@ -367,13 +434,47 @@ function setupSocketHandlers(io, db) {
         db.prepare(
           'INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)'
         ).run(channel.id, socket.user.id);
+
+        // Join-based code rotation: increment counter and rotate if threshold reached
+        if (channel.code_mode === 'dynamic' && channel.code_rotation_type === 'joins') {
+          const newCount = (channel.code_rotation_counter || 0) + 1;
+          const threshold = channel.code_rotation_interval || 5;
+          if (newCount >= threshold) {
+            const newCode = generateChannelCode();
+            db.prepare(
+              'UPDATE channels SET code = ?, code_rotation_counter = 0, code_last_rotated = CURRENT_TIMESTAMP WHERE id = ?'
+            ).run(newCode, channel.id);
+            // Move all sockets from old room to new room
+            const oldRoom = `channel:${code}`;
+            const newRoom = `channel:${newCode}`;
+            const roomSockets = io.sockets.adapter.rooms.get(oldRoom);
+            if (roomSockets) {
+              for (const sid of [...roomSockets]) {
+                const s = io.sockets.sockets.get(sid);
+                if (s) { s.leave(oldRoom); s.join(newRoom); }
+              }
+            }
+            // Update channelUsers map key
+            if (channelUsers.has(code)) {
+              channelUsers.set(newCode, channelUsers.get(code));
+              channelUsers.delete(code);
+            }
+            // Notify all channel members of the code rotation
+            io.to(newRoom).emit('channel-code-rotated', { channelId: channel.id, oldCode: code, newCode });
+            channel.code = newCode;
+          } else {
+            db.prepare('UPDATE channels SET code_rotation_counter = ? WHERE id = ?').run(newCount, channel.id);
+          }
+        }
       }
 
-      socket.join(`channel:${code}`);
+      // Use channel.code (may have been rotated above)
+      const activeCode = channel.code;
+      socket.join(`channel:${activeCode}`);
 
       // Notify channel
-      io.to(`channel:${code}`).emit('user-joined', {
-        channelCode: code,
+      io.to(`channel:${activeCode}`).emit('user-joined', {
+        channelCode: activeCode,
         user: { id: socket.user.id, username: socket.user.displayName }
       });
 
@@ -381,7 +482,7 @@ function setupSocketHandlers(io, db) {
       socket.emit('channel-joined', {
         id: channel.id,
         name: channel.name,
-        code: channel.code,
+        code: activeCode,
         created_by: channel.created_by,
         topic: channel.topic || '',
         is_dm: channel.is_dm || 0
@@ -1927,6 +2028,125 @@ function setupSocketHandlers(io, db) {
       }
 
       io.to(`channel:${code}`).emit('channel-topic-changed', { code, topic });
+    });
+
+    // ═══════════════ CHANNEL CODE SETTINGS (Admin) ═════════
+
+    socket.on('update-channel-code-settings', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!socket.user.isAdmin) {
+        return socket.emit('error-msg', 'Only admins can change channel code settings');
+      }
+
+      const channelId = typeof data.channelId === 'number' ? data.channelId : null;
+      if (!channelId) return;
+
+      const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(channelId);
+      if (!channel || channel.is_dm) return;
+
+      const validVisibility = ['public', 'private'];
+      const validMode = ['static', 'dynamic'];
+      const validRotationType = ['time', 'joins'];
+
+      const updates = {};
+      if (data.code_visibility && validVisibility.includes(data.code_visibility)) {
+        updates.code_visibility = data.code_visibility;
+      }
+      if (data.code_mode && validMode.includes(data.code_mode)) {
+        updates.code_mode = data.code_mode;
+      }
+      if (data.code_rotation_type && validRotationType.includes(data.code_rotation_type)) {
+        updates.code_rotation_type = data.code_rotation_type;
+      }
+      if (data.code_rotation_interval !== undefined) {
+        const n = parseInt(data.code_rotation_interval);
+        if (!isNaN(n) && n >= 1 && n <= 10000) {
+          updates.code_rotation_interval = n;
+        }
+      }
+
+      if (Object.keys(updates).length === 0) return;
+
+      // Build SET clause dynamically
+      const setParts = [];
+      const values = [];
+      for (const [key, val] of Object.entries(updates)) {
+        setParts.push(`${key} = ?`);
+        values.push(val);
+      }
+
+      // If switching to dynamic, reset the counter and last-rotated timestamp
+      if (updates.code_mode === 'dynamic') {
+        setParts.push('code_rotation_counter = 0');
+        setParts.push('code_last_rotated = CURRENT_TIMESTAMP');
+      }
+
+      values.push(channelId);
+      db.prepare(`UPDATE channels SET ${setParts.join(', ')} WHERE id = ?`).run(...values);
+
+      // Re-fetch and broadcast updated channel info to all members
+      const updated = db.prepare(
+        'SELECT id, code_visibility, code_mode, code_rotation_type, code_rotation_interval FROM channels WHERE id = ?'
+      ).get(channelId);
+
+      io.to(`channel:${channel.code}`).emit('channel-code-settings-updated', {
+        channelId,
+        channelCode: channel.code,
+        settings: updated
+      });
+
+      socket.emit('error-msg', 'Channel code settings updated');
+    });
+
+    // Admin can manually rotate a channel code
+    socket.on('rotate-channel-code', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (!socket.user.isAdmin) {
+        return socket.emit('error-msg', 'Only admins can rotate channel codes');
+      }
+
+      const channelId = typeof data.channelId === 'number' ? data.channelId : null;
+      if (!channelId) return;
+
+      const channel = db.prepare('SELECT * FROM channels WHERE id = ? AND is_dm = 0').get(channelId);
+      if (!channel) return;
+
+      const oldCode = channel.code;
+      const newCode = generateChannelCode();
+
+      db.prepare(
+        'UPDATE channels SET code = ?, code_rotation_counter = 0, code_last_rotated = CURRENT_TIMESTAMP WHERE id = ?'
+      ).run(newCode, channelId);
+
+      // Move all sockets from old room to new room
+      const oldRoom = `channel:${oldCode}`;
+      const newRoom = `channel:${newCode}`;
+      const roomSockets = io.sockets.adapter.rooms.get(oldRoom);
+      if (roomSockets) {
+        for (const sid of [...roomSockets]) {
+          const s = io.sockets.sockets.get(sid);
+          if (s) { s.leave(oldRoom); s.join(newRoom); }
+        }
+      }
+
+      // Update channelUsers map key
+      if (channelUsers.has(oldCode)) {
+        channelUsers.set(newCode, channelUsers.get(oldCode));
+        channelUsers.delete(oldCode);
+      }
+
+      // Update voiceUsers map key if exists
+      if (voiceUsers.has(oldCode)) {
+        voiceUsers.set(newCode, voiceUsers.get(oldCode));
+        voiceUsers.delete(oldCode);
+      }
+
+      // Notify all members of the code change
+      io.to(newRoom).emit('channel-code-rotated', {
+        channelId,
+        oldCode,
+        newCode
+      });
     });
 
     // ═══════════════ DIRECT MESSAGES ═══════════════════════
