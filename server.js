@@ -1,99 +1,91 @@
-// ── Resolve data directory BEFORE loading .env ────────────
 const { DATA_DIR, DB_PATH, ENV_PATH, CERTS_DIR, UPLOADS_DIR } = require('./src/paths');
-
-// Bootstrap .env into the data directory if it doesn't exist yet
 const fs = require('fs');
 const path = require('path');
 if (!fs.existsSync(ENV_PATH)) {
   const example = path.join(__dirname, '.env.example');
-  if (fs.existsSync(example)) {
-    fs.copyFileSync(example, ENV_PATH);
-    console.log(`📄 Created .env in ${DATA_DIR} from template`);
-  } else {
-    // Write a minimal .env so dotenv doesn't fail
-    fs.writeFileSync(ENV_PATH, 'JWT_SECRET=change-me-to-something-random-and-long\n');
-  }
+  fs.existsSync(example) ? fs.copyFileSync(example, ENV_PATH) : fs.writeFileSync(ENV_PATH, 'JWT_SECRET=change-me-to-something-random-and-long\n');
+  if (fs.existsSync(example)) console.log(`Created .env in ${DATA_DIR} from template`);
 }
-
 require('dotenv').config({ path: ENV_PATH });
 const express = require('express');
 const { createServer } = require('http');
 const { createServer: createHttpsServer } = require('https');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const multer = require('multer');
+const { startTunnel, stopTunnel, getTunnelStatus } = require('./src/tunnel');
+const { router: botRoutes } = require('./src/botApi');
+const { setupWizardRoutes, wizardMiddleware } = require('./src/setupWizard');
+const os = require('os');
+console.log(`Data directory: ${DATA_DIR}`);
 
-console.log(`📂 Data directory: ${DATA_DIR}`);
-
-// ── Auto-generate JWT secret (MUST happen before loading auth module) ──
 if (process.env.JWT_SECRET === 'change-me-to-something-random-and-long' || !process.env.JWT_SECRET) {
   const generated = crypto.randomBytes(48).toString('base64');
   let envContent = fs.readFileSync(ENV_PATH, 'utf-8');
   envContent = envContent.replace(/JWT_SECRET=.*/, `JWT_SECRET=${generated}`);
   fs.writeFileSync(ENV_PATH, envContent);
   process.env.JWT_SECRET = generated;
-  console.log('🔑 Auto-generated strong JWT_SECRET (saved to .env)');
+  console.log('Auto-generated strong JWT_SECRET (saved to .env)');
 }
-
 const { initDatabase } = require('./src/database');
 const { router: authRoutes, authLimiter, verifyToken } = require('./src/auth');
 const { setupSocketHandlers } = require('./src/socketHandlers');
-
 const app = express();
 
-// ── Security Headers (helmet) ────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://www.youtube.com", "https://w.soundcloud.com"],
-      styleSrc: ["'self'", "'unsafe-inline'"],  // inline styles needed for themes
-      imgSrc: ["'self'", "data:", "blob:", "https:"],  // https: for link preview OG images + GIPHY
-      connectSrc: ["'self'", "ws:", "wss:"],            // Socket.IO (ws for HTTP, wss for HTTPS)
-      mediaSrc: ["'self'", "blob:", "data:"],  // WebRTC audio + notification sounds
+      scriptSrc: ["'self'", "'unsafe-eval'", "'wasm-unsafe-eval'", "https://cdn.emulatorjs.org", "https://sdk.scdn.co", "https://unpkg.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.emulatorjs.org"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      connectSrc: ["'self'", "wss:", "ws:", "http:", "https:", "blob:", "https://cdn.emulatorjs.org", "https://api.spotify.com", "wss://dealer.spotify.com", "https://unpkg.com"],
+      mediaSrc: ["'self'", "blob:", "https://*.scdn.co", "https://*.spotifycdn.com"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
-      frameSrc: ["https://open.spotify.com", "https://www.youtube.com", "https://www.youtube-nocookie.com", "https://w.soundcloud.com"],  // Listen Together embeds
       baseUri: ["'self'"],
       formAction: ["'self'"],
-      frameAncestors: ["'none'"],               // prevent clickjacking
+      frameSrc: ["'self'", "https://open.spotify.com", "https://www.youtube.com", "https://www.youtube-nocookie.com", "https://w.soundcloud.com", "https://player.vimeo.com"],
+      frameAncestors: ["'none'"],
+      workerSrc: ["'self'", "blob:", "https://unpkg.com"],
     }
   },
-  crossOriginEmbedderPolicy: false,  // needed for WebRTC
-  crossOriginOpenerPolicy: false,    // needed for WebRTC
-  hsts: { maxAge: 31536000, includeSubDomains: false }, // force HTTPS for 1 year
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: false,
+  hsts: { maxAge: 31536000, includeSubDomains: false },
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
-
-// Additional security headers helmet doesn't cover
 app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=()');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
-
-// Disable Express version disclosure
+app.use('/games', (req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  next();
+});
 app.disable('x-powered-by');
-
-// ── Body Parsing with size limits ────────────────────────
-app.use(express.json({ limit: '16kb' }));  // no reason for large JSON bodies
+app.use(express.json({ limit: '16kb' }));
 app.use(express.urlencoded({ extended: false, limit: '16kb' }));
-
-// ── Static files with caching ────────────────────────────
 app.use(express.static(path.join(__dirname, 'public'), {
-  dotfiles: 'deny',       // block .env, .git, etc.
-  etag: true,             // ETag for conditional requests
-  lastModified: true,     // Last-Modified header
-  maxAge: 0,              // always revalidate — prevents stale JS/CSS after deploys
+  dotfiles: 'deny',
+  etag: true,
+  lastModified: true,
+  maxAge: 0,
 }));
+setupWizardRoutes(app);
+app.use(wizardMiddleware);
 
 // ── Serve uploads from external data directory ──────────
 app.use('/uploads', express.static(UPLOADS_DIR, {
   dotfiles: 'deny',
+  etag: true,
+  lastModified: true,
   maxAge: '1h',
   setHeaders: (res, filePath) => {
-    // Force download for non-image files (prevents HTML/SVG execution in browser)
     const ext = path.extname(filePath).toLowerCase();
     if (!['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
       res.setHeader('Content-Disposition', 'attachment');
@@ -101,7 +93,7 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
   }
 }));
 
-// ── File uploads (images max 5 MB, general files max 25 MB) ──
+// ── File uploads (images, max 5 MB) ─────────────────────
 const uploadDir = UPLOADS_DIR;
 
 const uploadStorage = multer.diskStorage({
@@ -112,7 +104,6 @@ const uploadStorage = multer.diskStorage({
   }
 });
 
-// Image-only upload (existing endpoint)
 const upload = multer({
   storage: uploadStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -122,32 +113,30 @@ const upload = multer({
   }
 });
 
-// General file upload (expanded MIME whitelist)
-const ALLOWED_FILE_TYPES = new Set([
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-  'application/pdf',
-  'text/plain', 'text/csv', 'text/markdown',
-  'application/zip', 'application/x-zip-compressed',
-  'application/x-7z-compressed', 'application/x-rar-compressed',
-  'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm',
-  'video/mp4', 'video/webm',
-  'application/json',
-  'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-]);
-
-const fileUpload = multer({
-  storage: uploadStorage,
-  limits: { fileSize: 25 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (ALLOWED_FILE_TYPES.has(file.mimetype)) cb(null, true);
-    else cb(new Error('File type not allowed'));
-  }
-});
-
 // ── API routes (rate-limited) ────────────────────────────
 app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/bot', express.json(), botRoutes);
+app.get('/api/auth/auto-login', authLimiter, (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || '';
+  const isLocal = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
+  if (!isLocal) return res.status(403).json({ error: 'Forbidden' });
+  const db = require('./src/database').getDb();
+  const adminName = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
+  const admin = db.prepare('SELECT * FROM users WHERE LOWER(username) = ?').get(adminName);
+  if (!admin) return res.status(404).json({ error: 'Admin not registered yet' });
+  const token = jwt.sign({ id: admin.id, username: admin.username, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  res.json({ token, user: { id: admin.id, username: admin.username, displayName: admin.display_name || null, isAdmin: true } });
+});
+app.post('/api/user/display-name', express.json(), (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const name = typeof req.body.displayName === 'string' ? req.body.displayName.trim().slice(0, 32) : null;
+  if (name && (name.length < 1 || name.length > 32)) return res.status(400).json({ error: 'Display name must be 1-32 chars' });
+  const db = require('./src/database').getDb();
+  db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(name || null, user.id);
+  res.json({ displayName: name || null });
+});
 
 // ── Serve pages ──────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -162,14 +151,38 @@ app.get('/games/flappy', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'games', 'flappy.html'));
 });
 
-// ── Health check (CORS allowed for multi-server status pings) ──
+app.options('/api/health', (req, res) => {
+  res.set({'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Allow-Headers': 'Content-Type'});
+  res.sendStatus(204);
+});
 app.get('/api/health', (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
-  res.json({
-    status: 'online',
-    name: process.env.SERVER_NAME || 'Haven'
-    // version intentionally omitted — don't fingerprint the server for attackers
-  });
+  const onlineUsers = global.havenIO ? global.havenIO.engine.clientsCount : 0;
+  const userList = [];
+  if (global.havenIO) {
+    for (const [, s] of global.havenIO.sockets.sockets) {
+      if (s.user?.username) userList.push({ id: s.user.id, username: s.user.displayName || s.user.username });
+    }
+  }
+  res.json({ status: 'online', name: process.env.SERVER_NAME || 'Haven', onlineUsers, users: userList });
+});
+app.options('/api/ping', (req, res) => {
+  res.set({'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'Content-Type'});
+  res.sendStatus(204);
+});
+app.post('/api/ping', express.json(), (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  const { fromServer, fromUser, toUserId, message } = req.body || {};
+  if (!fromUser || !toUserId) return res.status(400).json({ error: 'Missing fromUser or toUserId' });
+  if (!global.havenIO) return res.status(503).json({ error: 'Server not ready' });
+  let delivered = false;
+  for (const [, s] of global.havenIO.sockets.sockets) {
+    if (String(s.user?.id) === String(toUserId)) {
+      s.emit('cross-server-ping', { fromServer: fromServer || 'Unknown', fromUser, message: message || 'pinged you!' });
+      delivered = true;
+    }
+  }
+  res.json({ delivered });
 });
 
 // ── Upload rate limiting ─────────────────────────────────
@@ -202,8 +215,6 @@ app.post('/api/upload', uploadLimiter, (req, res) => {
   upload.single('image')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-    // Validate file magic bytes (don't trust MIME type alone)
     try {
       const fd = fs.openSync(req.file.path, 'r');
       const hdr = Buffer.alloc(12);
@@ -214,16 +225,8 @@ app.post('/api/upload', uploadLimiter, (req, res) => {
       else if (req.file.mimetype === 'image/png') validMagic = hdr[0] === 0x89 && hdr[1] === 0x50 && hdr[2] === 0x4E && hdr[3] === 0x47;
       else if (req.file.mimetype === 'image/gif') validMagic = hdr.slice(0, 6).toString().startsWith('GIF8');
       else if (req.file.mimetype === 'image/webp') validMagic = hdr.slice(0, 4).toString() === 'RIFF' && hdr.slice(8, 12).toString() === 'WEBP';
-      if (!validMagic) {
-        fs.unlinkSync(req.file.path);
-        return res.status(400).json({ error: 'File content does not match image type' });
-      }
-    } catch {
-      try { fs.unlinkSync(req.file.path); } catch {}
-      return res.status(400).json({ error: 'Failed to validate file' });
-    }
-
-    // Force safe extension based on validated mimetype (prevent HTML/SVG upload)
+      if (!validMagic) { fs.unlinkSync(req.file.path); return res.status(400).json({ error: 'File content does not match image type' }); }
+    } catch { try { fs.unlinkSync(req.file.path); } catch {} return res.status(400).json({ error: 'Failed to validate file' }); }
     const mimeToExt = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
     const safeExt = mimeToExt[req.file.mimetype];
     if (!safeExt) {
@@ -242,50 +245,14 @@ app.post('/api/upload', uploadLimiter, (req, res) => {
     res.json({ url: `/uploads/${req.file.filename}` });
   });
 });
-
-// ── General file upload (authenticated + not banned) ─────
-app.post('/api/upload-file', uploadLimiter, (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  const user = token ? verifyToken(token) : null;
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-  const { getDb } = require('./src/database');
-  const ban = getDb().prepare('SELECT id FROM bans WHERE user_id = ?').get(user.id);
-  if (ban) return res.status(403).json({ error: 'Banned users cannot upload' });
-
-  fileUpload.single('file')(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message });
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-    const isImage = /^image\//.test(req.file.mimetype);
-    const originalName = req.file.originalname || 'file';
-    const fileSize = req.file.size;
-
-    res.json({
-      url: `/uploads/${req.file.filename}`,
-      originalName,
-      fileSize,
-      isImage,
-      mimetype: req.file.mimetype
-    });
-  });
-});
-
-// ── Avatar upload (authenticated, image only, max 2 MB) ──
 app.post('/api/upload-avatar', uploadLimiter, (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   const user = token ? verifyToken(token) : null;
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
   upload.single('image')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    if (req.file.size > 2 * 1024 * 1024) {
-      fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: 'Avatar must be under 2 MB' });
-    }
-
-    // Validate magic bytes
+    if (req.file.size > 2 * 1024 * 1024) { fs.unlinkSync(req.file.path); return res.status(400).json({ error: 'Avatar must be under 2 MB' }); }
     try {
       const fd = fs.openSync(req.file.path, 'r');
       const hdr = Buffer.alloc(12);
@@ -298,7 +265,6 @@ app.post('/api/upload-avatar', uploadLimiter, (req, res) => {
       else if (req.file.mimetype === 'image/webp') validMagic = hdr.slice(0, 4).toString() === 'RIFF' && hdr.slice(8, 12).toString() === 'WEBP';
       if (!validMagic) { fs.unlinkSync(req.file.path); return res.status(400).json({ error: 'Invalid image' }); }
     } catch { try { fs.unlinkSync(req.file.path); } catch {} return res.status(400).json({ error: 'Failed to validate' }); }
-
     const avatarUrl = `/uploads/${req.file.filename}`;
     const { getDb } = require('./src/database');
     getDb().prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatarUrl, user.id);
@@ -306,164 +272,171 @@ app.post('/api/upload-avatar', uploadLimiter, (req, res) => {
   });
 });
 
-// ── Sound upload (admin only, wav/mp3/ogg, max 1 MB) ────
-const soundUpload = multer({
-  storage: uploadStorage,
-  limits: { fileSize: 1 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (/^audio\/(mpeg|ogg|wav|webm)$/.test(file.mimetype)) cb(null, true);
-    else cb(new Error('Only audio files allowed (mp3, ogg, wav, webm)'));
-  }
-});
-
-app.post('/api/upload-sound', uploadLimiter, (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  const user = token ? verifyToken(token) : null;
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
-  if (!user.isAdmin) return res.status(403).json({ error: 'Admin only' });
-
-  soundUpload.single('sound')(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message });
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-    let name = (req.body.name || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-    if (!name) name = path.basename(req.file.filename, path.extname(req.file.filename));
-    if (name.length > 30) name = name.slice(0, 30);
-
-    const { getDb } = require('./src/database');
-    try {
-      getDb().prepare(
-        'INSERT OR REPLACE INTO custom_sounds (name, filename, uploaded_by) VALUES (?, ?, ?)'
-      ).run(name, req.file.filename, user.id);
-      res.json({ name, url: `/uploads/${req.file.filename}` });
-    } catch { res.status(500).json({ error: 'Failed to save sound' }); }
-  });
-});
-
-app.get('/api/sounds', (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  const user = token ? verifyToken(token) : null;
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
-  const { getDb } = require('./src/database');
-  try {
-    const sounds = getDb().prepare('SELECT name, filename FROM custom_sounds ORDER BY name').all();
-    res.json({ sounds: sounds.map(s => ({ name: s.name, url: `/uploads/${s.filename}` })) });
-  } catch { res.json({ sounds: [] }); }
-});
-
-app.delete('/api/sounds/:name', (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  const user = token ? verifyToken(token) : null;
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
-  if (!user.isAdmin) return res.status(403).json({ error: 'Admin only' });
-  const name = req.params.name;
-  const { getDb } = require('./src/database');
-  try {
-    const row = getDb().prepare('SELECT filename FROM custom_sounds WHERE name = ?').get(name);
-    if (row) {
-      try { fs.unlinkSync(path.join(uploadDir, row.filename)); } catch {}
-      getDb().prepare('DELETE FROM custom_sounds WHERE name = ?').run(name);
-    }
-    res.json({ ok: true });
-  } catch { res.status(500).json({ error: 'Failed to delete sound' }); }
-});
-
-// ── GIF search proxy (GIPHY API — keeps key server-side) ──
 function getGiphyKey() {
-  // Check database first (set via admin panel), fall back to .env
   try {
     const { getDb } = require('./src/database');
     const row = getDb().prepare("SELECT value FROM server_settings WHERE key = 'giphy_api_key'").get();
     if (row && row.value) return row.value;
-  } catch { /* DB not ready yet or no key stored */ }
+  } catch {}
   return process.env.GIPHY_API_KEY || '';
 }
-
-// ── GIF endpoint rate limiting (per IP) ──────────────────
 const gifLimitStore = new Map();
 function gifLimiter(req, res, next) {
   const ip = req.ip || req.socket.remoteAddress;
   const now = Date.now();
-  const windowMs = 60 * 1000; // 1 minute
+  const windowMs = 60 * 1000;
   const maxReqs = 30;
   if (!gifLimitStore.has(ip)) gifLimitStore.set(ip, []);
   const stamps = gifLimitStore.get(ip).filter(t => now - t < windowMs);
   gifLimitStore.set(ip, stamps);
-  if (stamps.length >= maxReqs) return res.status(429).json({ error: 'Rate limited — try again shortly' });
+  if (stamps.length >= maxReqs) return res.status(429).json({ error: 'Rate limited' });
   stamps.push(now);
   next();
 }
 setInterval(() => { const now = Date.now(); for (const [ip, t] of gifLimitStore) { const f = t.filter(x => now - x < 60000); if (!f.length) gifLimitStore.delete(ip); else gifLimitStore.set(ip, f); } }, 5 * 60 * 1000);
-
-app.get('/api/gif/search', gifLimiter, (req, res) => {
-  // Require authentication
+app.get('/api/gif/giphy/search', gifLimiter, (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   const user = token ? verifyToken(token) : null;
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
   const key = getGiphyKey();
-  if (!key) return res.status(501).json({ error: 'gif_not_configured' });
+  if (!key) return res.status(501).json({ error: 'giphy_not_configured' });
   const q = (req.query.q || '').trim().slice(0, 100);
   if (!q) return res.status(400).json({ error: 'Missing search query' });
   const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-  const url = `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(key)}&q=${encodeURIComponent(q)}&limit=${limit}&rating=r&lang=en`;
+  const url = `https://api.giphy.com/v1/gifs/search?api_key=${key}&q=${encodeURIComponent(q)}&limit=${limit}&rating=r`;
   fetch(url).then(r => r.json()).then(data => {
     const results = (data.data || []).map(g => ({
-      id: g.id,
-      title: g.title || '',
-      tiny: g.images?.fixed_height_small?.url || g.images?.fixed_height?.url || '',
-      full: g.images?.original?.url || '',
+      id: g.id, title: g.title || '',
+      tiny: g.images?.fixed_width_small?.url || g.images?.preview_gif?.url || '',
+      full: g.images?.original?.url || g.images?.downsized?.url || '',
     }));
-    res.json({ results });
-  }).catch(() => res.status(502).json({ error: 'GIPHY API error' }));
+    res.json({ results, provider: 'giphy' });
+  }).catch(() => res.status(502).json({ error: 'Giphy API error' }));
 });
-
-app.get('/api/gif/trending', gifLimiter, (req, res) => {
-  // Require authentication
+app.get('/api/gif/giphy/trending', gifLimiter, (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   const user = token ? verifyToken(token) : null;
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
   const key = getGiphyKey();
-  if (!key) return res.status(501).json({ error: 'gif_not_configured' });
+  if (!key) return res.status(501).json({ error: 'giphy_not_configured' });
   const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-  const url = `https://api.giphy.com/v1/gifs/trending?api_key=${encodeURIComponent(key)}&limit=${limit}&rating=r`;
+  const url = `https://api.giphy.com/v1/gifs/trending?api_key=${key}&limit=${limit}&rating=r`;
   fetch(url).then(r => r.json()).then(data => {
     const results = (data.data || []).map(g => ({
-      id: g.id,
-      title: g.title || '',
-      tiny: g.images?.fixed_height_small?.url || g.images?.fixed_height?.url || '',
-      full: g.images?.original?.url || '',
+      id: g.id, title: g.title || '',
+      tiny: g.images?.fixed_width_small?.url || g.images?.preview_gif?.url || '',
+      full: g.images?.original?.url || g.images?.downsized?.url || '',
     }));
-    res.json({ results });
-  }).catch(() => res.status(502).json({ error: 'GIPHY API error' }));
+    res.json({ results, provider: 'giphy' });
+  }).catch(() => res.status(502).json({ error: 'Giphy API error' }));
 });
-
-// ── Link preview (Open Graph metadata) ──────────────────
-const linkPreviewCache = new Map(); // url → { data, ts }
-const PREVIEW_CACHE_TTL = 30 * 60 * 1000; // 30 min
-const PREVIEW_MAX_SIZE = 256 * 1024; // only read first 256 KB of page
+function getSpotifyCredentials() {
+  try {
+    const { getDb } = require('./src/database');
+    const clientId = getDb().prepare("SELECT value FROM server_settings WHERE key = 'spotify_client_id'").get();
+    const clientSecret = getDb().prepare("SELECT value FROM server_settings WHERE key = 'spotify_client_secret'").get();
+    return { clientId: clientId?.value || process.env.SPOTIFY_CLIENT_ID || '', clientSecret: clientSecret?.value || process.env.SPOTIFY_CLIENT_SECRET || '' };
+  } catch { return { clientId: '', clientSecret: '' }; }
+}
+app.get('/api/spotify/auth-url', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { clientId } = getSpotifyCredentials();
+  if (!clientId) return res.status(501).json({ error: 'spotify_not_configured' });
+  const redirectUri = `${req.protocol}://${req.get('host')}/api/spotify/callback`;
+  const scopes = 'streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state';
+  const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now() })).toString('base64url');
+  const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${state}`;
+  res.json({ url: authUrl });
+});
+app.get('/api/spotify/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) return res.redirect('/app?spotify_error=' + encodeURIComponent(error));
+  if (!code || !state) return res.redirect('/app?spotify_error=missing_params');
+  let stateData;
+  try { stateData = JSON.parse(Buffer.from(state, 'base64url').toString()); } catch { return res.redirect('/app?spotify_error=invalid_state'); }
+  if (Date.now() - stateData.ts > 10 * 60 * 1000) return res.redirect('/app?spotify_error=expired');
+  const { clientId, clientSecret } = getSpotifyCredentials();
+  const redirectUri = `${req.protocol}://${req.get('host')}/api/spotify/callback`;
+  const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64') },
+    body: `grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(redirectUri)}`
+  }).catch(() => null);
+  if (!tokenRes || !tokenRes.ok) return res.redirect('/app?spotify_error=token_failed');
+  const tokens = await tokenRes.json();
+  const profileRes = await fetch('https://api.spotify.com/v1/me', { headers: { Authorization: `Bearer ${tokens.access_token}` } }).catch(() => null);
+  const profile = profileRes?.ok ? await profileRes.json() : {};
+  const { getDb } = require('./src/database');
+  const expiresAt = Math.floor(Date.now() / 1000) + (tokens.expires_in || 3600);
+  getDb().prepare(`INSERT INTO spotify_tokens (user_id, access_token, refresh_token, expires_at, product, display_name, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET access_token = excluded.access_token, refresh_token = excluded.refresh_token, expires_at = excluded.expires_at, product = excluded.product, display_name = excluded.display_name, updated_at = CURRENT_TIMESTAMP`).run(stateData.userId, tokens.access_token, tokens.refresh_token, expiresAt, profile.product || 'free', profile.display_name || '');
+  res.redirect('/app?spotify_linked=1');
+});
+app.get('/api/spotify/token', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { getDb } = require('./src/database');
+  const row = getDb().prepare('SELECT * FROM spotify_tokens WHERE user_id = ?').get(user.id);
+  if (!row) return res.status(404).json({ error: 'not_linked' });
+  const now = Math.floor(Date.now() / 1000);
+  if (row.expires_at <= now + 300) {
+    const { clientId, clientSecret } = getSpotifyCredentials();
+    const refreshRes = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64') },
+      body: `grant_type=refresh_token&refresh_token=${row.refresh_token}`
+    }).catch(() => null);
+    if (!refreshRes?.ok) return res.status(401).json({ error: 'refresh_failed' });
+    const newTokens = await refreshRes.json();
+    const newExpires = Math.floor(Date.now() / 1000) + (newTokens.expires_in || 3600);
+    getDb().prepare('UPDATE spotify_tokens SET access_token = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?').run(newTokens.access_token, newExpires, user.id);
+    return res.json({ accessToken: newTokens.access_token, expiresAt: newExpires, product: row.product, displayName: row.display_name });
+  }
+  res.json({ accessToken: row.access_token, expiresAt: row.expires_at, product: row.product, displayName: row.display_name });
+});
+app.delete('/api/spotify/unlink', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { getDb } = require('./src/database');
+  getDb().prepare('DELETE FROM spotify_tokens WHERE user_id = ?').run(user.id);
+  res.json({ success: true });
+});
+app.get('/api/spotify/status', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  const { getDb } = require('./src/database');
+  const row = getDb().prepare('SELECT product, display_name FROM spotify_tokens WHERE user_id = ?').get(user.id);
+  const { clientId } = getSpotifyCredentials();
+  res.json({ linked: !!row, premium: row?.product === 'premium', displayName: row?.display_name || null, configured: !!clientId });
+});
+app.get('/api/tunnel/status', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const u = token ? verifyToken(token) : null;
+  if (!u || !u.isAdmin) return res.status(403).json({ error: 'Admin only' });
+  res.json(getTunnelStatus());
+});
+const linkPreviewCache = new Map();
+const PREVIEW_CACHE_TTL = 30 * 60 * 1000;
+const PREVIEW_MAX_SIZE = 256 * 1024;
 const dns = require('dns');
 const { promisify } = require('util');
 const dnsResolve = promisify(dns.resolve4);
-
-// Rate limit link preview fetches (per IP, separate from upload limiter)
 const previewLimitStore = new Map();
 function previewLimiter(req, res, next) {
   const ip = req.ip || req.socket.remoteAddress;
   const now = Date.now();
   const windowMs = 60 * 1000;
-  const maxReqs = 30; // 30 previews per minute per user
+  const maxReqs = 30;
   if (!previewLimitStore.has(ip)) previewLimitStore.set(ip, []);
   const stamps = previewLimitStore.get(ip).filter(t => now - t < windowMs);
   previewLimitStore.set(ip, stamps);
-  if (stamps.length >= maxReqs) return res.status(429).json({ error: 'Rate limited — try again shortly' });
+  if (stamps.length >= maxReqs) return res.status(429).json({ error: 'Rate limited' });
   stamps.push(now);
   next();
 }
 setInterval(() => { const now = Date.now(); for (const [ip, t] of previewLimitStore) { const f = t.filter(x => now - x < 60000); if (!f.length) previewLimitStore.delete(ip); else previewLimitStore.set(ip, f); } }, 5 * 60 * 1000);
-
-// Check if an IP is private/internal
 function isPrivateIP(ip) {
   if (!ip) return true;
   return ip === '127.0.0.1' || ip === '0.0.0.0' || ip === '::1' || ip === '::' ||
@@ -472,23 +445,16 @@ function isPrivateIP(ip) {
     ip.startsWith('169.254.') || ip.startsWith('fc00:') || ip.startsWith('fd') ||
     ip.startsWith('fe80:');
 }
-
 app.get('/api/link-preview', previewLimiter, async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   const user = token ? verifyToken(token) : null;
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
   const url = (req.query.url || '').trim();
   if (!url) return res.status(400).json({ error: 'Missing url param' });
-
-  // Only allow http(s) URLs
   let parsed;
   try {
     parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return res.status(400).json({ error: 'Only http/https URLs allowed' });
-    }
-    // Block private/internal hostnames (SSRF protection — layer 1: hostname check)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Only http/https URLs allowed' });
     const host = parsed.hostname.toLowerCase();
     if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' ||
         host === '::1' || host === '[::1]' ||
@@ -499,22 +465,12 @@ app.get('/api/link-preview', previewLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Private addresses not allowed' });
     }
   } catch { return res.status(400).json({ error: 'Invalid URL' }); }
-
-  // SSRF protection — layer 2: DNS resolution check (defeats DNS rebinding)
   try {
     const addresses = await dnsResolve(parsed.hostname);
-    if (addresses.some(isPrivateIP)) {
-      return res.status(400).json({ error: 'Private addresses not allowed' });
-    }
-  } catch {
-    // DNS resolution failed — could be IPv6-only or non-existent; allow fetch to fail naturally
-  }
-
-  // Cache check
+    if (addresses.some(isPrivateIP)) return res.status(400).json({ error: 'Private addresses not allowed' });
+  } catch {}
   const cached = linkPreviewCache.get(url);
-  if (cached && Date.now() - cached.ts < PREVIEW_CACHE_TTL) {
-    return res.json(cached.data);
-  }
+  if (cached && Date.now() - cached.ts < PREVIEW_CACHE_TTL) return res.json(cached.data);
 
   try {
     const controller = new AbortController();
@@ -573,47 +529,6 @@ app.get('/api/link-preview', previewLimiter, async (req, res) => {
   }
 });
 
-// ── High-scores REST API (mobile-safe fallback for postMessage) ──
-app.get('/api/high-scores/:game', (req, res) => {
-  const game = req.params.game;
-  if (!['flappy'].includes(game)) return res.status(400).json({ error: 'Unknown game' });
-  const { getDb } = require('./src/database');
-  const leaderboard = getDb().prepare(`
-    SELECT hs.user_id, COALESCE(u.display_name, u.username) as username, hs.score
-    FROM high_scores hs JOIN users u ON hs.user_id = u.id
-    WHERE hs.game = ? AND hs.score > 0
-    ORDER BY hs.score DESC LIMIT 50
-  `).all(game);
-  res.json({ game, leaderboard });
-});
-
-app.post('/api/high-scores', express.json(), (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  const user = token ? verifyToken(token) : null;
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-  const game = typeof req.body.game === 'string' ? req.body.game.trim() : '';
-  const score = Number(req.body.score);
-  if (!game || !['flappy'].includes(game)) return res.status(400).json({ error: 'Unknown game' });
-  if (!Number.isInteger(score) || score < 0) return res.status(400).json({ error: 'Invalid score' });
-
-  const { getDb } = require('./src/database');
-  const db = getDb();
-  const current = db.prepare('SELECT score FROM high_scores WHERE user_id = ? AND game = ?').get(user.id, game);
-  if (!current || score > current.score) {
-    db.prepare(
-      "INSERT OR REPLACE INTO high_scores (user_id, game, score, updated_at) VALUES (?, ?, ?, datetime('now'))"
-    ).run(user.id, game, score);
-  }
-  const leaderboard = db.prepare(`
-    SELECT hs.user_id, COALESCE(u.display_name, u.username) as username, hs.score
-    FROM high_scores hs JOIN users u ON hs.user_id = u.id
-    WHERE hs.game = ? AND hs.score > 0
-    ORDER BY hs.score DESC LIMIT 50
-  `).all(game);
-  res.json({ game, leaderboard });
-});
-
 // ── Catch-all: 404 ──────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -657,10 +572,9 @@ if (useSSL) {
     server = createHttpsServer(sslOptions, app);
     console.log('🔒 HTTPS enabled');
 
-    // Also start an HTTP server that redirects to HTTPS (hardened)
+    // Also start an HTTP server that redirects to HTTPS
     const httpRedirect = express();
     httpRedirect.disable('x-powered-by');
-    // Rate limit redirect server to prevent abuse
     const redirectHits = new Map();
     httpRedirect.use((req, res, next) => {
       const ip = req.ip || req.socket.remoteAddress;
@@ -673,16 +587,13 @@ if (useSSL) {
       next();
     });
     setInterval(() => { const now = Date.now(); for (const [ip, t] of redirectHits) { const f = t.filter(x => now - x < 60000); if (!f.length) redirectHits.delete(ip); else redirectHits.set(ip, f); } }, 5 * 60 * 1000);
-    // Only redirect to our own host — prevent open redirect
     const safePort = parseInt(process.env.PORT || 3000);
     httpRedirect.all('*', (req, res) => {
-      // Sanitize: only allow path portion, strip host manipulation
       const safePath = (req.url || '/').replace(/[\r\n]/g, '');
       res.redirect(301, `https://localhost:${safePort}${safePath}`);
     });
-    const HTTP_REDIRECT_PORT = safePort + 1; // 3001
+    const HTTP_REDIRECT_PORT = safePort + 1;
     const httpRedirectServer = createServer(httpRedirect);
-    // Timeout to prevent Slowloris on redirect server
     httpRedirectServer.headersTimeout = 5000;
     httpRedirectServer.requestTimeout = 5000;
     httpRedirectServer.listen(HTTP_REDIRECT_PORT, process.env.HOST || '0.0.0.0', () => {
@@ -710,7 +621,7 @@ const io = new Server(server, {
   connectionStateRecovery: { maxDisconnectionDuration: 2 * 60 * 1000 },
 });
 
-// Initialize
+global.havenIO = io;
 const db = initDatabase();
 setupSocketHandlers(io, db);
 
@@ -805,22 +716,57 @@ global.runAutoCleanup = runAutoCleanup;
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const protocol = useSSL ? 'https' : 'http';
-
-// ── Anti-Slowloris: server-level timeouts ────────────────
-server.headersTimeout = 15000;     // 15s to send all headers
-server.requestTimeout = 30000;     // 30s total request time
-server.keepAliveTimeout = 65000;   // slightly above typical ALB/LB timeout
-server.timeout = 120000;           // 2 min absolute socket timeout
-
-server.listen(PORT, HOST, () => {
+server.headersTimeout = 15000;
+server.requestTimeout = 30000;
+server.keepAliveTimeout = 65000;
+server.timeout = 120000;
+function getLocalIP() {
+  const nets = require('os').networkInterfaces();
+  const candidates = [];
+  for (const [name, iface] of Object.entries(nets)) {
+    for (const cfg of iface) {
+      if (cfg.family === 'IPv4' && !cfg.internal) {
+        const ip = cfg.address;
+        const isLAN = ip.startsWith('192.168.') || ip.startsWith('10.') || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+        const isCGNAT = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip);
+        candidates.push({ ip, name, priority: isLAN ? 0 : isCGNAT ? 2 : 1 });
+      }
+    }
+  }
+  candidates.sort((a, b) => a.priority - b.priority);
+  return candidates.length ? candidates[0].ip : '0.0.0.0';
+}
+async function getPublicIP() {
+  const services = ['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com'];
+  for (const url of services) {
+    try {
+      const res = await fetch(url, { timeout: 3000 });
+      if (res.ok) { const ip = (await res.text()).trim(); if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return ip; }
+    } catch {}
+  }
+  return null;
+}
+server.listen(PORT, HOST, async () => {
+  const localIP = getLocalIP();
+  const publicIP = await getPublicIP();
   console.log(`
 ╔══════════════════════════════════════════╗
 ║       🏠  HAVEN is running               ║
 ╠══════════════════════════════════════════╣
 ║  Name:    ${(process.env.SERVER_NAME || 'Haven').padEnd(29)}║
 ║  Local:   ${protocol}://localhost:${PORT}             ║
-║  Network: ${protocol}://YOUR_IP:${PORT}              ║
+║  LAN:     ${(protocol + '://' + localIP + ':' + PORT).padEnd(31)}║
+║  Public:  ${(publicIP ? protocol + '://' + publicIP + ':' + PORT : 'Could not detect').padEnd(31)}║
 ║  Admin:   ${(process.env.ADMIN_USERNAME || 'admin').padEnd(29)}║
+║  Cipher:  Standard (AES-256)             ║
 ╚══════════════════════════════════════════╝
   `);
+  try {
+    const { getDb } = require('./src/database');
+    const tunRow = getDb().prepare("SELECT value FROM server_settings WHERE key = 'tunnel_enabled'").get();
+    if (tunRow && tunRow.value === 'true') {
+      const url = await startTunnel(PORT);
+      if (url) console.log(`🌐 Tunnel active: ${url}`);
+    }
+  } catch {}
 });

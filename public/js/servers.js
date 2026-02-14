@@ -23,8 +23,8 @@ class ServerManager {
   add(name, url) {
     url = url.replace(/\/+$/, '');
     if (!/^https?:\/\//.test(url)) url = 'https://' + url;
+    try { url = new URL(url).origin; } catch {}
     if (this.servers.find(s => s.url === url)) return false;
-
     this.servers.push({ name, url, addedAt: Date.now() });
     this._save();
     this.checkServer(url);
@@ -61,6 +61,8 @@ class ServerManager {
           online: true,
           name: data.name || url,
           version: data.version,
+          users: data.users || [],
+          onlineUsers: data.onlineUsers || 0,
           checkedAt: Date.now()
         });
       } else {
@@ -69,6 +71,16 @@ class ServerManager {
     } catch {
       this.statusCache.set(url, { online: false, checkedAt: Date.now() });
     }
+  }
+  async sendPing(serverUrl, toUserId, fromUser, message) {
+    try {
+      const res = await fetch(`${serverUrl}/api/ping`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromServer: window.location.origin, fromUser, toUserId, message: message || 'pinged you!' })
+      });
+      return res.ok ? await res.json() : { delivered: false };
+    } catch { return { delivered: false }; }
   }
 
   async checkAll() {

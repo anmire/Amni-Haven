@@ -7,9 +7,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="mobile-web-app-capable" content="yes">
-  <title>Haven</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cG9seWdvbiBwb2ludHM9IjUwLDMgOTMsMjggOTMsNzIgNTAsOTcgNyw3MiA3LDI4IiBmaWxsPSJub25lIiBzdHJva2U9IiM2YjRmZGIiIHN0cm9rZS13aWR0aD0iOCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjx0ZXh0IHg9IjUwIiB5PSI2MyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIzOCIgZmlsbD0iIzZiNGZkYiIgb3BhY2l0eT0iMC45NSI+SDwvdGV4dD48L3N2Zz4=">
-  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Amni-Haven</title>
+  <link rel="stylesheet" href="/css/themes.css?v=1.7.2">
+  <link rel="stylesheet" href="/css/style.css?v=1.7.2">
   <script src="/js/theme-init.js"></script>
 </head>
 <body>
@@ -20,7 +21,7 @@
       <!-- ─── Server Bar (far left — like Discord) ─────── -->
       <nav class="server-bar" id="server-bar">
         <div class="server-icon home active" id="home-server" title="This Server">
-          <span class="server-icon-text">⬡</span>
+          <span class="server-icon-text">◆</span>
           <span class="server-status-dot online"></span>
         </div>
         <div class="server-separator"></div>
@@ -34,111 +35,74 @@
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="brand">
-            <span class="logo-sm">⬡</span>
-            <span class="brand-text">HAVEN</span>
+            <span class="logo-sm">◆</span>
+            <span class="brand-text">AMNI</span>
           </div>
           <div class="user-bar">
             <span class="led on" id="connection-led" title="Server connection"></span>
-            <div class="user-names">
-              <span class="current-user" id="current-user"></span>
-              <span class="login-name" id="login-name" title="Your login username"></span>
-            </div>
-            <button id="rename-btn" class="icon-btn small" title="Change display name">✏️</button>
+            <span class="current-user" id="current-user"></span>
+            <button id="rename-btn" class="icon-btn small" title="Change username">✏️</button>
             <button id="logout-btn" class="icon-btn" title="Logout">⏻</button>
           </div>
         </div>
 
-        <div class="sidebar-section">
-          <h5 class="section-label">Join a Channel</h5>
-          <div class="input-row">
-            <input type="text" id="channel-code-input"
-                   placeholder="Enter code..." maxlength="8" spellcheck="false">
-            <button id="join-channel-btn" class="btn-sm">Join</button>
-          </div>
+        <div class="sidebar-section sidebar-action-btns">
+          <button class="btn-sm btn-full" id="join-channel-overlay-btn" title="Join a channel">📥 Join Channel</button>
+          <button class="btn-sm btn-full btn-accent" id="create-channel-overlay-btn" style="display:none" title="Create a channel">➕ Create Channel</button>
         </div>
 
-        <div class="sidebar-section" id="admin-controls" style="display:none">
-          <h5 class="section-label">Create Channel</h5>
-          <div class="input-row">
-            <input type="text" id="new-channel-name"
-                   placeholder="Channel name..." maxlength="50">
-            <button id="create-channel-btn" class="btn-sm btn-accent">+</button>
-          </div>
+        <div class="sidebar-mod-container" id="sidebar-mod-container">
+        <div class="sidebar-section channel-section" data-mod-id="channels">
+          <h5 class="section-label collapsible-label" data-target="channel-list">Channels <span class="collapse-arrow">▾</span></h5>
+          <div class="channel-list collapsible-content" id="channel-list"></div>
+        </div>
+        <div class="sidebar-section dm-section" data-mod-id="dms">
+          <h5 class="section-label collapsible-label" data-target="dm-list">Direct Messages <span class="collapse-arrow">▾</span></h5>
+          <div class="dm-list collapsible-content" id="dm-list"></div>
+        </div>
+        <div class="sidebar-section presence-section" data-mod-id="online">
+          <h5 class="section-label collapsible-label" data-target="sidebar-online-users">Members <span class="online-count-badge" id="sidebar-online-count">0</span> <span class="collapse-arrow">▾</span></h5>
+          <div class="user-list collapsible-content" id="sidebar-online-users"></div>
         </div>
 
-        <div class="sidebar-section channel-section">
-          <h5 class="section-label">Channels</h5>
-          <div class="channel-list" id="channel-list"></div>
+        <div class="sidebar-section voice-sidebar-section" data-mod-id="voice">
+          <h5 class="section-label collapsible-label" data-target="voice-users">🔊 Voice <span class="collapse-arrow">▾</span></h5>
+          <div id="voice-users" class="user-list collapsible-content">
+            <p class="muted-text">No one in voice</p>
+          </div>
         </div>
-
-        <!-- Pinned bottom area (never pushed off screen) -->
-        <div class="sidebar-bottom">
-          <!-- Theme popup (floats above bottom bar) -->
-          <div id="theme-popup" class="theme-popup" style="display:none">
-            <div class="theme-popup-header">
-              <span class="theme-popup-title">Theme</span>
-              <button id="theme-popup-close" class="icon-btn small" title="Close">&times;</button>
-            </div>
-            <div class="theme-selector" id="theme-selector">
-              <button class="theme-btn active" data-theme="haven" title="Haven"><span class="theme-icon">⬡</span></button>
-              <button class="theme-btn" data-theme="discord" title="Discord"><span class="theme-icon">🎮</span></button>
-              <button class="theme-btn" data-theme="matrix" title="Matrix"><span class="theme-icon">Ⅿ</span></button>
-              <button class="theme-btn" data-theme="tron" title="Tron"><span class="theme-icon">◈</span></button>
-              <button class="theme-btn" data-theme="halo" title="HALO"><span class="theme-icon">⌁</span></button>
-              <button class="theme-btn" data-theme="lotr" title="LoTR"><span class="theme-icon">⚜</span></button>
-              <button class="theme-btn" data-theme="cyberpunk" title="Cyberpunk"><span class="theme-icon">⚡</span></button>
-              <button class="theme-btn" data-theme="nord" title="Nord"><span class="theme-icon">❄</span></button>
-              <button class="theme-btn" data-theme="dracula" title="Dracula"><span class="theme-icon">🧛</span></button>
-              <button class="theme-btn" data-theme="bloodborne" title="Bloodborne"><span class="theme-icon">🩸</span></button>
-              <button class="theme-btn" data-theme="darksouls" title="Dark Souls"><span class="theme-icon">🔥</span></button>
-              <button class="theme-btn" data-theme="eldenring" title="Elden Ring"><span class="theme-icon">💍</span></button>
-              <button class="theme-btn" data-theme="ice" title="Ice"><span class="theme-icon">🧊</span></button>
-              <button class="theme-btn" data-theme="abyss" title="Abyss"><span class="theme-icon">🌊</span></button>
-              <button class="theme-btn" data-theme="minecraft" title="Minecraft"><span class="theme-icon">⛏️</span></button>
-              <button class="theme-btn" data-theme="ffx" title="Final Fantasy X"><span class="theme-icon">⚔️</span></button>
-              <button class="theme-btn" data-theme="zelda" title="Zelda"><span class="theme-icon">🗡️</span></button>
-              <button class="theme-btn" data-theme="fallout" title="Fallout (PIP Boy)"><span class="theme-icon">☢️</span></button>
-              <button class="theme-btn" data-theme="crt" title="CRT"><span class="theme-icon">📺</span></button>
-              <button class="theme-btn" data-theme="win95" title="Windows 95"><span class="theme-icon">🪟</span></button>
-              <button class="theme-btn" data-theme="custom" title="Custom"><span class="theme-icon" id="custom-theme-swatch">🎨</span></button>
-              <button class="theme-btn" data-theme="rgb" title="RGB"><span class="theme-icon">🌈</span></button>
-            </div>
-            <!-- Custom theme triangle picker -->
-            <div id="custom-theme-editor" style="display:none">
-              <canvas id="custom-hue-bar" width="206" height="18"></canvas>
-              <canvas id="custom-triangle" width="206" height="180"></canvas>
-            </div>
-            <!-- RGB theme controls -->
-            <div id="rgb-theme-editor" class="rgb-theme-editor" style="display:none">
-              <label class="rgb-slider-row">
-                <span class="rgb-slider-label">Speed</span>
-                <input type="range" id="rgb-speed-slider" min="1" max="100" value="30" class="slider-sm rgb-slider">
-              </label>
-              <label class="rgb-slider-row">
-                <span class="rgb-slider-label">Vibrancy</span>
-                <input type="range" id="rgb-vibrancy-slider" min="10" max="100" value="75" class="slider-sm rgb-slider">
-              </label>
-            </div>
-            <!-- Effect speed slider (dynamic-effect themes) -->
-            <div id="effect-speed-editor" class="rgb-theme-editor" style="display:none">
-              <label class="rgb-slider-row">
-                <span class="rgb-slider-label">Effect Speed</span>
-                <input type="range" id="effect-speed-slider" min="10" max="200" value="100" class="slider-sm rgb-slider">
-              </label>
-            </div>
-          </div>
-          <!-- Bottom bar -->
-          <div class="sidebar-bottom-bar">
-            <button id="theme-popup-toggle" class="sidebar-bottom-btn" title="Themes">🎨</button>
-            <button class="sidebar-bottom-btn" id="play-flappy-btn" title="Shippy Container">🚢</button>
-            <div id="voice-bar" class="voice-bar" style="display:none"></div>
-          </div>
+        <div class="sidebar-voice-actions" id="sidebar-voice-actions" data-mod-id="voice-actions">
+          <button id="voice-join-btn" class="btn-voice-sidebar" style="display:none">🎤 Voice</button>
+          <button id="listen-together-btn" class="btn-voice-sidebar" style="display:none" title="Listen Together">🎵 Listen</button>
+          <button id="game-together-btn" class="btn-voice-sidebar" style="display:none" title="Game Together">🎮 Games</button>
+        </div>
+        </div>
+        <div class="sidebar-bottom-bar">
+          <button id="messages-bubble-btn" class="sidebar-bottom-btn messages-bubble" title="Messages">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span class="msg-bubble-badge" id="msg-bubble-badge" style="display:none">0</span>
+          </button>
+          <button id="mod-mode-toggle" class="sidebar-bottom-btn" title="Mod Mode — rearrange sidebar">🔧</button>
+          <a href="https://ko-fi.com/ancsemi" target="_blank" rel="noopener" class="sidebar-bottom-btn donate-btn" title="Support Haven ♥">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          </a>
+          <button class="sidebar-bottom-btn sidebar-bottom-online-btn" id="sidebar-bottom-online-btn" title="Online users">
+            <span class="online-dot"></span>
+            <span class="sidebar-online-count" id="sidebar-bottom-online-count">0</span>
+          </button>
+          <button id="open-settings-btn" class="sidebar-bottom-btn" title="Settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
         </div>
       </aside>
 
       <!-- ─── Main Content ────────────────────────────── -->
       <main class="main">
         <header class="channel-header">
+          <button id="toggle-left-sidebar" class="sidebar-toggle-btn" title="Toggle channels panel">◀</button>
           <button id="mobile-menu-btn" class="mobile-menu-btn" title="Menu" aria-label="Menu">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <line x1="3" y1="6" x2="21" y2="6"/>
@@ -151,60 +115,129 @@
             <span class="channel-code-tag" id="channel-code-display" title="Channel code"></span>
             <button id="copy-code-btn" class="icon-btn small" title="Copy code"
                     style="display:none">📋</button>
+            <button id="manage-members-btn" class="icon-btn small" title="Manage channel members"
+                    style="display:none">👥</button>
+            <button id="leave-channel-btn" class="icon-btn small" title="Leave channel"
+                    style="display:none">🚪</button>
+            <button id="delete-channel-btn" class="icon-btn small danger" title="Delete channel"
+                    style="display:none">🗑️</button>
           </div>
-          <!-- Left-side utility buttons (next to channel name) -->
-          <div class="header-left-actions">
-            <button id="search-toggle-btn" class="icon-btn small" title="Search messages (Ctrl+F)" style="display:none">🔍</button>
-            <button id="pinned-toggle-btn" class="icon-btn small" title="Pinned messages" style="display:none">📌</button>
+          <div class="header-actions">
             <div class="search-container" id="search-container" style="display:none">
               <input type="text" id="search-input" class="search-input" placeholder="Search messages..." maxlength="100">
               <button id="search-close-btn" class="icon-btn small" title="Close search">&times;</button>
             </div>
-          </div>
-          <!-- Spacer pushes voice controls to the right -->
-          <div style="flex:1"></div>
-          <!-- Right-side: dynamic indicators, then voice (always furthest right) -->
-          <div class="voice-controls">
-            <button id="mobile-users-btn" class="mobile-users-btn" title="Members" aria-label="Members">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-              </svg>
-            </button>
-            <!-- Dynamic indicators (music, streams) inject here via JS -->
-            <button id="voice-join-btn" class="btn-voice" style="display:none">
-              🎤 Join Voice
-            </button>
-            <div class="voice-dropdown" style="position:relative">
-              <button id="voice-dropdown-toggle" class="btn-voice voice-active-btn" style="display:none" title="Voice Controls">
-                🎤 <span class="voice-label-text">Voice </span>▾
-              </button>
-              <div id="voice-dropdown-panel" class="voice-dropdown-panel" style="display:none">
-                <button id="voice-mute-btn" class="btn-voice">🔇 Mute</button>
-                <button id="voice-deafen-btn" class="btn-voice">🔇 Deafen</button>
-                <button id="screen-share-btn" class="btn-voice" title="Share Screen">🖥️ Share</button>
-                <button id="music-share-btn" class="btn-voice" title="Listen Together">🎵 Music</button>
-                <div class="voice-ns-wrap">
-                  <label class="ns-label" title="Noise suppression sensitivity">🤫</label>
-                  <input type="range" id="voice-ns-slider" class="ns-slider" min="0" max="100" value="10" title="Noise gate: 0 = off, 100 = aggressive">
-                </div>
-              </div>
-            </div>
-            <button id="voice-leave-btn" class="btn-voice btn-danger" style="display:none">
-              ✕
-            </button>
+            <button id="search-toggle-btn" class="icon-btn small" title="Search messages (Ctrl+F)" style="display:none">🔍</button>
+            <button id="pinned-toggle-btn" class="icon-btn small" title="Pinned messages" style="display:none">📌</button>
           </div>
         </header>
+        <div id="listen-together-panel" class="listen-together-panel" style="display:none">
+          <div class="listen-panel-header">
+            <span id="listen-panel-title">🎵 Listen Together</span>
+            <div class="listen-header-right">
+              <span id="spotify-status" class="spotify-status"></span>
+              <button id="listen-panel-close" class="icon-btn small">&times;</button>
+            </div>
+          </div>
+          <div class="listen-panel-body">
+            <div id="spotify-connect-row" class="spotify-connect-row" style="display:none">
+              <span class="spotify-hint">Connect Spotify Premium for full playback</span>
+              <button id="spotify-connect-btn" class="btn-sm btn-spotify">🎵 Connect Spotify</button>
+            </div>
+            <div id="listen-host-controls">
+              <div class="input-row" style="gap:6px">
+                <input type="text" id="listen-url-input" class="settings-text-input" placeholder="Paste media URL (Spotify, YouTube, SoundCloud...)" style="flex:1">
+                <input type="text" id="listen-title-input" class="settings-text-input" placeholder="Title (optional)" style="width:140px">
+                <button id="listen-start-btn" class="btn-sm btn-accent">▶ Start</button>
+              </div>
+            </div>
+            <div id="listen-active-session" style="display:none">
+              <div class="listen-now-playing">
+                <span id="listen-now-title" class="listen-track-name">Nothing playing</span>
+                <span id="listen-now-host" class="listen-host-tag"></span>
+              </div>
+              <div id="listen-embed-container" class="listen-embed-container"></div>
+              <div id="spotify-sdk-player" class="spotify-sdk-player" style="display:none">
+                <div class="spotify-track-info">
+                  <img id="spotify-album-art" class="spotify-album-art" src="" alt="">
+                  <div class="spotify-track-text">
+                    <span id="spotify-track-name">—</span>
+                    <span id="spotify-artist-name">—</span>
+                  </div>
+                </div>
+                <div class="spotify-progress">
+                  <input type="range" id="spotify-seek" class="spotify-seek" min="0" max="100" value="0">
+                  <div class="spotify-time"><span id="spotify-time-current">0:00</span> / <span id="spotify-time-total">0:00</span></div>
+                </div>
+                <div class="spotify-volume-row">
+                  <span>🔊</span>
+                  <input type="range" id="spotify-volume" class="spotify-volume" min="0" max="100" value="50">
+                </div>
+              </div>
+              <div class="listen-controls">
+                <button id="listen-play-pause" class="btn-sm">⏸ Pause</button>
+                <button id="listen-stop-btn" class="btn-sm btn-danger">⏹ Stop</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="game-together-panel" class="game-together-panel" style="display:none">
+          <div class="game-panel-header">
+            <span id="game-panel-title">🎮 Game Together</span>
+            <button id="game-panel-close" class="icon-btn small">&times;</button>
+          </div>
+          <div class="game-panel-body">
+            <div id="game-host-controls">
+              <div class="game-tabs">
+                <button class="game-tab active" data-tab="html5-games">🎮 Games</button>
+                <button class="game-tab" data-tab="rom-loader">💾 ROMs</button>
+              </div>
+              <div id="html5-games" class="game-tab-content active">
+                <div class="html5-game-grid" id="html5-game-grid"></div>
+              </div>
+              <div id="rom-loader" class="game-tab-content">
+                <div class="input-row" style="gap:6px">
+                  <select id="game-console-select" class="settings-text-input" style="width:140px">
+                    <option value="">Select console...</option>
+                  </select>
+                  <input type="file" id="game-rom-input" accept=".nes,.smc,.sfc,.z64,.n64,.v64,.gb,.gbc,.gba,.nds,.iso,.bin,.cue,.gdi,.cdi,.pbp,.cso,.psp,.gen,.md,.smd,.xbe,.a26,.a78,.lnx,.j64,.jag,.pce,.ws,.wsc,.vb,.vboy,.ngp,.ngc,.32x,.col,.int,.vec,.rom,.mx1,.mx2,.zip,.7z,.chd" style="display:none">
+                  <button id="game-rom-btn" class="btn-sm" disabled>📁 Load ROM</button>
+                  <button id="game-start-btn" class="btn-sm btn-accent" disabled>▶ Start</button>
+                </div>
+                <p class="game-notice">Bring your own legally-owned ROMs!</p>
+              </div>
+            </div>
+            <div id="game-active-session" style="display:none">
+              <div class="game-now-playing">
+                <span id="game-now-title" class="game-track-name">No game loaded</span>
+                <span id="game-now-host" class="game-host-tag"></span>
+              </div>
+              <div id="game-container" class="game-container">
+                <div class="game-placeholder">Select a game to play</div>
+              </div>
+              <div id="game-players-list" class="game-players-list"></div>
+              <div class="game-controls">
+                <select id="game-controller-select" class="settings-text-input" style="width:100px">
+                  <option value="">Spectate</option>
+                  <option value="1">Player 1</option>
+                  <option value="2">Player 2</option>
+                  <option value="3">Player 3</option>
+                  <option value="4">Player 4</option>
+                </select>
+                <button id="game-fullscreen-btn" class="btn-sm">⛶ Fullscreen</button>
+                <button id="game-end-btn" class="btn-sm btn-danger" style="display:none">⏹ End Game</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Welcome Screen -->
         <div id="no-channel-msg" class="welcome-screen">
           <div class="welcome-content">
-            <div class="welcome-icon">⬡</div>
-            <h2>Welcome to Haven</h2>
-            <p>Join a channel with a code from your friends,<br>
-               or create one if you're the admin.</p>
+            <div class="welcome-icon">◆</div>
+            <h2>Welcome to Amni-Haven</h2>
+            <p>Join a channel to start chatting,<br>
+               or fire up a game with friends.</p>
           </div>
         </div>
 
@@ -214,33 +247,9 @@
           <div id="screen-share-container" class="screen-share-container" style="display:none">
             <div class="screen-share-header">
               <span id="screen-share-label">🖥️ Streams</span>
-              <div class="screen-share-header-controls">
-                <label class="stream-size-label" title="Stream display size">
-                  🖥️
-                  <input type="range" id="stream-size-slider" class="stream-size-slider" min="20" max="90" value="50">
-                </label>
-                <button id="screen-share-minimize" class="icon-btn small" title="Minimize streams">─</button>
-                <button id="screen-share-close" class="icon-btn small" title="Close streams">✕</button>
-              </div>
+              <button id="screen-share-close" class="icon-btn small" title="Collapse streams">▾</button>
             </div>
             <div id="screen-share-grid" class="screen-share-grid"></div>
-          </div>
-          <!-- Music Player Panel -->
-          <div id="music-panel" class="music-panel" style="display:none">
-            <div class="music-panel-header">
-              <div class="music-panel-header-left">
-                <button id="music-popout-btn" class="icon-btn small" title="Pop out player">⧉</button>
-                <span id="music-panel-label">🎵 Listening Together</span>
-              </div>
-              <div class="music-panel-controls">
-                <button id="music-play-pause-btn" class="icon-btn small" title="Play/Pause">⏸</button>
-                <button id="music-mute-btn" class="icon-btn small" title="Mute music">🔊</button>
-                <input type="range" id="music-volume-slider" class="stream-vol-slider" min="0" max="100" value="80" title="Music volume">
-                <button id="music-close-btn" class="icon-btn small" title="Minimize">─</button>
-                <button id="music-stop-btn" class="icon-btn small" title="Close / stop music">✕</button>
-              </div>
-            </div>
-            <div id="music-embed-container" class="music-embed-container"></div>
           </div>
           <div id="search-results-panel" class="search-results-panel" style="display:none">
             <div class="search-results-header">
@@ -275,10 +284,10 @@
             <button id="gif-btn" class="btn-gif" title="Search GIFs">GIF</button>
             <div id="gif-picker" class="gif-picker" style="display:none">
               <div class="gif-picker-header">
-                <input type="text" id="gif-search-input" placeholder="Search GIPHY..." maxlength="100" autocomplete="off">
+                <input type="text" id="gif-search-input" placeholder="Search GIFs..." maxlength="100" autocomplete="off">
               </div>
               <div class="gif-picker-grid" id="gif-grid"></div>
-              <div class="gif-picker-footer">Powered by GIPHY</div>
+              <div class="gif-picker-footer" id="gif-footer">Powered by Giphy</div>
             </div>
             <div id="mention-dropdown" class="mention-dropdown" style="display:none"></div>
             <div id="slash-dropdown" class="slash-dropdown" style="display:none"></div>
@@ -294,37 +303,15 @@
         </div>
       </main>
 
-      <!-- ─── Right Sidebar ───────────────────────────── -->
-      <aside class="right-sidebar" id="right-sidebar">
-        <div class="panel">
-          <h5 class="panel-title">🔊 Voice</h5>
-          <button id="voice-join-mobile" class="btn-voice mobile-voice-join" style="display:none">🎤 Join Voice</button>
-          <div id="voice-users" class="user-list">
-            <p class="muted-text">No one in voice</p>
-          </div>
-        </div>
-        <div class="panel">
-          <h5 class="panel-title">👥 Online</h5>
-          <div id="online-users" class="user-list">
-            <p class="muted-text">Select a channel</p>
-          </div>
-        </div>
-        <div class="panel sidebar-settings-panel">
-          <button class="btn-settings-popout" id="open-settings-btn" title="Settings">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-            <span>Settings</span>
-          </button>
-        </div>
-      </aside>
-
-      <!-- Mobile overlay (click to close sidebars) -->
       <div id="mobile-overlay" class="mobile-overlay"></div>
     </div>
-
-    <!-- ─── Status Bar (bottom) ───────────────────────── -->
+    <div class="voice-toolbar" id="voice-toolbar">
+      <button id="voice-mute-btn" class="btn-voice" style="display:none">🔇 Mute</button>
+      <button id="voice-deafen-btn" class="btn-voice" style="display:none">🔇 Deafen</button>
+      <button id="screen-share-btn" class="btn-voice" style="display:none" title="Share Screen">🖥️ Share</button>
+      <button id="noise-suppress-btn" class="btn-voice" style="display:none" title="Noise Suppression">🧭 Filter</button>
+      <button id="voice-leave-btn" class="btn-voice btn-danger" style="display:none">📞 Leave</button>
+    </div>
     <div class="status-bar" id="status-bar">
       <div class="status-item">
         <span class="led on" id="status-server-led"></span>
@@ -349,23 +336,42 @@
         <span class="value" id="status-channel">None</span>
       </div>
       <div class="divider"></div>
-      <div class="status-item">
+      <div class="status-item status-online-btn" id="status-online-btn" title="Click to see who's online">
         <span class="label">Online</span>
         <span class="value" id="status-online-count">0</span>
+      </div>
+      <div class="online-overlay" id="online-overlay" style="display:none">
+        <div class="online-overlay-header">
+          <span>👥 Users</span>
+          <button class="online-overlay-close" id="online-overlay-close">✕</button>
+        </div>
+        <div class="online-overlay-list" id="online-overlay-list">
+          <p class="muted-text">No one here</p>
+        </div>
       </div>
       <span class="spacer"></span>
       <div class="status-item">
         <span class="value" id="status-clock"></span>
-      </div>
-      <div class="divider"></div>
-      <div class="status-item">
-        <span class="value" id="status-version"></span>
       </div>
     </div>
   </div>
 
   <!-- Hidden audio container for voice streams -->
   <div id="audio-container" style="display:none"></div>
+
+  <!-- User context menu (right-click) -->
+  <div id="user-context-menu" class="context-menu" style="display:none">
+    <div class="context-menu-header" id="ctx-menu-username"></div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" data-action="dm">💬 <span>Message</span></div>
+    <div class="context-menu-item" data-action="call">📞 <span>Call</span></div>
+    <div class="context-menu-divider" data-requires="not-self"></div>
+    <div class="context-menu-item" data-action="block" data-requires="not-self">🚫 <span>Block</span></div>
+    <div class="context-menu-divider" data-requires="admin"></div>
+    <div class="context-menu-item" data-action="kick" data-requires="admin">👢 <span>Kick</span></div>
+    <div class="context-menu-item" data-action="mute" data-requires="admin">🔇 <span>Mute</span></div>
+    <div class="context-menu-item context-menu-danger" data-action="ban" data-requires="admin">⛔ <span>Ban</span></div>
+  </div>
 
   <!-- Toast notifications -->
   <div id="toast-container"></div>
@@ -374,10 +380,10 @@
   <div class="modal-overlay" id="add-server-modal" style="display:none">
     <div class="modal">
       <h3>Add a Server</h3>
-      <p class="modal-desc">Connect to a friend's Haven server</p>
+      <p class="modal-desc">Connect to a friend's Amni server</p>
       <div class="form-group">
         <label>Server Name</label>
-        <input type="text" id="server-name-input" placeholder='e.g. Jake&apos;s Haven' maxlength="30">
+        <input type="text" id="server-name-input" placeholder='e.g. My Server' maxlength="30">
       </div>
       <div class="form-group">
         <label>Server Address</label>
@@ -390,29 +396,14 @@
     </div>
   </div>
 
-  <!-- Rename / Profile Modal -->
+  <!-- Rename Modal -->
   <div class="modal-overlay" id="rename-modal" style="display:none">
     <div class="modal">
-      <h3>Edit Profile</h3>
-
-      <!-- Avatar Section -->
-      <div class="avatar-settings" style="margin-bottom: 16px;">
-        <div class="avatar-preview-row">
-          <div class="avatar-preview-circle" id="rename-avatar-preview"></div>
-          <div class="avatar-actions">
-            <button type="button" class="btn-sm btn-accent" id="rename-avatar-upload-btn">Upload Image</button>
-            <button class="btn-sm" id="rename-avatar-remove-btn">Remove</button>
-            <input type="file" id="rename-avatar-file-input" accept="image/*" style="display:none">
-          </div>
-        </div>
-        <small class="settings-hint">Max 2 MB. Square images work best.</small>
-      </div>
-
-      <!-- Display Name -->
-      <p class="modal-desc">Letters, numbers, underscores, and spaces (2–20 chars)</p>
+      <h3>Change Username</h3>
+      <p class="modal-desc">Letters, numbers, and underscores only (3–20 chars)</p>
       <div class="form-group">
-        <label>Display Name</label>
-        <input type="text" id="rename-input" placeholder="New display name..." maxlength="20">
+        <label>New Username</label>
+        <input type="text" id="rename-input" placeholder="New username..." maxlength="20">
       </div>
       <div class="modal-actions">
         <button class="btn-sm" id="cancel-rename-btn">Cancel</button>
@@ -448,24 +439,56 @@
         <h3>⚙️ Settings</h3>
         <button class="settings-close-btn" id="close-settings-btn">&times;</button>
       </div>
-
-      <!-- Avatar Section -->
       <div class="settings-section">
-        <h5 class="settings-section-title">🖼️ Avatar</h5>
-        <div class="avatar-settings">
-          <div class="avatar-preview-row">
-            <div class="avatar-preview-circle" id="avatar-preview"></div>
-            <div class="avatar-actions">
-              <button type="button" class="btn-sm btn-accent" id="avatar-upload-btn">Upload Image</button>
-              <button class="btn-sm" id="avatar-remove-btn">Remove</button>
-              <input type="file" id="avatar-file-input" accept="image/*" style="display:none">
-            </div>
+        <h5 class="settings-section-title">👤 Profile</h5>
+        <div class="notif-settings">
+          <label class="toggle-row">
+            <span>Display Name</span>
+            <input type="text" id="display-name-input" placeholder="Same as username" maxlength="32" class="settings-text-input" style="width:140px">
+          </label>
+          <button id="save-display-name-btn" class="btn-sm">Save</button>
+        </div>
+        <div class="avatar-settings" style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border);">
+          <h5 class="settings-section-subtitle">Avatar Shape</h5>
+          <div class="avatar-shape-picker" id="avatar-shape-picker">
+            <button class="avatar-shape-btn active" data-shape="circle" title="Circle"><div class="shape-preview shape-circle"></div></button>
+            <button class="avatar-shape-btn" data-shape="rounded" title="Rounded"><div class="shape-preview shape-rounded"></div></button>
+            <button class="avatar-shape-btn" data-shape="hex" title="Hexagon"><div class="shape-preview shape-hex"></div></button>
+            <button class="avatar-shape-btn" data-shape="triangle" title="Triangle"><div class="shape-preview shape-triangle"></div></button>
+            <button class="avatar-shape-btn" data-shape="squircle" title="Squircle"><div class="shape-preview shape-squircle"></div></button>
           </div>
-          <small class="settings-hint">Max 2 MB. Square images work best.</small>
+          <h5 class="settings-section-subtitle" style="margin-top:10px">Avatar Color</h5>
+          <div class="avatar-color-row">
+            <input type="range" id="avatar-hue-slider" min="0" max="360" value="200" class="slider-sm hue-slider" style="flex:1">
+            <div class="avatar-color-preview" id="avatar-color-preview"></div>
+            <button class="btn-sm" id="avatar-color-reset" title="Reset to default">↺</button>
+          </div>
+          <h5 class="settings-section-subtitle" style="margin-top:10px">Avatar Image</h5>
+          <div class="avatar-upload-row">
+            <div class="avatar-upload-preview" id="avatar-upload-preview"></div>
+            <button class="btn-sm" id="avatar-upload-btn">Upload</button>
+            <button class="btn-sm" id="avatar-clear-btn">Clear</button>
+            <input type="file" id="avatar-file-input" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none">
+          </div>
         </div>
       </div>
-
-      <!-- Sounds Section -->
+      <div class="settings-section">
+        <h5 class="settings-section-title">📐 Layout Density</h5>
+        <div class="density-picker" id="density-picker">
+          <button class="density-btn" data-density="compact" title="Compact">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="6" width="14" height="2" rx="1"/><rect x="1" y="10" width="14" height="2" rx="1"/></svg>
+            <span>Compact</span>
+          </button>
+          <button class="density-btn active" data-density="cozy" title="Cozy">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>
+            <span>Cozy</span>
+          </button>
+          <button class="density-btn" data-density="spacious" title="Spacious">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="0" width="14" height="4" rx="1"/><rect x="1" y="6" width="14" height="4" rx="1"/><rect x="1" y="12" width="14" height="4" rx="1"/></svg>
+            <span>Spacious</span>
+          </button>
+        </div>
+      </div>
       <div class="settings-section">
         <h5 class="settings-section-title">🔔 Sounds</h5>
         <div class="notif-settings">
@@ -487,6 +510,10 @@
               <option value="drop">Drop</option>
               <option value="alert">Alert</option>
               <option value="chord">Chord</option>
+              <option value="aim_receive">AIM Receive</option>
+              <option value="aim_send">AIM Send</option>
+              <option value="flip_sms">Flip Phone SMS</option>
+              <option value="flip_ring">Flip Phone Ring</option>
               <option value="none">None</option>
             </select>
           </label>
@@ -505,54 +532,70 @@
               <option value="chime">Chime</option>
               <option value="blip">Blip</option>
               <option value="drop">Drop</option>
-              <option value="none">None</option>
-            </select>
-          </label>
-          <div class="notif-divider"></div>
-          <label class="select-row">
-            <span>User Joined</span>
-            <select id="notif-join-sound">
-              <option value="chime">Chime</option>
-              <option value="aim_door_open">AIM Door Open</option>
-              <option value="bell">Bell</option>
-              <option value="ping">Ping</option>
-              <option value="blip">Blip</option>
-              <option value="chord">Chord</option>
-              <option value="none">None</option>
-            </select>
-          </label>
-          <label class="select-row">
-            <span>User Left</span>
-            <select id="notif-leave-sound">
-              <option value="drop">Drop</option>
-              <option value="aim_door_close">AIM Door Close</option>
-              <option value="chime">Chime</option>
-              <option value="ping">Ping</option>
-              <option value="blip">Blip</option>
+              <option value="aim_receive">AIM Receive</option>
+              <option value="aim_send">AIM Send</option>
+              <option value="flip_sms">Flip Phone SMS</option>
+              <option value="flip_ring">Flip Phone Ring</option>
               <option value="none">None</option>
             </select>
           </label>
         </div>
       </div>
-
-      <!-- Password Change Section -->
       <div class="settings-section">
-        <h5 class="settings-section-title">🔒 Password</h5>
-        <div class="password-change-form">
-          <div class="form-group compact">
-            <input type="password" id="current-password" placeholder="Current password" maxlength="128" autocomplete="current-password">
+        <h5 class="settings-section-title">🎨 Theme</h5>
+        <div class="theme-selector-settings" id="theme-selector">
+          <span class="theme-group-label">Dark</span>
+          <button class="theme-btn active" data-theme="amni" title="Amni"><span class="theme-icon">◆</span></button>
+          <button class="theme-btn" data-theme="haven" title="Haven"><span class="theme-icon">⬡</span></button>
+          <button class="theme-btn" data-theme="discord" title="Discord"><span class="theme-icon">🎮</span></button>
+          <button class="theme-btn" data-theme="matrix" title="Matrix"><span class="theme-icon">Ⅿ</span></button>
+          <button class="theme-btn" data-theme="tron" title="Tron"><span class="theme-icon">◈</span></button>
+          <button class="theme-btn" data-theme="halo" title="HALO"><span class="theme-icon">⌁</span></button>
+          <button class="theme-btn" data-theme="lotr" title="LoTR"><span class="theme-icon">⚜</span></button>
+          <button class="theme-btn" data-theme="cyberpunk" title="Cyberpunk"><span class="theme-icon">⚡</span></button>
+          <button class="theme-btn" data-theme="nord" title="Nord"><span class="theme-icon">❄</span></button>
+          <button class="theme-btn" data-theme="dracula" title="Dracula"><span class="theme-icon">🧛</span></button>
+          <button class="theme-btn" data-theme="bloodborne" title="Bloodborne"><span class="theme-icon">🩸</span></button>
+          <button class="theme-btn" data-theme="ice" title="Ice"><span class="theme-icon">🧊</span></button>
+          <button class="theme-btn" data-theme="abyss" title="Abyss"><span class="theme-icon">🌊</span></button>
+          <button class="theme-btn" data-theme="darksouls" title="Dark Souls"><span class="theme-icon">🔥</span></button>
+          <button class="theme-btn" data-theme="eldenring" title="Elden Ring"><span class="theme-icon">💍</span></button>
+          <button class="theme-btn" data-theme="minecraft" title="Minecraft"><span class="theme-icon">⛏️</span></button>
+          <button class="theme-btn" data-theme="ffx" title="FFX"><span class="theme-icon">⚔️</span></button>
+          <button class="theme-btn" data-theme="zelda" title="Zelda"><span class="theme-icon">🗡️</span></button>
+          <button class="theme-btn" data-theme="triangle" title="Triangle"><span class="theme-icon">△</span></button>
+          <span class="theme-group-label">Retro</span>
+          <button class="theme-btn" data-theme="win95" title="Win 95"><span class="theme-icon">🖥️</span></button>
+          <button class="theme-btn" data-theme="winxp" title="Win XP"><span class="theme-icon">🪟</span></button>
+          <button class="theme-btn" data-theme="win7" title="Win 7"><span class="theme-icon">🪟</span></button>
+          <span class="theme-group-label">Light</span>
+          <button class="theme-btn" data-theme="light" title="Light"><span class="theme-icon">☀️</span></button>
+          <button class="theme-btn" data-theme="solarized-light" title="Solarized"><span class="theme-icon">🌅</span></button>
+          <button class="theme-btn" data-theme="sakura" title="Sakura"><span class="theme-icon">🌸</span></button>
+          <span class="theme-group-label">Dynamic</span>
+          <button class="theme-btn" data-theme="rgb" title="RGB Cycle"><span class="theme-icon">🌈</span></button>
+          <button class="theme-btn" data-theme="custom" title="Custom"><span class="theme-icon">🎨</span></button>
+        </div>
+        <div id="rgb-controls-panel" class="rgb-controls-panel" style="display:none">
+          <label class="volume-row"><span>Speed</span><input type="range" id="rgb-speed" min="1" max="20" value="5" class="slider-sm"></label>
+          <label class="volume-row"><span>Vibrancy</span><input type="range" id="rgb-vibrancy" min="20" max="100" value="70" class="slider-sm"></label>
+        </div>
+        <div id="custom-theme-panel" class="custom-theme-panel" style="display:none">
+          <label class="volume-row"><span>Hue</span><input type="range" id="custom-hue" min="0" max="360" value="200" class="slider-sm hue-slider"></label>
+          <label class="volume-row"><span>Vibrancy</span><input type="range" id="custom-vibrancy" min="20" max="100" value="65" class="slider-sm"></label>
+        </div>
+        <div id="triangle-morph-panel" class="triangle-morph-panel" style="display:none"></div>
+      </div>
+      <div class="settings-section">
+        <h5 class="settings-section-title">🔧 Layout (Mod Mode)</h5>
+        <div class="notif-settings">
+          <p class="game-notice" style="margin:0 0 8px">Drag sidebar sections to rearrange them. Layout persists across sessions.</p>
+          <div style="display:flex;gap:8px">
+            <button id="mod-mode-settings-toggle" class="btn-sm btn-accent">Toggle Mod Mode</button>
+            <button id="mod-mode-reset" class="btn-sm">Reset Layout</button>
           </div>
-          <div class="form-group compact">
-            <input type="password" id="new-password" placeholder="New password (8+ chars)" maxlength="128" autocomplete="new-password">
-          </div>
-          <div class="form-group compact">
-            <input type="password" id="confirm-password" placeholder="Confirm new password" maxlength="128" autocomplete="new-password">
-          </div>
-          <button class="btn-sm btn-full" id="change-password-btn">Change Password</button>
-          <small class="settings-hint" id="password-status"></small>
         </div>
       </div>
-
       <!-- Admin Section (hidden for non-admins) -->
       <div class="settings-section admin-settings-section" id="admin-mod-panel" style="display:none">
         <h5 class="settings-section-title">🛡️ Admin</h5>
@@ -603,24 +646,51 @@
           <button class="btn-sm btn-full" id="run-cleanup-now-btn" style="margin-top:4px;">🧹 Run Cleanup Now</button>
         </div>
         <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-          <h5 class="settings-section-subtitle">🔊 Custom Sounds</h5>
-          <small class="settings-hint">Upload audio files for custom notification sounds (max 1 MB each)</small>
-          <div style="margin-top:8px;">
-            <div class="whitelist-add-row">
-              <input type="text" id="sound-name-input" placeholder="Sound name..." maxlength="30" class="settings-text-input">
-              <input type="file" id="sound-file-input" accept="audio/*" style="max-width:120px;font-size:11px">
-              <button class="btn-sm btn-accent" id="sound-upload-btn">Upload</button>
-            </div>
-            <div id="custom-sounds-list" style="margin-top:8px;">
-              <p class="muted-text">No custom sounds uploaded</p>
-            </div>
-          </div>
+          <h5 class="settings-section-subtitle">🌐 Tunnel</h5>
+          <label class="toggle-row">
+            <span>Enabled</span>
+            <input type="checkbox" id="tunnel-enabled">
+          </label>
+          <label class="select-row">
+            <span>Provider</span>
+            <select id="tunnel-provider-select">
+              <option value="localtunnel">LocalTunnel</option>
+              <option value="cloudflared">Cloudflared</option>
+            </select>
+          </label>
+          <div id="tunnel-status-display" class="muted-text" style="margin-top:4px;font-size:11px;"></div>
+        </div>
+        <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+          <h5 class="settings-section-subtitle">🎞️ GIF Provider</h5>
+          <label class="select-row">
+            <span>Giphy Key</span>
+            <input type="password" id="giphy-api-key-input" placeholder="Giphy API key..." class="settings-text-input" maxlength="100">
+          </label>
+          <button class="btn-sm" id="save-giphy-key-btn" style="margin-top:4px">Save Key</button>
+          <small class="settings-hint">Get a free key at <a href="https://developers.giphy.com" target="_blank">developers.giphy.com</a></small>
+        </div>
+        <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+          <h5 class="settings-section-subtitle">🎵 Spotify Premium</h5>
+          <label class="select-row">
+            <span>Client ID</span>
+            <input type="text" id="spotify-client-id-input" placeholder="Spotify Client ID..." class="settings-text-input" maxlength="64">
+          </label>
+          <label class="select-row" style="margin-top:4px">
+            <span>Client Secret</span>
+            <input type="password" id="spotify-client-secret-input" placeholder="Spotify Client Secret..." class="settings-text-input" maxlength="64">
+          </label>
+          <button class="btn-sm" id="save-spotify-creds-btn" style="margin-top:4px">Save Spotify</button>
+          <small class="settings-hint">Create app at <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com</a> • Redirect URI: <code>/api/spotify/callback</code></small>
+        </div>
+        <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+          <h5 class="settings-section-subtitle">🤖 Bots</h5>
+          <button class="btn-sm btn-full" id="manage-bots-btn">Manage Bots</button>
+          <button class="btn-sm btn-full" id="view-blocks-btn" style="margin-top:4px;">🚫 Blocked Users</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Bans List Modal -->
   <div class="modal-overlay" id="bans-modal" style="display:none">
     <div class="modal modal-wide">
       <h3>Banned Users</h3>
@@ -632,44 +702,103 @@
       </div>
     </div>
   </div>
-
-  <!-- Music Share Modal -->
-  <div class="modal-overlay" id="music-modal" style="display:none">
-    <div class="modal">
-      <h3>🎵 Listen Together</h3>
-      <p class="modal-desc">Paste a link from Spotify, YouTube, or SoundCloud to share with everyone in voice</p>
-      <div class="form-group">
-        <label>Music Link</label>
-        <input type="text" id="music-link-input" placeholder="https://open.spotify.com/track/..." maxlength="500">
+  <div class="modal-overlay" id="call-modal" style="display:none">
+    <div class="modal modal-call">
+      <h3 id="call-modal-title">Incoming Call</h3>
+      <p class="modal-desc" id="call-modal-desc"></p>
+      <div id="call-video-container" style="display:none">
+        <video id="call-remote-video" autoplay playsinline></video>
+        <video id="call-local-video" autoplay playsinline muted></video>
       </div>
-      <div class="music-link-preview" id="music-link-preview"></div>
-      <div class="music-platforms-hint">
-        <span class="platform-badge spotify">Spotify</span>
-        <span class="platform-badge youtube">YouTube</span>
-        <span class="platform-badge soundcloud">SoundCloud</span>
+      <div class="modal-actions" id="call-modal-actions">
+        <button class="btn-sm btn-accent" id="call-accept-btn">Accept</button>
+        <button class="btn-sm btn-danger-fill" id="call-reject-btn">Reject</button>
+        <button class="btn-sm btn-danger-fill" id="call-end-btn" style="display:none">End Call</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="join-channel-modal" style="display:none">
+    <div class="modal">
+      <h3>Join a Channel</h3>
+      <p class="modal-desc">Enter a channel code to join</p>
+      <div class="form-group">
+        <label>Channel Code</label>
+        <input type="text" id="channel-code-input" placeholder="Enter code..." maxlength="8" spellcheck="false">
       </div>
       <div class="modal-actions">
-        <button class="btn-sm" id="cancel-music-btn">Cancel</button>
-        <button class="btn-sm btn-accent" id="share-music-btn">Share with Channel</button>
+        <button class="btn-sm" id="cancel-join-btn">Cancel</button>
+        <button class="btn-sm btn-accent" id="join-channel-btn">Join</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="create-channel-modal" style="display:none">
+    <div class="modal">
+      <h3>Create Channel</h3>
+      <p class="modal-desc">Set up a new channel for your server</p>
+      <div class="form-group">
+        <label>Channel Name</label>
+        <input type="text" id="new-channel-name" class="create-channel-name" placeholder="Channel name..." maxlength="50">
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select id="new-channel-type" class="channel-type-select" style="width:100%">
+          <option value="both">Text + Voice</option>
+          <option value="text">Text Only</option>
+          <option value="voice">Voice Only</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Parent Channel</label>
+        <select id="new-channel-parent" class="channel-type-select" title="Parent channel (subchannel)" style="width:100%">
+          <option value="">Top-level</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="private-toggle" title="Admin-only channel">
+          <input type="checkbox" id="new-channel-private"> 🔒 Private channel
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-sm" id="cancel-create-btn">Cancel</button>
+        <button class="btn-sm btn-accent" id="create-channel-btn">Create</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="block-list-modal" style="display:none">
+    <div class="modal">
+      <h3>Blocked Users</h3>
+      <div id="block-list" class="bans-list"><p class="muted-text">Loading...</p></div>
+      <div class="modal-actions">
+        <button class="btn-sm" id="close-block-list-btn">Close</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="channel-members-modal" style="display:none">
+    <div class="modal">
+      <h3>📋 Channel Members</h3>
+      <div id="channel-members-info" class="muted-text" style="margin-bottom:8px;font-size:12px;"></div>
+      <div id="add-member-row" class="input-row" style="margin-bottom:12px;display:none">
+        <input type="text" id="add-member-input" placeholder="Username to add..." class="settings-text-input" style="flex:1">
+        <button class="btn-sm btn-accent" id="add-member-btn">+ Add</button>
+      </div>
+      <div id="channel-members-list" class="bans-list"><p class="muted-text">Loading...</p></div>
+      <div class="modal-actions">
+        <button class="btn-sm" id="close-channel-members-btn">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- Channel context menu (appears on "..." hover button) -->
-  <div id="channel-ctx-menu" class="channel-ctx-menu" style="display:none">
-    <button class="channel-ctx-item" data-action="mute">🔔 Mute Channel</button>
-    <hr class="channel-ctx-sep">
-    <button class="channel-ctx-item admin-only" data-action="toggle-streams">🖥️ Toggle Streams</button>
-    <button class="channel-ctx-item admin-only" data-action="toggle-music">🎵 Toggle Music</button>
-    <hr class="channel-ctx-sep admin-only">
-    <button class="channel-ctx-item admin-only danger" data-action="delete">🗑️ Delete Channel</button>
-  </div>
-
+  <script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/theme.js"></script>
+  <script src="/js/triangle-morph.js"></script>
   <script src="/js/notifications.js"></script>
   <script src="/js/servers.js"></script>
   <script src="/js/voice.js"></script>
+  <script src="/js/spotify.js"></script>
+  <script src="/js/games.js"></script>
+  <script src="/js/modmode.js"></script>
+  <script src="/js/tutorial.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

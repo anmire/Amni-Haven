@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 800" opacity="0.35">
+<style>text{fill:#00ff41;font-family:monospace;font-size:16px}</style>
+<text x="10" y="20" opacity=".9">0 1 1 0 0 1 0 1</text>
+<text x="10" y="50" opacity=".7">1 0 0 1 1 0 1 0</text>
+<text x="10" y="80" opacity=".5">0 1 0 0 1 1 0 1</text>
+<text x="10" y="110" opacity=".8">1 1 0 1 0 0 1 0</text>
+<text x="10" y="140" opacity=".6">0 0 1 0 1 1 0 1</text>
+<text x="10" y="170" opacity=".4">1 0 1 1 0 0 1 0</text>
+<text x="10" y="200" opacity=".9">0 1 0 0 1 0 1 1</text>
+<text x="10" y="230" opacity=".3">1 1 1 0 0 1 0 0</text>
+<text x="10" y="260" opacity=".7">0 0 0 1 1 0 1 1</text>
+<text x="10" y="290" opacity=".5">1 0 1 0 1 1 0 0</text>
+<text x="10" y="320" opacity=".8">0 1 0 1 0 0 1 1</text>
+<text x="10" y="350" opacity=".6">1 1 0 0 1 1 0 0</text>
+<text x="10" y="380" opacity=".4">0 0 1 1 0 0 1 1</text>
+<text x="10" y="410" opacity=".9">1 0 0 1 1 0 0 1</text>
+<text x="10" y="440" opacity=".3">0 1 1 0 0 1 1 0</text>
+<text x="10" y="470" opacity=".7">1 1 0 1 1 0 0 1</text>
+<text x="10" y="500" opacity=".5">0 0 1 0 0 1 1 0</text>
+<text x="10" y="530" opacity=".8">1 0 0 1 0 1 0 1</text>
+<text x="10" y="560" opacity=".4">0 1 1 0 1 0 1 0</text>
+<text x="10" y="590" opacity=".6">1 0 0 1 0 1 1 0</text>
+<text x="10" y="620" opacity=".9">0 1 1 0 1 0 0 1</text>
+<text x="10" y="650" opacity=".3">1 0 0 1 0 1 0 1</text>
+<text x="10" y="680" opacity=".7">0 1 0 1 1 0 1 0</text>
+<text x="10" y="710" opacity=".5">1 0 1 0 0 1 0 1</text>
+<text x="10" y="740" opacity=".8">0 0 1 1 0 1 1 0</text>
+<text x="10" y="770" opacity=".4">1 1 0 0 1 0 0 1</text>
+<text x="300" y="35" opacity=".6">1 0 1 0 0 1</text>
+<text x="300" y="65" opacity=".8">0 1 0 1 1 0</text>
+<text x="300" y="95" opacity=".4">1 1 0 0 1 0</text>
+<text x="300" y="125" opacity=".9">0 0 1 1 0 1</text>
+<text x="300" y="155" opacity=".5">1 0 0 1 0 1</text>
+<text x="300" y="185" opacity=".7">0 1 1 0 1 0</text>
+<text x="300" y="215" opacity=".3">1 0 1 0 1 0</text>
+<text x="300" y="245" opacity=".8">0 1 0 1 0 1</text>
+<text x="300" y="275" opacity=".6">1 1 0 0 1 1</text>
+<text x="300" y="305" opacity=".4">0 0 1 1 0 0</text>
+<text x="300" y="335" opacity=".9">1 0 1 0 1 0</text>
+<text x="300" y="365" opacity=".5">0 1 0 1 0 1</text>
+<text x="300" y="395" opacity=".7">1 0 0 1 1 0</text>
+<text x="300" y="425" opacity=".3">0 1 1 0 0 1</text>
+<text x="300" y="455" opacity=".8">1 0 0 1 0 0</text>
+<text x="300" y="485" opacity=".6">0 1 1 0 1 1</text>
+<text x="300" y="515" opacity=".4">1 0 0 1 0 1</text>
+<text x="300" y="545" opacity=".9">0 1 0 1 1 0</text>
+<text x="300" y="575" opacity=".5">1 0 1 0 0 1</text>
+<text x="300" y="605" opacity=".7">0 1 0 1 1 0</text>
+</svg>

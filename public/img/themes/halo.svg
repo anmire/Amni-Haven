@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" opacity="0.25">
+<defs><radialGradient id="g" cx="50%" cy="50%"><stop offset="0" stop-color="#4fc3f7" stop-opacity="0.3"/><stop offset="0.7" stop-color="#4fc3f7" stop-opacity="0.1"/><stop offset="1" stop-color="#4fc3f7" stop-opacity="0"/></radialGradient></defs>
+<ellipse cx="300" cy="200" rx="250" ry="60" fill="none" stroke="#4fc3f7" stroke-width="2" opacity="0.4"/>
+<ellipse cx="300" cy="200" rx="220" ry="50" fill="none" stroke="#4fc3f7" stroke-width="1" opacity="0.2"/>
+<ellipse cx="300" cy="200" rx="280" ry="70" fill="none" stroke="#4fc3f7" stroke-width="0.5" opacity="0.15"/>
+<circle cx="300" cy="180" r="30" fill="url(#g)"/>
+<rect x="285" y="260" width="30" height="120" rx="4" fill="#4ca64c" opacity="0.25"/>
+<polygon points="300,250 270,310 330,310" fill="#4ca64c" opacity="0.3"/>
+<polygon points="300,230 260,300 340,300" fill="none" stroke="#4ca64c" stroke-width="1" opacity="0.2"/>
+<circle cx="300" cy="200" r="60" fill="url(#g)" opacity="0.3"/>
+<line x1="300" y1="340" x2="260" y2="420" stroke="#4ca64c" stroke-width="1.5" opacity="0.2"/>
+<line x1="300" y1="340" x2="340" y2="420" stroke="#4ca64c" stroke-width="1.5" opacity="0.2"/>
+<line x1="300" y1="310" x2="250" y2="350" stroke="#4ca64c" stroke-width="1" opacity="0.15"/>
+<line x1="300" y1="310" x2="350" y2="350" stroke="#4ca64c" stroke-width="1" opacity="0.15"/>
+<circle cx="200" cy="450" r="3" fill="#d4a020" opacity="0.3"/>
+<circle cx="400" cy="500" r="2" fill="#d4a020" opacity="0.2"/>
+<circle cx="150" cy="350" r="2" fill="#4fc3f7" opacity="0.25"/>
+<circle cx="450" cy="300" r="2" fill="#4fc3f7" opacity="0.2"/>
+<circle cx="100" cy="500" r="1.5" fill="#d4a020" opacity="0.15"/>
+<circle cx="500" cy="400" r="1.5" fill="#4fc3f7" opacity="0.15"/>
+</svg>

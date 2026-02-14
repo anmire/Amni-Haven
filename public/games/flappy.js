@@ -18,17 +18,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.location.href = '/app';
   });
 
-  // ── Leaderboard slide-out toggle (mobile) ─────────────
-  const lbPanel = document.getElementById('leaderboard-panel');
-  const lbToggle = document.getElementById('lb-toggle-btn');
-  const lbBackdrop = document.getElementById('lb-backdrop');
-  function toggleLB() {
-    const open = lbPanel.classList.toggle('lb-open');
-    lbBackdrop.classList.toggle('lb-open', open);
-  }
-  if (lbToggle) lbToggle.addEventListener('click', toggleLB);
-  if (lbBackdrop) lbBackdrop.addEventListener('click', toggleLB);
-
   // ── Sound: blip on flap ──────────────────────────────
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   let audioCtx = null;
@@ -146,10 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let best = parseInt(localStorage.getItem('haven_shippy_best') || '0');
   let state = 'waiting';
   let frameCount = 0;
-  let lastTime = 0;            // For delta-time physics
-  let pipeTimer = 0;           // Time-based pipe spawning (ms)
-  const TARGET_DT = 1000 / 60; // Baseline 60 fps
-  const PIPE_INTERVAL = 1500;  // Spawn pipe every 1.5 seconds
 
   document.getElementById('best-display').textContent = best;
 
@@ -158,8 +143,6 @@ document.addEventListener('DOMContentLoaded', () => {
     pipes = [];
     score = 0;
     frameCount = 0;
-    pipeTimer = 0;
-    lastTime = 0;
     document.getElementById('score-display').textContent = '0';
   }
 
@@ -201,25 +184,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function update(dt) {
+  function update() {
     if (state !== 'playing') return;
 
-    // Normalize physics to 60 fps baseline; cap to prevent huge jumps on tab-switch
-    const scale = Math.min(dt / TARGET_DT, 3);
-
     frameCount++;
-    bird.vy += 0.35 * scale;
-    bird.y += bird.vy * scale;
+    bird.vy += 0.35;
+    bird.y += bird.vy;
 
-    pipeTimer += dt;
-    if (pipeTimer >= PIPE_INTERVAL) {
-      pipeTimer -= PIPE_INTERVAL;
+    if (frameCount % 90 === 0) {
       spawnPipe();
     }
 
     for (let i = pipes.length - 1; i >= 0; i--) {
       const p = pipes[i];
-      p.x -= PIPE_SPEED * scale;
+      p.x -= PIPE_SPEED;
 
       if (!p.scored && p.x + PIPE_W < bird.x) {
         p.scored = true;
@@ -247,11 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ── Auth token from URL hash (for REST API fallback) ──
-  const _hashParams = new URLSearchParams(location.hash.replace('#', ''));
-  const _authToken = _hashParams.get('token') || localStorage.getItem('haven_token') || '';
-  const _useRest = !window.opener; // mobile browsers null-out opener
-
   function die() {
     state = 'dead';
     if (score > best) {
@@ -259,64 +232,12 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.setItem('haven_shippy_best', String(best));
       document.getElementById('best-display').textContent = best;
     }
-
-    if (_useRest) {
-      // Mobile / no opener — submit via REST and fetch leaderboard
-      if (_authToken && score > 0) {
-        fetch('/api/high-scores', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken },
-          body: JSON.stringify({ game: 'flappy', score })
-        }).then(r => r.json()).then(d => renderLeaderboard(d.leaderboard)).catch(() => {});
-      } else {
-        requestLeaderboard();
-      }
-    } else {
-      try { window.opener.postMessage({ type: 'flappy-score', score: score }, '*'); } catch {}
-      requestLeaderboard();
-    }
-  }
-
-  // ── Leaderboard (postMessage primary, REST fallback) ──
-  function requestLeaderboard() {
-    if (_useRest) {
-      fetch('/api/high-scores/flappy')
-        .then(r => r.json())
-        .then(d => renderLeaderboard(d.leaderboard))
-        .catch(() => {});
-      return;
-    }
     try {
       if (window.opener) {
-        window.opener.postMessage({ type: 'get-leaderboard' }, '*');
+        window.opener.postMessage({ type: 'flappy-score', score: score }, '*');
       }
-    } catch { /* opener closed — try REST */
-      fetch('/api/high-scores/flappy').then(r => r.json()).then(d => renderLeaderboard(d.leaderboard)).catch(() => {});
-    }
+    } catch { /* cross-origin or closed */ }
   }
-
-  function renderLeaderboard(data) {
-    const list = document.getElementById('leaderboard-list');
-    if (!list) return;
-    if (!data || !data.length) {
-      list.innerHTML = '<p style="font-size:11px;color:var(--text-muted)">No scores yet</p>';
-      return;
-    }
-    list.innerHTML = data.slice(0, 20).map((s, i) => {
-      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
-      const name = s.username.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
-      return `<div class="lb-row"><span class="lb-rank">${medal}</span><span class="lb-name">${name}</span><span class="lb-score">${s.score}</span></div>`;
-    }).join('');
-  }
-
-  window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'leaderboard-data') {
-      renderLeaderboard(e.data.leaderboard);
-    }
-  });
-
-  // Request leaderboard on load
-  requestLeaderboard();
 
   function draw() {
     drawBackground();
@@ -358,13 +279,11 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.fillText(sub, W / 2, H / 2 + 18);
   }
 
-  function gameLoop(timestamp) {
-    const dt = lastTime ? (timestamp - lastTime) : TARGET_DT;
-    lastTime = timestamp;
-    update(dt);
+  function gameLoop() {
+    update();
     draw();
     requestAnimationFrame(gameLoop);
   }
 
-  requestAnimationFrame(gameLoop);
+  gameLoop();
 });

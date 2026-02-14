@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" opacity="0.3">
+<defs><radialGradient id="fire" cx="50%" cy="80%"><stop offset="0" stop-color="#ff8020" stop-opacity="0.5"/><stop offset="0.3" stop-color="#ff6010" stop-opacity="0.3"/><stop offset="0.6" stop-color="#c86418" stop-opacity="0.15"/><stop offset="1" stop-color="#c86418" stop-opacity="0"/></radialGradient></defs>
+<rect x="280" y="400" width="8" height="80" fill="#8b7355" opacity="0.3"/>
+<rect x="312" y="400" width="8" height="80" fill="#8b7355" opacity="0.3"/>
+<rect x="260" y="420" width="80" height="8" fill="#8b7355" opacity="0.25"/>
+<rect x="265" y="440" width="70" height="6" fill="#8b7355" opacity="0.2"/>
+<ellipse cx="300" cy="380" rx="50" ry="60" fill="url(#fire)"/>
+<path d="M300,320 C310,340 320,350 325,370 C330,390 320,410 300,420 C280,410 270,390 275,370 C280,350 290,340 300,320Z" fill="#ff8020" opacity="0.2"/>
+<path d="M300,340 C305,355 312,365 314,375 C316,385 310,395 300,400 C290,395 284,385 286,375 C288,365 295,355 300,340Z" fill="#ffa030" opacity="0.25"/>
+<path d="M300,360 C303,370 306,376 307,382 C308,388 305,392 300,394 C295,392 292,388 293,382 C294,376 297,370 300,360Z" fill="#ffcc44" opacity="0.3"/>
+<circle cx="200" cy="500" r="2" fill="#c86418" opacity="0.15"/>
+<circle cx="400" cy="480" r="1.5" fill="#c86418" opacity="0.12"/>
+<circle cx="290" cy="310" r="1" fill="#ffcc44" opacity="0.3"/>
+<circle cx="310" cy="305" r="0.8" fill="#ff8020" opacity="0.25"/>
+<circle cx="295" cy="300" r="0.6" fill="#ffcc44" opacity="0.2"/>
+<text x="230" y="540" fill="#c86418" font-family="serif" font-size="16" opacity="0.15" letter-spacing="6">PRAISE THE SUN</text>
+</svg>

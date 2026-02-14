@@ -1,27 +1,35 @@
 // ── Auth Page Logic (with theme support) ─────────────────
 
 (function () {
-  // If already logged in, redirect to app
   if (localStorage.getItem('haven_token')) {
     window.location.href = '/app';
     return;
+  }
+  if (['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)) {
+    fetch('/api/auth/auto-login').then(r => r.json()).then(data => {
+      if (data.token) {
+        localStorage.setItem('haven_token', data.token);
+        localStorage.setItem('haven_user', JSON.stringify(data.user));
+        localStorage.setItem('haven_eula_accepted', '1.0');
+        window.location.href = '/app';
+        return;
+      }
+    }).catch(() => {});
   }
 
   // ── Theme switching ───────────────────────────────────
   initThemeSwitcher('auth-theme-bar');
 
   // ── EULA ─────────────────────────────────────────────
-  const ageCheckbox  = document.getElementById('age-checkbox');
   const eulaCheckbox = document.getElementById('eula-checkbox');
   const eulaModal = document.getElementById('eula-modal');
   const eulaLink = document.getElementById('eula-link');
   const eulaAcceptBtn = document.getElementById('eula-accept-btn');
   const eulaDeclineBtn = document.getElementById('eula-decline-btn');
 
-  // Restore EULA acceptance from localStorage (v2.0 requires re-acceptance)
-  if (localStorage.getItem('haven_eula_accepted') === '2.0') {
+  // Restore EULA acceptance from localStorage
+  if (localStorage.getItem('haven_eula_accepted') === '1.0') {
     eulaCheckbox.checked = true;
-    ageCheckbox.checked  = true;
   }
 
   eulaLink.addEventListener('click', (e) => {
@@ -31,14 +39,12 @@
 
   eulaAcceptBtn.addEventListener('click', () => {
     eulaCheckbox.checked = true;
-    ageCheckbox.checked  = true;
-    localStorage.setItem('haven_eula_accepted', '2.0');
+    localStorage.setItem('haven_eula_accepted', '1.0');
     eulaModal.style.display = 'none';
   });
 
   eulaDeclineBtn.addEventListener('click', () => {
     eulaCheckbox.checked = false;
-    ageCheckbox.checked  = false;
     localStorage.removeItem('haven_eula_accepted');
     eulaModal.style.display = 'none';
   });
@@ -48,12 +54,8 @@
   });
 
   function checkEula() {
-    if (!ageCheckbox.checked) {
-      showError('You must confirm that you are 18 years of age or older');
-      return false;
-    }
     if (!eulaCheckbox.checked) {
-      showError('You must accept the Terms of Service & Release of Liability Agreement');
+      showError('You must accept the Release of Liability Agreement to continue');
       return false;
     }
     return true;
@@ -101,7 +103,7 @@
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, eulaVersion: '2.0', ageVerified: true })
+        body: JSON.stringify({ username, password, eulaVersion: '1.0' })
       });
 
       const data = await res.json();
@@ -109,7 +111,7 @@
 
       localStorage.setItem('haven_token', data.token);
       localStorage.setItem('haven_user', JSON.stringify(data.user));
-      localStorage.setItem('haven_eula_accepted', '2.0');
+      localStorage.setItem('haven_eula_accepted', '1.0');
       window.location.href = '/app';
     } catch (err) {
       showError('Connection error — is the server running?');
@@ -134,7 +136,7 @@
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, eulaVersion: '2.0', ageVerified: true })
+        body: JSON.stringify({ username, password, eulaVersion: '1.0' })
       });
 
       const data = await res.json();
@@ -142,7 +144,7 @@
 
       localStorage.setItem('haven_token', data.token);
       localStorage.setItem('haven_user', JSON.stringify(data.user));
-      localStorage.setItem('haven_eula_accepted', '2.0');
+      localStorage.setItem('haven_eula_accepted', '1.0');
       window.location.href = '/app';
     } catch (err) {
       showError('Connection error — is the server running?');

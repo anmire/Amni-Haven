@@ -25,12 +25,14 @@ class HavenApp {
     this.mentionStart = -1;        // cursor position of the '@'
     this.editingMsgId = null;      // message currently being edited
     this.serverSettings = {};      // server-wide settings
-    this.adminActionTarget = null; // { userId, username, action } for modal
-    this.highScores = {};          // { flappy: [{user_id, username, score}] }
-    this.userStatus = 'online';    // current user's status
-    this.userStatusText = '';      // custom status text
-    this.idleTimer = null;         // auto-away timer
-    this.voiceCounts = {};         // { channelCode: count } for sidebar voice indicators
+    this.adminActionTarget = null;
+    this.blockedUsers = new Set();
+    this.dms = [];
+    this.currentDm = null;
+    this.activeCall = null;
+    this.gifProvider = 'giphy';
+    this.gameManager = null;
+    this._wasConnected = false;
 
     // Slash command definitions for autocomplete
     this.slashCommands = [
@@ -46,32 +48,21 @@ class HavenApp {
       { cmd: 'brb',        args: '',         desc: 'Announce you\'ll be right back' },
       { cmd: 'afk',        args: '',         desc: 'Away from keyboard' },
       { cmd: 'boobs',      args: '',         desc: '( . Y . )' },
-      { cmd: 'butt',       args: '',         desc: '( . )( . )' },
       { cmd: 'nick',       args: '<name>',   desc: 'Change your username' },
       { cmd: 'clear',      args: '',         desc: 'Clear your chat view' },
       { cmd: 'flip',       args: '',         desc: 'Flip a coin: heads or tails' },
       { cmd: 'roll',       args: '[NdN]',    desc: 'Roll dice (e.g. /roll 2d6)' },
       { cmd: 'hug',        args: '<@user>',  desc: 'Send a hug to someone' },
       { cmd: 'wave',       args: '[text]',   desc: 'Wave at the chat 👋' },
-      { cmd: 'play',       args: '<name or url>',    desc: 'Search & play music (e.g. /play Cut Your Teeth Kygo)' },
     ];
 
-    // Emoji palette organized by category
-    this.emojiCategories = {
-      'Smileys':  ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','🙂','🤗','🤩','🤔','😐','🙄','😏','😣','😥','😮','😯','😴','😛','😜','😝','😒','😔','🙃','😲','😤','😭','😢','😱','🥺','😠','😡','🤬','😈','💀','💩','🤡','👻','😺','😸','🫠','🫣','🫢','🫥','🫤','🥹','🥲','😶‍🌫️','🤭','🫡','🤫','🤥','😬','🫨','😵','😵‍💫','🥴','😮‍💨','😤','🥱','😇','🤠','🤑','🤓','😈','👿','🫶','🤧','😷','🤒','🤕','💅'],
-      'People':   ['👋','🤚','✋','🖖','👌','🤌','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','🤝','🙏','💪','🫡','🫶','💅','💃','🕺','🤳','🖕','🫰','🫳','🫴','👐','🤲','🫱','🫲','🤷','🤦','🙇','💁','🙆','🙅','🤷‍♂️','🤷‍♀️','🙋','🙋‍♂️','🙋‍♀️','🧏','🧑‍🤝‍🧑','👫','👬','👭'],
-      'Monkeys':  ['🙈','🙉','🙊','🐵','🐒','🦍','🦧'],
-      'Animals':  ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐔','🐧','🐦','🦆','🦅','🦉','🐺','🐴','🦄','🐝','🦋','🐌','🐞','🐢','🐍','🐙','🐬','🐳','🦈','🐊','🦖','🦕','🐋','🦭','🦦','🦫','🦥','🐿️','🦔','🦇','🐓','🦃','🦚','🦜','🦢','🦩','🐕','🐈','🐈‍⬛'],
-      'Faces':    ['👀','👁️','👁️‍🗨️','👅','👄','🫦','💋','🧠','🦷','🦴','👃','👂','🦻','🦶','🦵','💀','☠️','👽','🤖','🎃','😺','😸','😹','😻','😼','😽','🙀','😿','😾'],
-      'Food':     ['🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍒','🍑','🥭','🍍','🥝','🍅','🥑','🌽','🌶️','🫑','🥦','🧄','🧅','🥕','🍕','🍔','🍟','🌭','🍿','🧁','🍩','🍪','🍰','🎂','🧀','🥚','🥓','🥩','🍗','🌮','🌯','🫔','🥙','🍜','🍝','🍣','🍱','☕','🍺','🍷','🥤','🧊','🧋','🍵','🥂','🍾'],
-      'Activities':['⚽','🏀','🏈','⚾','🎾','🏐','🎱','🏓','🎮','🕹️','🎲','🧩','🎯','🎳','🎭','🎨','🎼','🎵','🎸','🥁','🎹','🏆','🥇','🏅','🎪','🎬','🎤','🎧','🎺','🪘','🎻','🪗'],
-      'Travel':   ['🚗','🚕','🚀','✈️','🚁','🛸','🚢','🏠','🏢','🏰','🗼','🗽','⛩️','🌋','🏔️','🌊','🌅','🌄','🌉','🎡','🎢','🗺️','🧭','🏖️','🏕️','🌍','🌎','🌏','🛳️','⛵','🚂','🚇','🏎️','🏍️','🛵','🛶'],
-      'Objects':  ['⌚','📱','💻','⌨️','🖥️','💾','📷','🔭','🔬','💡','🔦','📚','📝','✏️','📎','📌','🔑','🔒','🔓','🛡️','⚔️','🔧','💰','💎','📦','🎁','✉️','🔔','🪙','💸','🏷️','🔨','🪛','🧲','🧪','🧫','💊','🩺','🩹','🧬'],
-      'Symbols':  ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💝','✨','⭐','🌟','💫','🔥','💯','✅','❌','‼️','⁉️','❓','💤','🚫','⚠️','♻️','🏳️','🏴','🎵','➕','➖','➗','💲','♾️','🏳️‍🌈','🏴‍☠️','⚡','☀️','🌙','🌈','☁️','❄️','💨','🌪️']
-    };
-
-    // Flat list for quick access (used by search)
-    this.emojis = Object.values(this.emojiCategories).flat();
+    // Quick-access emoji palette (most useful ones)
+    this.emojis = [
+      '😀','😂','😍','🥺','😎','🤔','😭','🥳','🔥','❤️',
+      '👍','👎','👏','🙌','💀','💯','✅','❌','⭐','🎉',
+      '😈','🤡','💩','👀','🫡','🤝','😴','🤣','😤','🫠',
+      '🍕','🎮','🎵','⚡','🚀','💎','🏆','🛡️','⚔️','🧠'
+    ];
 
     if (!this.token || !this.user) {
       window.location.href = '/';
@@ -86,96 +77,75 @@ class HavenApp {
   _init() {
     this.socket = io({ auth: { token: this.token } });
     this.voice = new VoiceManager(this.socket);
-
+    this.gameManager = new GameManager(this.socket, this.user.id, this.user.username);
+    this.spotifyPlayer = null;
+    this._spotifyReady = false;
     this._setupSocketListeners();
     this._setupUI();
     this._setupThemes();
     this._setupServerBar();
     this._setupNotifications();
+    this._setupContextMenu();
+    this._setupAvatarSettings();
+    this._setupDensitySettings();
     this._setupImageUpload();
     this._setupGifPicker();
+    this._setupGameUI();
+    this._setupSpotify();
     this._startStatusBar();
     this._setupMobile();
-    this._setupStatusPicker();
-    this._setupFileUpload();
-    this._setupIdleDetection();
-    this._setupAvatarUpload();
-    this._setupSoundManagement();
-
-    // CSP-safe image error handling (no inline onerror attributes)
-    document.getElementById('messages')?.addEventListener('error', (e) => {
-      if (e.target.tagName === 'IMG') e.target.style.display = 'none';
-    }, true);
+    this._setupVisibilitySync();
 
     this.socket.emit('get-channels');
     this.socket.emit('get-server-settings');
     this.socket.emit('get-preferences');
-    this.socket.emit('get-high-scores', { game: 'flappy' });
+    this.socket.emit('get-blocks');
+    this.socket.emit('get-dms');
 
     document.getElementById('current-user').textContent = this.user.displayName || this.user.username;
-    const loginEl = document.getElementById('login-name');
-    if (loginEl) loginEl.textContent = `@${this.user.username}`;
 
     if (this.user.isAdmin) {
-      document.getElementById('admin-controls').style.display = 'block';
+      document.getElementById('create-channel-overlay-btn').style.display = '';
       document.getElementById('admin-mod-panel').style.display = 'block';
     }
+    setTimeout(() => new HavenTutorial().start(), 500);
+    this.modMode = new ModMode();
+    this.modMode.init();
+    const modSettingsToggle = document.getElementById('mod-mode-settings-toggle');
+    modSettingsToggle?.addEventListener('click', () => this.modMode.toggle());
   }
 
   // ── Socket Event Listeners ────────────────────────────
 
   _setupSocketListeners() {
-    // Authoritative user info pushed by server on every connect
     this.socket.on('session-info', (data) => {
       this.user = { ...this.user, ...data };
       localStorage.setItem('haven_user', JSON.stringify(this.user));
-      // Show server version in status bar
-      if (data.version) {
-        const vEl = document.getElementById('status-version');
-        if (vEl) vEl.textContent = 'v' + data.version;
-      }
-      // Refresh display name + admin UI with authoritative data
-      document.getElementById('current-user').textContent = this.user.displayName || this.user.username;
+      const nameEl = document.getElementById('display-name');
+      if (nameEl) nameEl.textContent = this.user.displayName || this.user.username;
       const loginEl = document.getElementById('login-name');
       if (loginEl) loginEl.textContent = `@${this.user.username}`;
-      // Update avatar preview in settings if present
-      this._updateAvatarPreview();
+      const createBtn = document.getElementById('create-channel-overlay-btn');
+      const adminMod = document.getElementById('admin-mod-panel');
       if (this.user.isAdmin) {
-        document.getElementById('admin-controls').style.display = 'block';
-        document.getElementById('admin-mod-panel').style.display = 'block';
+        if (createBtn) createBtn.style.display = '';
+        if (adminMod) adminMod.style.display = 'block';
       } else {
-        document.getElementById('admin-controls').style.display = 'none';
-        document.getElementById('admin-mod-panel').style.display = 'none';
+        if (createBtn) createBtn.style.display = 'none';
+        if (adminMod) adminMod.style.display = 'none';
       }
     });
-
-    // Avatar updated confirmation
-    this.socket.on('avatar-updated', (data) => {
-      this.user.avatar = data.url;
-      localStorage.setItem('haven_user', JSON.stringify(this.user));
-      this._updateAvatarPreview();
-      this._showToast('Avatar updated!', 'success');
-    });
-
     this.socket.on('connect', () => {
       this._setLed('connection-led', 'on');
       this._setLed('status-server-led', 'on');
       document.getElementById('status-server-text').textContent = 'Connected';
       this._startPingMonitor();
-      // Re-join channel after reconnect (server lost our room membership)
-      this.socket.emit('get-channels');
-      this.socket.emit('get-server-settings');
-      if (this.currentChannel) {
-        this.socket.emit('enter-channel', { code: this.currentChannel });
-        this.socket.emit('get-messages', { code: this.currentChannel });
-        this.socket.emit('get-channel-members', { code: this.currentChannel });
-        // Request fresh voice list for this channel
-        this.socket.emit('request-voice-users', { code: this.currentChannel });
+      this._hideConnectionBanner();
+      if (this._wasConnected) {
+        this._showToast('🔄 Reconnected to server', 'success');
+        this._resyncState();
       }
-      // Re-join voice if we were in voice before reconnect
-      if (this.voice && this.voice.inVoice && this.voice.currentChannel) {
-        this.socket.emit('voice-rejoin', { code: this.voice.currentChannel });
-      }
+      this._wasConnected = true;
     });
 
     this.socket.on('disconnect', () => {
@@ -183,6 +153,7 @@ class HavenApp {
       this._setLed('status-server-led', 'danger pulse');
       document.getElementById('status-server-text').textContent = 'Disconnected';
       document.getElementById('status-ping').textContent = '--';
+      this._showConnectionBanner('Connection lost — reconnecting...', 'danger');
     });
 
     this.socket.on('connect_error', (err) => {
@@ -194,6 +165,7 @@ class HavenApp {
       this._setLed('connection-led', 'danger');
       this._setLed('status-server-led', 'danger');
       document.getElementById('status-server-text').textContent = 'Error';
+      this._showConnectionBanner('Cannot reach server — retrying...', 'danger');
     });
 
     this.socket.on('channels-list', (channels) => {
@@ -216,6 +188,26 @@ class HavenApp {
       this.switchChannel(channel.code);
     });
 
+    this.socket.on('channels-refresh', () => { this.socket.emit('get-channels'); });
+
+    this.socket.on('channel-removed', (data) => {
+      this.channels = this.channels.filter(c => c.code !== data.code);
+      this._renderChannels();
+      if (this.currentChannel === data.code) { this._showWelcome(); this.currentChannel = null; }
+    });
+
+    this.socket.on('channel-left', (data) => {
+      this.channels = this.channels.filter(c => c.code !== data.code);
+      this._renderChannels();
+      if (this.currentChannel === data.code) { this._showWelcome(); this.currentChannel = null; }
+      this._showToast('Left channel', 'info');
+    });
+
+    this.socket.on('channel-permissions', (data) => {
+      this._currentChannelPermissions = data;
+      this._renderChannelMembers(data);
+    });
+
     this.socket.on('message-history', (data) => {
       if (data.channelCode === this.currentChannel) {
         this._renderMessages(data.messages);
@@ -225,7 +217,6 @@ class HavenApp {
     this.socket.on('new-message', (data) => {
       if (data.channelCode === this.currentChannel) {
         this._appendMessage(data.message);
-        this._markRead(data.message.id);
         if (data.message.user_id !== this.user.id) {
           // Check if message contains @mention of current user
           const mentionRegex = new RegExp(`@${this.user.username}\\b`, 'i');
@@ -256,30 +247,16 @@ class HavenApp {
       if (data.channelCode === this.currentChannel) {
         this.onlineCount = data.users.length;
         this._renderOnlineUsers(data.users);
-        document.getElementById('status-online-count').textContent = data.users.length;
       }
+    });
+    this.socket.on('global-online-count', (count) => {
+      document.getElementById('status-online-count').textContent = count;
+      const sidebarCount = document.getElementById('sidebar-bottom-online-count');
+      if (sidebarCount) sidebarCount.textContent = count;
     });
 
     this.socket.on('voice-users-update', (data) => {
-      // Always render voice panel when viewing the matching text channel
-      if (data.channelCode === this.currentChannel) {
-        this._renderVoiceUsers(data.users);
-      }
-      // Also update if we're in voice for this channel (we may be viewing a different text channel)
-      if (this.voice && this.voice.inVoice && this.voice.currentChannel === data.channelCode) {
-        // Keep voice bar up to date
-        this._updateVoiceBar();
-      }
-    });
-
-    // Lightweight sidebar voice count — fires for every voice join/leave
-    this.socket.on('voice-count-update', (data) => {
-      if (data.count > 0) {
-        this.voiceCounts[data.code] = data.count;
-      } else {
-        delete this.voiceCounts[data.code];
-      }
-      this._updateChannelVoiceIndicators();
+      this._renderVoiceUsers(data.users);
     });
 
     this.socket.on('user-typing', (data) => {
@@ -308,12 +285,24 @@ class HavenApp {
     this.socket.on('error-msg', (msg) => {
       this._showToast(msg, 'error');
     });
-
+    this.socket.on('listen-session', (session) => {
+      this._onListenSession(session);
+    });
+    this.socket.on('listen-sync-update', (data) => {
+      this._onListenSync(data);
+    });
+    this.socket.on('listen-ended', () => {
+      this._onListenEnded();
+    });
     this.socket.on('pong-check', () => {
       if (this._pingStart) {
         const latency = Date.now() - this._pingStart;
         document.getElementById('status-ping').textContent = latency;
       }
+    });
+    this.socket.on('cross-server-ping', (data) => {
+      this.notifications.playDirect('mention');
+      this._showToast(`📡 ${data.fromUser} from ${data.fromServer}: ${data.message}`, 'info', 8000);
     });
 
     // ── Reactions ──────────────────────────────────────
@@ -323,63 +312,11 @@ class HavenApp {
       }
     });
 
-    // ── Music sharing ────────────────────────────────
-    this.socket.on('music-shared', (data) => {
-      this._handleMusicShared(data);
-    });
-    this.socket.on('music-stopped', (data) => {
-      this._handleMusicStopped(data);
-    });
-    this.socket.on('music-control', (data) => {
-      this._handleMusicControl(data);
-    });
-    this.socket.on('music-search-results', (data) => {
-      this._showMusicSearchResults(data);
-    });
-
     // ── Channel members (for @mentions) ────────────────
     this.socket.on('channel-members', (data) => {
       if (data.channelCode === this.currentChannel) {
         this.channelMembers = data.members;
       }
-    });
-
-    // ── Channel topic changed ───────────────────────
-    this.socket.on('channel-topic-changed', (data) => {
-      const ch = this.channels.find(c => c.code === data.code);
-      if (ch) ch.topic = data.topic;
-      if (data.code === this.currentChannel) {
-        this._updateTopicBar(data.topic);
-      }
-    });
-
-    // ── DM opened ───────────────────────────────────
-    this.socket.on('dm-opened', (data) => {
-      if (!this.channels.find(c => c.code === data.code)) {
-        this.channels.push(data);
-        this._renderChannels();
-      }
-      // Auto-expand DM section when a DM opens
-      const dmList = document.getElementById('dm-list');
-      if (dmList && dmList.style.display === 'none') {
-        dmList.style.display = '';
-        const arrow = document.querySelector('.dm-toggle-arrow');
-        if (arrow) arrow.classList.remove('collapsed');
-        localStorage.setItem('haven_dm_collapsed', false);
-      }
-      this.switchChannel(data.code);
-      // Scroll the DM channel into view in the sidebar
-      const dmEl = document.querySelector(`.channel-item[data-code="${data.code}"]`);
-      if (dmEl) dmEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      // Re-enable any disabled DM buttons
-      document.querySelectorAll('.user-dm-btn[disabled]').forEach(b => { b.disabled = false; b.style.opacity = ''; });
-    });
-
-    // ── Status updated ──────────────────────────────
-    this.socket.on('status-updated', (data) => {
-      this.userStatus = data.status;
-      this.userStatusText = data.statusText;
-      this._updateStatusPickerUI();
     });
 
     // ── Username rename ──────────────────────────────
@@ -388,17 +325,19 @@ class HavenApp {
       this.user = data.user;
       localStorage.setItem('haven_token', data.token);
       localStorage.setItem('haven_user', JSON.stringify(data.user));
-      document.getElementById('current-user').textContent = data.user.displayName || data.user.username;
-      const loginEl = document.getElementById('login-name');
-      if (loginEl) loginEl.textContent = `@${data.user.username}`;
-      this._showToast(`Display name changed to "${data.user.displayName || data.user.username}"`, 'success');
+      document.getElementById('current-user').textContent = data.user.username;
+      this._showToast(`You are now "${data.user.username}"`, 'success');
       // Refresh admin UI in case admin status changed
       if (data.user.isAdmin) {
-        document.getElementById('admin-controls').style.display = 'block';
+        document.getElementById('create-channel-overlay-btn').style.display = '';
         document.getElementById('admin-mod-panel').style.display = 'block';
+        if (this.currentChannel) {
+          document.getElementById('delete-channel-btn').style.display = 'inline-flex';
+        }
       } else {
-        document.getElementById('admin-controls').style.display = 'none';
+        document.getElementById('create-channel-overlay-btn').style.display = 'none';
         document.getElementById('admin-mod-panel').style.display = 'none';
+        document.getElementById('delete-channel-btn').style.display = 'none';
       }
     });
 
@@ -553,19 +492,91 @@ class HavenApp {
       });
     });
 
-    // ── High Scores ──────────────────────────────────
-    this.socket.on('high-scores', (data) => {
-      this.highScores[data.game] = data.leaderboard;
-      // Re-render online users to update score badges
-      if (this._lastOnlineUsers) {
-        this._renderOnlineUsers(this._lastOnlineUsers);
-      }
-      // Relay to game window if open
-      try { if (this._gameWindow && !this._gameWindow.closed) this._gameWindow.postMessage({ type: 'leaderboard-data', leaderboard: data.leaderboard }, window.location.origin); } catch {}
+    this.socket.on('blocks-list', (data) => {
+      this.blockedUsers = new Set(data.map(b => b.userId));
     });
-
-    this.socket.on('new-high-score', (data) => {
-      this._showToast(`🏆 ${data.username} set a new Shippy Container record: ${data.score}!`, 'success');
+    this.socket.on('block-updated', (data) => {
+      data.blocked ? this.blockedUsers.add(data.userId) : this.blockedUsers.delete(data.userId);
+      this._showToast(data.blocked ? 'User blocked' : 'User unblocked', 'success');
+    });
+    this.socket.on('dms-list', (data) => {
+      this.dms = data;
+      this._renderDMs();
+    });
+    this.socket.on('dm-opened', (data) => {
+      const exists = this.dms.find(d => d.channel_code === data.channel_code);
+      if (!exists) {
+        this.dms.push(data);
+        this._renderDMs();
+      } else if (data.other_username && !exists.other_username) {
+        exists.other_username = data.other_username;
+        this._renderDMs();
+      }
+      this.currentDm = data.channel_code;
+      this.currentChannel = null;
+      document.querySelectorAll('.dm-item').forEach(i => i.classList.remove('active'));
+      document.querySelectorAll('.channel-item').forEach(c => c.classList.remove('active'));
+      const dmEl = document.querySelector(`.dm-item[data-dm="${data.channel_code}"]`);
+      if (dmEl) dmEl.classList.add('active');
+      const dmName = data.other_username || data.username || 'DM';
+      document.getElementById('channel-header-name').textContent = `DM — ${dmName}`;
+      document.getElementById('no-channel-msg').style.display = 'none';
+      document.getElementById('message-area').style.display = 'flex';
+      document.getElementById('messages').innerHTML = '';
+      this.socket.emit('get-dm-messages', { code: data.channel_code });
+      const dmSection = document.querySelector('.dm-section');
+      const dmList = document.getElementById('dm-list');
+      if (dmList?.classList.contains('collapsed')) {
+        dmList.classList.remove('collapsed');
+        dmSection?.querySelector('.collapsible-label')?.classList.remove('collapsed');
+        localStorage.setItem('haven_collapse_dm-list', '0');
+      }
+    });
+    this.socket.on('dm-message', (data) => {
+      if (this.currentDm === data.dm_code) {
+        this._appendMessage({ ...data, id: data.id || Date.now() });
+      } else {
+        this.notifications.playDirect('dm_notify');
+        this._showToast(`DM from ${data.username}`, 'info');
+      }
+    });
+    this.socket.on('dm-message-history', (data) => {
+      if (this.currentDm === data.code) {
+        this._renderMessages(data.messages);
+      }
+    });
+    this.socket.on('incoming-call', (data) => {
+      this.activeCall = { code: data.code, type: data.type, role: 'callee' };
+      const modal = document.getElementById('call-modal');
+      document.getElementById('call-modal-title').textContent = `Incoming ${data.type} call`;
+      document.getElementById('call-modal-desc').textContent = `${data.callerName} is calling...`;
+      document.getElementById('call-accept-btn').style.display = '';
+      document.getElementById('call-reject-btn').style.display = '';
+      document.getElementById('call-end-btn').style.display = 'none';
+      modal.style.display = 'flex';
+      this.notifications.playDirect('flip_ring');
+    });
+    this.socket.on('call-accepted', (data) => {
+      document.getElementById('call-accept-btn').style.display = 'none';
+      document.getElementById('call-reject-btn').style.display = 'none';
+      document.getElementById('call-end-btn').style.display = '';
+      document.getElementById('call-modal-desc').textContent = 'Connected';
+      this._showToast('Call connected', 'success');
+    });
+    this.socket.on('call-rejected', () => {
+      document.getElementById('call-modal').style.display = 'none';
+      this.activeCall = null;
+      this._showToast('Call rejected', 'error');
+    });
+    this.socket.on('call-ended', () => {
+      document.getElementById('call-modal').style.display = 'none';
+      this.activeCall = null;
+      this._showToast('Call ended', 'info');
+    });
+    this.socket.on('call-signal', (data) => {
+      if (this.activeCall && this.activeCall.code === data.code) {
+        /* WebRTC signal handled by voice manager */
+      }
     });
   }
 
@@ -573,11 +584,6 @@ class HavenApp {
 
   _setupUI() {
     const msgInput = document.getElementById('message-input');
-
-    // Shorter placeholder on narrow screens to prevent wrapping
-    if (window.innerWidth <= 480) {
-      msgInput.placeholder = 'Message...';
-    }
 
     msgInput.addEventListener('keydown', (e) => {
       // If slash dropdown is visible, hijack arrow keys and enter
@@ -624,9 +630,8 @@ class HavenApp {
     });
 
     msgInput.addEventListener('input', () => {
-      const maxH = window.innerWidth <= 480 ? 90 : 120;
       msgInput.style.height = 'auto';
-      msgInput.style.height = Math.min(msgInput.scrollHeight, maxH) + 'px';
+      msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
 
       const now = Date.now();
       if (now - this.lastTypingEmit > 2000 && this.currentChannel) {
@@ -641,23 +646,33 @@ class HavenApp {
     });
 
     document.getElementById('send-btn').addEventListener('click', () => this._sendMessage());
-
-    // Join channel
     const joinBtn = document.getElementById('join-channel-btn');
     const codeInput = document.getElementById('channel-code-input');
+    const joinModal = document.getElementById('join-channel-modal');
+    const createModal = document.getElementById('create-channel-modal');
+    document.getElementById('join-channel-overlay-btn')?.addEventListener('click', () => { joinModal.style.display = 'flex'; codeInput.focus(); });
+    document.getElementById('cancel-join-btn')?.addEventListener('click', () => { joinModal.style.display = 'none'; });
+    joinModal?.addEventListener('click', (e) => { if (e.target === joinModal) joinModal.style.display = 'none'; });
     joinBtn.addEventListener('click', () => {
       const code = codeInput.value.trim();
-      if (code) { this.socket.emit('join-channel', { code }); codeInput.value = ''; }
+      if (code) { this.socket.emit('join-channel', { code }); codeInput.value = ''; joinModal.style.display = 'none'; }
     });
     codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinBtn.click(); });
-
-    // Create channel (admin)
+    document.getElementById('create-channel-overlay-btn')?.addEventListener('click', () => { createModal.style.display = 'flex'; document.getElementById('new-channel-name')?.focus(); });
+    document.getElementById('cancel-create-btn')?.addEventListener('click', () => { createModal.style.display = 'none'; });
+    createModal?.addEventListener('click', (e) => { if (e.target === createModal) createModal.style.display = 'none'; });
     const createBtn = document.getElementById('create-channel-btn');
     const nameInput = document.getElementById('new-channel-name');
     if (createBtn) {
       createBtn.addEventListener('click', () => {
         const name = nameInput.value.trim();
-        if (name) { this.socket.emit('create-channel', { name }); nameInput.value = ''; }
+        const typeEl = document.getElementById('new-channel-type');
+        const type = typeEl ? typeEl.value : 'both';
+        const parentEl = document.getElementById('new-channel-parent');
+        const parentId = parentEl && parentEl.value ? parseInt(parentEl.value) : null;
+        const privateEl = document.getElementById('new-channel-private');
+        const isPrivate = privateEl ? privateEl.checked : false;
+        if (name) { this.socket.emit('create-channel', { name, type, parentId, isPrivate }); nameInput.value = ''; if (privateEl) privateEl.checked = false; createModal.style.display = 'none'; }
       });
       nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createBtn.click(); });
     }
@@ -672,147 +687,125 @@ class HavenApp {
     });
 
     // Delete channel
-    // ── Channel context menu ("..." on hover) ──────────
-    this._initChannelContextMenu();
-    // Delete channel with TWO confirmations (from ctx menu)
-    document.querySelector('[data-action="delete"]')?.addEventListener('click', () => {
-      const code = this._ctxMenuChannel;
-      if (!code) return;
-      this._closeChannelCtxMenu();
-      if (!confirm('⚠️ Delete this channel?\nAll messages will be permanently lost.')) return;
-      if (!confirm('⚠️ Are you ABSOLUTELY sure?\nThis action cannot be undone!')) return;
-      this.socket.emit('delete-channel', { code });
+    document.getElementById('delete-channel-btn').addEventListener('click', () => {
+      if (this.currentChannel && confirm('Delete this channel? All messages will be lost.')) {
+        this.socket.emit('delete-channel', { code: this.currentChannel });
+      }
     });
-    // Mute channel toggle
-    document.querySelector('[data-action="mute"]')?.addEventListener('click', () => {
-      const code = this._ctxMenuChannel;
-      if (!code) return;
-      this._closeChannelCtxMenu();
-      const muted = JSON.parse(localStorage.getItem('haven_muted_channels') || '[]');
-      const idx = muted.indexOf(code);
-      if (idx >= 0) { muted.splice(idx, 1); this._showToast('Channel unmuted', 'success'); }
-      else { muted.push(code); this._showToast('Channel muted', 'success'); }
-      localStorage.setItem('haven_muted_channels', JSON.stringify(muted));
+
+    // Manage channel members (admin)
+    document.getElementById('manage-members-btn')?.addEventListener('click', () => {
+      if (!this.currentChannel) return;
+      document.getElementById('channel-members-modal').style.display = 'flex';
+      document.getElementById('add-member-row').style.display = this.user.isAdmin ? 'flex' : 'none';
+      this.socket.emit('get-channel-permissions', { code: this.currentChannel });
     });
-    // Toggle streams permission
-    document.querySelector('[data-action="toggle-streams"]')?.addEventListener('click', () => {
-      const code = this._ctxMenuChannel;
-      if (!code) return;
-      this._closeChannelCtxMenu();
-      this.socket.emit('toggle-channel-permission', { code, permission: 'streams' });
+    document.getElementById('close-channel-members-btn')?.addEventListener('click', () => { document.getElementById('channel-members-modal').style.display = 'none'; });
+    document.getElementById('add-member-btn')?.addEventListener('click', () => {
+      const input = document.getElementById('add-member-input');
+      const username = input.value.trim();
+      if (!username || !this.currentChannel) return;
+      this.socket.emit('add-channel-user', { code: this.currentChannel, username });
+      input.value = '';
     });
-    // Toggle music permission
-    document.querySelector('[data-action="toggle-music"]')?.addEventListener('click', () => {
-      const code = this._ctxMenuChannel;
-      if (!code) return;
-      this._closeChannelCtxMenu();
-      this.socket.emit('toggle-channel-permission', { code, permission: 'music' });
-    });
-    // Close context menu on outside click
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.channel-ctx-menu') && !e.target.closest('.channel-more-btn')) {
-        this._closeChannelCtxMenu();
+    document.getElementById('add-member-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('add-member-btn').click(); });
+
+    // Leave channel
+    document.getElementById('leave-channel-btn')?.addEventListener('click', () => {
+      if (!this.currentChannel) return;
+      const ch = this.channels.find(c => c.code === this.currentChannel);
+      if (ch?.is_private) return this._showToast('Cannot leave private channels', 'error');
+      if (confirm('Leave this channel? You can rejoin with the code.')) {
+        this.socket.emit('leave-channel', { code: this.currentChannel });
       }
     });
 
     // Voice buttons
     document.getElementById('voice-join-btn').addEventListener('click', () => this._joinVoice());
-    document.getElementById('voice-join-mobile')?.addEventListener('click', () => {
-      this._joinVoice();
-      this._closeMobilePanels();
-    });
     document.getElementById('voice-mute-btn').addEventListener('click', () => this._toggleMute());
     document.getElementById('voice-deafen-btn').addEventListener('click', () => this._toggleDeafen());
     document.getElementById('voice-leave-btn').addEventListener('click', () => this._leaveVoice());
     document.getElementById('screen-share-btn').addEventListener('click', () => this._toggleScreenShare());
-    document.getElementById('screen-share-minimize').addEventListener('click', () => this._hideScreenShare());
-    document.getElementById('screen-share-close').addEventListener('click', () => this._closeScreenShare());
-
-    // Music controls
-    document.getElementById('music-share-btn').addEventListener('click', () => this._openMusicModal());
-    document.getElementById('share-music-btn').addEventListener('click', () => this._shareMusic());
-    document.getElementById('cancel-music-btn').addEventListener('click', () => this._closeMusicModal());
-    document.getElementById('music-modal').addEventListener('click', (e) => {
-      if (e.target.id === 'music-modal') this._closeMusicModal();
-    });
-    document.getElementById('music-stop-btn').addEventListener('click', () => this._stopMusic());
-    document.getElementById('music-close-btn').addEventListener('click', () => {
-      this._minimizeMusicPanel();
-    });
-    document.getElementById('music-popout-btn').addEventListener('click', () => this._popOutMusicPlayer());
-    document.getElementById('music-play-pause-btn').addEventListener('click', () => this._toggleMusicPlayPause());
-    document.getElementById('music-mute-btn').addEventListener('click', () => this._toggleMusicMute());
-    document.getElementById('music-volume-slider').addEventListener('input', (e) => {
-      this._setMusicVolume(parseInt(e.target.value));
-    });
-    document.getElementById('music-link-input').addEventListener('input', (e) => {
-      this._previewMusicLink(e.target.value.trim());
-    });
-
-    // Voice controls dropdown
-    // Create mobile backdrop element
-    const backdrop = document.createElement('div');
-    backdrop.className = 'voice-dropdown-backdrop';
-    document.body.appendChild(backdrop);
-
-    const toggleVoiceDropdown = (show) => {
-      const panel = document.getElementById('voice-dropdown-panel');
-      if (show) {
-        panel.style.display = 'flex';
-        backdrop.style.display = '';  // let CSS media query control visibility
-      } else {
-        panel.style.display = 'none';
-        backdrop.style.display = 'none';
-      }
-    };
-
-    document.getElementById('voice-dropdown-toggle')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const panel = document.getElementById('voice-dropdown-panel');
-      toggleVoiceDropdown(panel.style.display === 'none');
-    });
-    backdrop.addEventListener('click', () => toggleVoiceDropdown(false));
-    // Close dropdown when clicking elsewhere
-    document.addEventListener('click', (e) => {
-      const panel = document.getElementById('voice-dropdown-panel');
-      if (panel && panel.style.display !== 'none' && !e.target.closest('.voice-dropdown')) {
-        toggleVoiceDropdown(false);
-      }
-    });
-    // Stream size slider
-    const streamSizeSlider = document.getElementById('stream-size-slider');
-    if (streamSizeSlider) {
-      const savedSize = localStorage.getItem('haven_stream_size');
-      if (savedSize) streamSizeSlider.value = savedSize;
-      let _resizeRAF = null;
-      const applySize = () => {
-        if (_resizeRAF) cancelAnimationFrame(_resizeRAF);
-        _resizeRAF = requestAnimationFrame(() => {
-          const vh = parseInt(streamSizeSlider.value, 10);
-          const container = document.getElementById('screen-share-container');
-          container.style.maxHeight = vh + 'vh';
-          const grid = document.getElementById('screen-share-grid');
-          grid.style.maxHeight = (vh - 2) + 'vh';
-          document.querySelectorAll('.screen-share-tile video').forEach(v => { v.style.maxHeight = (vh - 4) + 'vh'; });
-          localStorage.setItem('haven_stream_size', vh);
-          _resizeRAF = null;
-        });
-      };
-      applySize();
-      streamSizeSlider.addEventListener('input', applySize);
+    document.getElementById('screen-share-close').addEventListener('click', () => this._hideScreenShare());
+    const noiseSuppBtn = document.getElementById('noise-suppress-btn');
+    if (noiseSuppBtn) {
+      noiseSuppBtn.addEventListener('click', () => {
+        if (!this.voice || !this.voice.inVoice) return;
+        const on = this.voice.toggleNoiseSuppression();
+        noiseSuppBtn.innerHTML = on ? '<span class="led on" style="width:8px;height:8px;margin-right:4px"></span>🧭 Active' : '<span class="led off" style="width:8px;height:8px;margin-right:4px"></span>🧭 Filter';
+        noiseSuppBtn.classList.toggle('active-filter', on);
+        this._showToast(on ? 'Noise suppression ON' : 'Noise suppression OFF', 'info');
+      });
     }
-    document.getElementById('voice-ns-slider').addEventListener('input', (e) => {
-      if (this.voice && this.voice.inVoice) {
-        this.voice.setNoiseSensitivity(parseInt(e.target.value, 10));
-      }
-    });
+    const listenBtn = document.getElementById('listen-together-btn');
+    if (listenBtn) {
+      listenBtn.addEventListener('click', () => {
+        const panel = document.getElementById('listen-together-panel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        if (panel.style.display === 'block') this.socket.emit('listen-get', { channelCode: this.currentChannel });
+      });
+    }
+    const listenCloseBtn = document.getElementById('listen-panel-close');
+    if (listenCloseBtn) listenCloseBtn.addEventListener('click', () => { document.getElementById('listen-together-panel').style.display = 'none'; });
+    const listenStartBtn = document.getElementById('listen-start-btn');
+    if (listenStartBtn) {
+      listenStartBtn.addEventListener('click', () => {
+        const url = document.getElementById('listen-url-input').value.trim();
+        const title = document.getElementById('listen-title-input').value.trim();
+        if (!url) return this._showToast('Paste a media URL first', 'error');
+        this.socket.emit('listen-start', { url, title, channelCode: this.currentChannel });
+        document.getElementById('listen-url-input').value = '';
+        document.getElementById('listen-title-input').value = '';
+      });
+    }
+    const listenPlayPause = document.getElementById('listen-play-pause');
+    if (listenPlayPause) {
+      listenPlayPause.addEventListener('click', async () => {
+        if (!this._listenSession) return;
+        this._listenSession.isPlaying = !this._listenSession.isPlaying;
+        listenPlayPause.textContent = this._listenSession.isPlaying ? '⏸ Pause' : '▶ Play';
+        if (this._spotifyReady && this.spotifyPlayer?.isPremium && this._isSpotifyUrl(this._listenSession.url)) {
+          this._listenSession.isPlaying ? await this.spotifyPlayer.resume() : await this.spotifyPlayer.pause();
+        }
+        this.socket.emit('listen-sync', { isPlaying: this._listenSession.isPlaying, position: 0, channelCode: this.currentChannel });
+      });
+    }
+    const listenStopBtn = document.getElementById('listen-stop-btn');
+    if (listenStopBtn) {
+      listenStopBtn.addEventListener('click', () => {
+        this.socket.emit('listen-stop', { channelCode: this.currentChannel });
+      });
+    }
+    const callAcceptBtn = document.getElementById('call-accept-btn');
+    if (callAcceptBtn) {
+      callAcceptBtn.addEventListener('click', () => {
+        if (this.activeCall) this.socket.emit('accept-call', { code: this.activeCall.code });
+      });
+    }
+    const callRejectBtn = document.getElementById('call-reject-btn');
+    if (callRejectBtn) {
+      callRejectBtn.addEventListener('click', () => {
+        if (this.activeCall) { this.socket.emit('reject-call', { code: this.activeCall.code }); this.activeCall = null; }
+        document.getElementById('call-modal').style.display = 'none';
+      });
+    }
+    const callEndBtn = document.getElementById('call-end-btn');
+    if (callEndBtn) {
+      callEndBtn.addEventListener('click', () => {
+        if (this.activeCall) { this.socket.emit('end-call', { code: this.activeCall.code }); this.activeCall = null; }
+        document.getElementById('call-modal').style.display = 'none';
+      });
+    }
+    const closeBlockListBtn = document.getElementById('close-block-list-btn');
+    if (closeBlockListBtn) closeBlockListBtn.addEventListener('click', () => document.getElementById('block-list-modal').style.display = 'none');
 
     // Wire up the voice manager's video callback
     this.voice.onScreenStream = (userId, stream) => this._handleScreenStream(userId, stream);
-    // Wire up screen share audio callback
-    this.voice.onScreenAudio = (userId) => this._handleScreenAudio(userId);
-    // Wire up no-audio indicator for streams without audio
-    this.voice.onScreenNoAudio = (userId) => this._handleScreenNoAudio(userId);
+    this.voice.onScreenShareStopped = () => {
+      document.getElementById('screen-share-btn').textContent = '🖥️ Share';
+      document.getElementById('screen-share-btn').classList.remove('sharing');
+    };
+    this.voice._localUserId = this.user.id;
 
     // Wire up voice join/leave audio cues
     this.voice.onVoiceJoin = (userId, username) => {
@@ -884,22 +877,11 @@ class HavenApp {
         sc.style.display = 'flex';
         document.getElementById('search-input').focus();
       }
-      // Escape = close modals, search, theme popup
+      // Escape = close modals
       if (e.key === 'Escape') {
         document.getElementById('search-container').style.display = 'none';
         document.getElementById('search-results-panel').style.display = 'none';
-        document.getElementById('theme-popup').style.display = 'none';
-        document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
       }
-    });
-
-    // Theme popup toggle
-    document.getElementById('theme-popup-toggle')?.addEventListener('click', () => {
-      const popup = document.getElementById('theme-popup');
-      popup.style.display = popup.style.display === 'none' ? 'block' : 'none';
-    });
-    document.getElementById('theme-popup-close')?.addEventListener('click', () => {
-      document.getElementById('theme-popup').style.display = 'none';
     });
 
     // Logout
@@ -910,26 +892,33 @@ class HavenApp {
       window.location.href = '/';
     });
 
-    // Flappy Container game (sidebar button) — single delegated listener with origin check
-    if (!this._gameScoreListenerAdded) {
-      window.addEventListener('message', (e) => {
-        if (e.origin !== window.location.origin) return;
-        if (e.data && e.data.type === 'flappy-score' && typeof e.data.score === 'number') {
-          this.socket.emit('submit-high-score', { game: 'flappy', score: e.data.score });
-        }
-        if (e.data && e.data.type === 'get-leaderboard') {
-          const scores = this.highScores?.flappy || [];
-          e.source?.postMessage({ type: 'leaderboard-data', leaderboard: scores }, e.origin);
-        }
-      });
-      this._gameScoreListenerAdded = true;
-    }
-    document.getElementById('play-flappy-btn')?.addEventListener('click', () => {
-      const tok = localStorage.getItem('haven_token') || '';
-      this._gameWindow = window.open('/games/flappy#token=' + encodeURIComponent(tok), '_blank', 'width=740,height=860');
+    document.getElementById('status-online-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const ov = document.getElementById('online-overlay');
+      ov.style.display = ov.style.display === 'none' ? 'flex' : 'none';
+    });
+    document.getElementById('online-overlay-close')?.addEventListener('click', () => {
+      document.getElementById('online-overlay').style.display = 'none';
+    });
+    document.addEventListener('click', (e) => {
+      const ov = document.getElementById('online-overlay');
+      const btn = document.getElementById('status-online-btn');
+      if (ov && ov.style.display !== 'none' && !ov.contains(e.target) && !btn.contains(e.target)) ov.style.display = 'none';
     });
 
-    // Image click + spoiler click delegation (CSP-safe — no inline handlers)
+    document.getElementById('sidebar-bottom-online-btn')?.addEventListener('click', () => {
+      const section = document.querySelector('.presence-section');
+      const list = document.getElementById('sidebar-online-users');
+      if (section && list) {
+        if (list.classList.contains('collapsed')) {
+          list.classList.remove('collapsed');
+          section.querySelector('.collapsible-label')?.classList.remove('collapsed');
+          localStorage.setItem('haven_collapse_sidebar-online-users', '0');
+        }
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+
     document.getElementById('messages').addEventListener('click', (e) => {
       if (e.target.classList.contains('chat-image')) {
         window.open(e.target.src, '_blank');
@@ -1009,10 +998,9 @@ class HavenApp {
     document.getElementById('rename-btn').addEventListener('click', () => {
       document.getElementById('rename-modal').style.display = 'flex';
       const input = document.getElementById('rename-input');
-      input.value = this.user.displayName || this.user.username;
+      input.value = this.user.username;
       input.focus();
       input.select();
-      this._updateRenameAvatarPreview();
     });
 
     document.getElementById('cancel-rename-btn').addEventListener('click', () => {
@@ -1066,47 +1054,19 @@ class HavenApp {
     document.getElementById('settings-modal').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
     });
-
-    // ── Password change ──────────────────────────────────
-    document.getElementById('change-password-btn').addEventListener('click', async () => {
-      const cur  = document.getElementById('current-password').value;
-      const np   = document.getElementById('new-password').value;
-      const conf = document.getElementById('confirm-password').value;
-      const hint = document.getElementById('password-status');
-      hint.textContent = '';
-      hint.className = 'settings-hint';
-
-      if (!cur || !np) return hint.textContent = 'Fill in all fields';
-      if (np.length < 8) return hint.textContent = 'New password must be 8+ characters';
-      if (np !== conf)   return hint.textContent = 'Passwords do not match';
-
-      try {
-        const res = await fetch('/api/auth/change-password', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.token}`
-          },
-          body: JSON.stringify({ currentPassword: cur, newPassword: np })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          hint.textContent = data.error || 'Failed';
-          hint.classList.add('error');
-          return;
-        }
-        // Store the fresh token
-        this.token = data.token;
-        localStorage.setItem('haven_token', data.token);
-        hint.textContent = '✅ Password changed!';
-        hint.classList.add('success');
-        document.getElementById('current-password').value = '';
-        document.getElementById('new-password').value = '';
-        document.getElementById('confirm-password').value = '';
-      } catch {
-        hint.textContent = 'Network error';
-        hint.classList.add('error');
-      }
+    const displayNameInput = document.getElementById('display-name-input');
+    if (displayNameInput) {
+      displayNameInput.value = this.user.displayName || '';
+      document.getElementById('save-display-name-btn').addEventListener('click', () => {
+        const name = displayNameInput.value.trim();
+        this.socket.emit('update-display-name', { displayName: name });
+      });
+    }
+    this.socket.on('display-name-updated', (data) => {
+      this.user.displayName = data.displayName;
+      const headerDisplay = document.getElementById('current-user');
+      if (headerDisplay) headerDisplay.textContent = data.displayName || this.user.username;
+      this._showToast(`Display name ${data.displayName ? `set to "${data.displayName}"` : 'cleared'}`, 'success');
     });
 
     // Member visibility select (admin)
@@ -1201,10 +1161,147 @@ class HavenApp {
       if (e.key === 'Enter') document.getElementById('whitelist-add-btn').click();
     });
 
-    // Listen for whitelist list updates
-    this.socket.on('whitelist-list', (list) => {
-      this._renderWhitelist(list);
+    this.socket.on('whitelist-list', (list) => { this._renderWhitelist(list); });
+    const tunnelEnabledEl = document.getElementById('tunnel-enabled');
+    if (tunnelEnabledEl) tunnelEnabledEl.addEventListener('change', () => {
+      this.socket.emit('update-server-setting', { key: 'tunnel_enabled', value: tunnelEnabledEl.checked ? 'true' : 'false' });
     });
+    const tunnelProvEl = document.getElementById('tunnel-provider-select');
+    if (tunnelProvEl) tunnelProvEl.addEventListener('change', () => {
+      this.socket.emit('update-server-setting', { key: 'tunnel_provider', value: tunnelProvEl.value });
+    });
+    const giphyKeyInput = document.getElementById('giphy-api-key-input');
+    const giphyKeySave = document.getElementById('save-giphy-key-btn');
+    if (giphyKeySave && giphyKeyInput) giphyKeySave.addEventListener('click', () => {
+      const k = giphyKeyInput.value.trim();
+      if (!k) return;
+      this.socket.emit('update-server-setting', { key: 'giphy_api_key', value: k });
+      this._showToast('Giphy API key saved', 'success');
+    });
+    const spotifyClientId = document.getElementById('spotify-client-id-input');
+    const spotifyClientSecret = document.getElementById('spotify-client-secret-input');
+    const spotifySave = document.getElementById('save-spotify-creds-btn');
+    if (spotifySave) spotifySave.addEventListener('click', () => {
+      const cid = spotifyClientId?.value.trim();
+      const sec = spotifyClientSecret?.value.trim();
+      if (!cid || !sec) return this._showToast('Both Client ID and Secret required', 'error');
+      this.socket.emit('update-server-setting', { key: 'spotify_client_id', value: cid });
+      this.socket.emit('update-server-setting', { key: 'spotify_client_secret', value: sec });
+      this._showToast('Spotify credentials saved', 'success');
+    });
+    const viewBlocksBtn = document.getElementById('view-blocks-btn');
+    if (viewBlocksBtn) viewBlocksBtn.addEventListener('click', () => {
+      document.getElementById('block-list-modal').style.display = 'flex';
+      this._renderBlockList();
+    });
+    const manageBotsBtn = document.getElementById('manage-bots-btn');
+    if (manageBotsBtn) manageBotsBtn.addEventListener('click', () => {
+      this._showToast('Bot management coming soon!', 'info');
+    });
+    this._setupSidebarToggles();
+  }
+  _setupSidebarToggles() {
+    const leftSidebar = document.querySelector('.sidebar');
+    const leftBtn = document.getElementById('toggle-left-sidebar');
+    const savedLeftW = localStorage.getItem('haven_left_width');
+    if (savedLeftW && leftSidebar) leftSidebar.style.width = savedLeftW + 'px';
+    if (localStorage.getItem('haven_left_collapsed') === '1' && leftSidebar) { leftSidebar.classList.add('collapsed'); if (leftBtn) leftBtn.textContent = '▶'; }
+    leftBtn?.addEventListener('click', () => {
+      const c = leftSidebar.classList.toggle('collapsed');
+      leftBtn.textContent = c ? '▶' : '◀';
+      localStorage.setItem('haven_left_collapsed', c ? '1' : '0');
+    });
+    this._setupSidebarResize(leftSidebar, 'left');
+    this._setupCollapsibles();
+    this._setupMessagesBubble();
+  }
+  _setupCollapsibles() {
+    document.querySelectorAll('.collapsible-label').forEach(label => {
+      const targetId = label.dataset.target;
+      if (!targetId) return;
+      const saved = localStorage.getItem('haven_collapse_' + targetId);
+      if (saved === '1') {
+        const t = document.getElementById(targetId);
+        if (t) t.classList.add('collapsed');
+        label.classList.add('collapsed');
+      }
+      label.addEventListener('click', () => {
+        const t = document.getElementById(targetId);
+        if (!t) return;
+        const c = t.classList.toggle('collapsed');
+        label.classList.toggle('collapsed', c);
+        localStorage.setItem('haven_collapse_' + targetId, c ? '1' : '0');
+      });
+    });
+  }
+  _setupMessagesBubble() {
+    const btn = document.getElementById('messages-bubble-btn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const dmSection = document.querySelector('.dm-section');
+      const leftSidebar = document.querySelector('.sidebar');
+      if (leftSidebar?.classList.contains('collapsed')) {
+        leftSidebar.classList.remove('collapsed');
+        const leftBtn = document.getElementById('toggle-left-sidebar');
+        if (leftBtn) leftBtn.textContent = '◀';
+        localStorage.setItem('haven_left_collapsed', '0');
+      }
+      if (dmSection) {
+        const dmList = document.getElementById('dm-list');
+        if (dmList?.classList.contains('collapsed')) {
+          dmList.classList.remove('collapsed');
+          dmSection.querySelector('.collapsible-label')?.classList.remove('collapsed');
+          localStorage.setItem('haven_collapse_dm-list', '0');
+        }
+        dmSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  }
+  _updateMsgBubbleBadge(count) {
+    const badge = document.getElementById('msg-bubble-badge');
+    if (!badge) return;
+    badge.style.display = count > 0 ? '' : 'none';
+    badge.textContent = count > 99 ? '99+' : count;
+  }
+  _setupSidebarResize(sidebar, side) {
+    if (!sidebar) return;
+    const handle = document.createElement('div');
+    handle.className = 'sidebar-resize-handle';
+    sidebar.appendChild(handle);
+    let startX, startW;
+    const onMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const delta = side === 'left' ? clientX - startX : startX - clientX;
+      const newW = Math.min(400, Math.max(side === 'left' ? 160 : 140, startW + delta));
+      sidebar.style.width = newW + 'px';
+    };
+    const onUp = () => {
+      handle.classList.remove('active');
+      sidebar.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const key = side === 'left' ? 'haven_left_width' : 'haven_right_width';
+      localStorage.setItem(key, parseInt(sidebar.style.width));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+    };
+    const onDown = (e) => {
+      e.preventDefault();
+      startX = e.touches ? e.touches[0].clientX : e.clientX;
+      startW = sidebar.getBoundingClientRect().width;
+      handle.classList.add('active');
+      sidebar.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      document.addEventListener('touchmove', onMove, { passive: true });
+      document.addEventListener('touchend', onUp);
+    };
+    handle.addEventListener('mousedown', onDown);
+    handle.addEventListener('touchstart', onDown, { passive: false });
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1291,7 +1388,39 @@ class HavenApp {
         }
         window.open(el.dataset.url, '_blank', 'noopener');
       });
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showServerPingMenu(el.dataset.url, e.clientX, e.clientY);
+      });
     });
+  }
+  _showServerPingMenu(url, x, y) {
+    document.querySelectorAll('.server-ping-menu').forEach(m => m.remove());
+    const status = this.serverManager.statusCache.get(url);
+    if (!status?.online) return this._showToast('Server is offline', 'error');
+    const users = status.users || [];
+    const menu = document.createElement('div');
+    menu.className = 'context-menu server-ping-menu';
+    menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:9999;`;
+    if (!users.length) {
+      menu.innerHTML = '<div class="ctx-item disabled" style="opacity:0.5">No users online</div>';
+    } else {
+      menu.innerHTML = `<div class="ctx-header" style="padding:6px 12px;font-size:11px;color:var(--text-muted);font-weight:600">${status.name} — ${users.length} online</div>` +
+        users.map(u => `<div class="ctx-item server-ping-user" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" style="cursor:pointer;padding:6px 12px;display:flex;align-items:center;gap:6px"><span style="color:var(--accent)">📡</span> ${this._escapeHtml(u.username)}</div>`).join('');
+    }
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+    if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+    menu.querySelectorAll('.server-ping-user').forEach(item => {
+      item.addEventListener('click', async () => {
+        const result = await this.serverManager.sendPing(url, item.dataset.uid, this.user.username);
+        this._showToast(result.delivered ? `Pinged ${item.dataset.uname}!` : `Could not reach ${item.dataset.uname}`, result.delivered ? 'success' : 'error');
+        menu.remove();
+      });
+    });
+    const dismiss = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', dismiss); } };
+    setTimeout(() => document.addEventListener('click', dismiss), 10);
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1352,116 +1481,72 @@ class HavenApp {
 
   _setupMobile() {
     const menuBtn = document.getElementById('mobile-menu-btn');
-    const usersBtn = document.getElementById('mobile-users-btn');
     const overlay = document.getElementById('mobile-overlay');
     const appBody = document.getElementById('app-body');
-
-    // Hamburger — toggle left sidebar
     menuBtn.addEventListener('click', () => {
       const isOpen = appBody.classList.toggle('mobile-sidebar-open');
-      appBody.classList.remove('mobile-right-open');
-      if (isOpen) overlay.classList.add('active');
-      else overlay.classList.remove('active');
+      isOpen ? overlay.classList.add('active') : overlay.classList.remove('active');
     });
-
-    // Users button — toggle right sidebar
-    usersBtn.addEventListener('click', () => {
-      const isOpen = appBody.classList.toggle('mobile-right-open');
-      appBody.classList.remove('mobile-sidebar-open');
-      if (isOpen) overlay.classList.add('active');
-      else overlay.classList.remove('active');
-    });
-
-    // Overlay click — close everything
     overlay.addEventListener('click', () => this._closeMobilePanels());
-
-    // Close sidebar when switching channels on mobile
     const origSwitch = this.switchChannel.bind(this);
     this.switchChannel = (code) => {
       origSwitch(code);
       this._closeMobilePanels();
     };
-
-    // Swipe gesture support (touch)
     let touchStartX = 0;
     let touchStartY = 0;
     const SWIPE_THRESHOLD = 60;
-
     document.addEventListener('touchstart', (e) => {
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
     }, { passive: true });
-
     document.addEventListener('touchend', (e) => {
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
-      // Only process horizontal swipes (not scrolling)
       if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dy) > Math.abs(dx)) return;
-
       if (dx > 0 && touchStartX < 40) {
-        // Swipe right from left edge → open left sidebar
         appBody.classList.add('mobile-sidebar-open');
-        appBody.classList.remove('mobile-right-open');
-        overlay.classList.add('active');
-      } else if (dx < 0 && touchStartX > window.innerWidth - 40) {
-        // Swipe left from right edge → open right sidebar
-        appBody.classList.add('mobile-right-open');
-        appBody.classList.remove('mobile-sidebar-open');
         overlay.classList.add('active');
       } else if (dx < 0 && appBody.classList.contains('mobile-sidebar-open')) {
         this._closeMobilePanels();
-      } else if (dx > 0 && appBody.classList.contains('mobile-right-open')) {
-        this._closeMobilePanels();
       }
     }, { passive: true });
-
-    // ── Tap-to-show message toolbar on mobile ──
     const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
     if (isTouchDevice) {
       const messagesEl = document.getElementById('messages');
-
       messagesEl.addEventListener('click', (e) => {
-        // Don't interfere with toolbar button clicks, links, images, reactions, spoilers
         if (e.target.closest('.msg-toolbar') || e.target.closest('a') ||
             e.target.closest('img') || e.target.closest('.reaction-badge') ||
             e.target.closest('.spoiler') || e.target.closest('.reply-banner')) return;
-
         const msgEl = e.target.closest('.message, .message-compact');
         if (!msgEl) {
-          // Tapped empty space — deselect all
           messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
           return;
         }
-
         const wasSelected = msgEl.classList.contains('msg-selected');
-        // Deselect all
         messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
-        // Toggle — if it wasn't selected, select it
         if (!wasSelected) msgEl.classList.add('msg-selected');
       });
-
-      // Deselect when tapping input area or outside messages
       document.getElementById('message-input').addEventListener('focus', () => {
         messagesEl.querySelectorAll('.msg-selected').forEach(el => el.classList.remove('msg-selected'));
       });
     }
   }
-
   _closeMobilePanels() {
     const appBody = document.getElementById('app-body');
     const overlay = document.getElementById('mobile-overlay');
-    appBody.classList.remove('mobile-sidebar-open', 'mobile-right-open');
+    appBody.classList.remove('mobile-sidebar-open');
     overlay.classList.remove('active');
   }
 
   _saveRename() {
     const input = document.getElementById('rename-input');
-    const newName = input.value.trim().replace(/\s+/g, ' ');
-    if (!newName || newName.length < 2) {
-      return this._showToast('Display name must be at least 2 characters', 'error');
+    const newName = input.value.trim();
+    if (!newName || newName.length < 3) {
+      return this._showToast('Username must be at least 3 characters', 'error');
     }
-    if (!/^[a-zA-Z0-9_ ]+$/.test(newName)) {
-      return this._showToast('Letters, numbers, underscores, and spaces only', 'error');
+    if (!/^[a-zA-Z0-9_]+$/.test(newName)) {
+      return this._showToast('Letters, numbers, and underscores only', 'error');
     }
     this.socket.emit('rename-user', { username: newName });
     document.getElementById('rename-modal').style.display = 'none';
@@ -1483,12 +1568,8 @@ class HavenApp {
         headers: { 'Authorization': `Bearer ${this.token}` },
         body: formData
       });
-      if (!res.ok) {
-        let errMsg = `Upload failed (${res.status})`;
-        try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
-        return this._showToast(errMsg, 'error');
-      }
       const data = await res.json();
+      if (!res.ok) return this._showToast(data.error || 'Upload failed', 'error');
 
       // Send the image URL as a message (prefix with img: to avoid slash-command parsing)
       this.socket.emit('send-message', {
@@ -1502,299 +1583,6 @@ class HavenApp {
   }
 
   // ═══════════════════════════════════════════════════════
-  // AVATAR UPLOAD
-  // ═══════════════════════════════════════════════════════
-
-  _updateAvatarPreview() {
-    const preview = document.getElementById('avatar-preview');
-    if (!preview) return;
-    if (this.user.avatar) {
-      preview.innerHTML = `<img src="${this._escapeHtml(this.user.avatar)}" alt="Avatar">`;
-    } else {
-      const color = this._getUserColor(this.user.username);
-      const initial = this.user.username.charAt(0).toUpperCase();
-      preview.innerHTML = `<div style="background-color:${color};width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:24px;color:white">${initial}</div>`;
-    }
-    // Also update rename modal's avatar preview
-    this._updateRenameAvatarPreview();
-  }
-
-  _updateRenameAvatarPreview() {
-    const preview = document.getElementById('rename-avatar-preview');
-    if (!preview) return;
-    if (this.user.avatar) {
-      preview.innerHTML = `<img src="${this._escapeHtml(this.user.avatar)}" alt="Avatar">`;
-    } else {
-      const color = this._getUserColor(this.user.username);
-      const initial = this.user.username.charAt(0).toUpperCase();
-      preview.innerHTML = `<div style="background-color:${color};width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:24px;color:white">${initial}</div>`;
-    }
-  }
-
-  _setupAvatarUpload() {
-    const uploadBtn = document.getElementById('avatar-upload-btn');
-    const removeBtn = document.getElementById('avatar-remove-btn');
-    const fileInput = document.getElementById('avatar-file-input');
-    if (!uploadBtn || !fileInput) return;
-
-    this._updateAvatarPreview();
-
-    // Open file picker when button is clicked
-    uploadBtn.addEventListener('click', () => fileInput.click());
-
-    fileInput.addEventListener('change', async () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-      if (file.size > 2 * 1024 * 1024) {
-        this._showToast('Avatar too large (max 2 MB)', 'error');
-        fileInput.value = '';
-        return;
-      }
-      if (!file.type.startsWith('image/')) {
-        this._showToast('Please select an image file', 'error');
-        fileInput.value = '';
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append('image', file);
-
-      try {
-        this._showToast('Uploading avatar...', 'info');
-        const res = await fetch('/api/upload-avatar', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${this.token}` },
-          body: formData
-        });
-        if (!res.ok) {
-          let errMsg = `Upload failed (${res.status})`;
-          try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
-          return this._showToast(errMsg, 'error');
-        }
-        const data = await res.json();
-        // Notify server via socket to update all connected clients
-        this.socket.emit('set-avatar', { url: data.url });
-      } catch {
-        this._showToast('Upload failed — check your connection', 'error');
-      }
-      fileInput.value = '';
-    });
-
-    if (removeBtn) {
-      removeBtn.addEventListener('click', () => {
-        this.socket.emit('set-avatar', { url: '' });
-      });
-    }
-
-    // Also wire up rename modal's avatar buttons
-    const renameUploadBtn = document.getElementById('rename-avatar-upload-btn');
-    const renameRemoveBtn = document.getElementById('rename-avatar-remove-btn');
-    const renameFileInput = document.getElementById('rename-avatar-file-input');
-    if (renameUploadBtn && renameFileInput) {
-      // Open file picker when button is clicked
-      renameUploadBtn.addEventListener('click', () => renameFileInput.click());
-      renameFileInput.addEventListener('change', async () => {
-        const file = renameFileInput.files[0];
-        if (!file) return;
-        if (file.size > 2 * 1024 * 1024) {
-          this._showToast('Avatar too large (max 2 MB)', 'error');
-          renameFileInput.value = '';
-          return;
-        }
-        if (!file.type.startsWith('image/')) {
-          this._showToast('Please select an image file', 'error');
-          renameFileInput.value = '';
-          return;
-        }
-        const formData = new FormData();
-        formData.append('image', file);
-        try {
-          this._showToast('Uploading avatar...', 'info');
-          const res = await fetch('/api/upload-avatar', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${this.token}` },
-            body: formData
-          });
-          if (!res.ok) {
-            let errMsg = `Upload failed (${res.status})`;
-            try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
-            return this._showToast(errMsg, 'error');
-          }
-          const data = await res.json();
-          this.socket.emit('set-avatar', { url: data.url });
-        } catch {
-          this._showToast('Upload failed — check your connection', 'error');
-        }
-        renameFileInput.value = '';
-      });
-    }
-    if (renameRemoveBtn) {
-      renameRemoveBtn.addEventListener('click', () => {
-        this.socket.emit('set-avatar', { url: '' });
-      });
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // CUSTOM SOUND MANAGEMENT (Admin)
-  // ═══════════════════════════════════════════════════════
-
-  _setupSoundManagement() {
-    const uploadBtn = document.getElementById('sound-upload-btn');
-    const fileInput = document.getElementById('sound-file-input');
-    const nameInput = document.getElementById('sound-name-input');
-    if (!uploadBtn || !fileInput) return;
-
-    uploadBtn.addEventListener('click', async () => {
-      const file = fileInput.files[0];
-      const name = nameInput ? nameInput.value.trim() : '';
-      if (!file) return this._showToast('Select an audio file', 'error');
-      if (!name) return this._showToast('Enter a sound name', 'error');
-      if (file.size > 1024 * 1024) return this._showToast('Sound file too large (max 1 MB)', 'error');
-
-      const formData = new FormData();
-      formData.append('sound', file);
-      formData.append('name', name);
-
-      try {
-        this._showToast('Uploading sound...', 'info');
-        const res = await fetch('/api/upload-sound', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${this.token}` },
-          body: formData
-        });
-        if (!res.ok) {
-          let errMsg = `Upload failed (${res.status})`;
-          try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
-          return this._showToast(errMsg, 'error');
-        }
-        this._showToast(`Sound "${name}" uploaded!`, 'success');
-        fileInput.value = '';
-        nameInput.value = '';
-        this._loadCustomSounds();
-      } catch {
-        this._showToast('Upload failed', 'error');
-      }
-    });
-
-    // Load custom sounds on init
-    this._loadCustomSounds();
-  }
-
-  async _loadCustomSounds() {
-    try {
-      const res = await fetch('/api/sounds', {
-        headers: { 'Authorization': `Bearer ${this.token}` }
-      });
-      if (!res.ok) return;
-      const sounds = await res.json();
-      this.customSounds = sounds; // [{name, url}]
-
-      // Update all sound select dropdowns with custom sounds
-      this._updateSoundSelects(sounds);
-
-      // Render admin sound list
-      this._renderSoundList(sounds);
-    } catch { /* ignore */ }
-  }
-
-  _updateSoundSelects(sounds) {
-    const selects = ['notif-msg-sound', 'notif-mention-sound'];
-    selects.forEach(id => {
-      const sel = document.getElementById(id);
-      if (!sel) return;
-
-      // Remove old custom options
-      sel.querySelectorAll('option[data-custom]').forEach(o => o.remove());
-      // Remove old AIM optgroup
-      sel.querySelectorAll('optgroup[data-aim]').forEach(o => o.remove());
-      sel.querySelectorAll('optgroup[data-custom-group]').forEach(o => o.remove());
-
-      const noneOpt = sel.querySelector('option[value="none"]');
-
-      // Add AIM sounds optgroup
-      const aimGroup = document.createElement('optgroup');
-      aimGroup.label = '🔊 AIM Classic';
-      aimGroup.dataset.aim = '1';
-      ['aim_message', 'aim_door_open', 'aim_door_close', 'aim_nudge'].forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s;
-        opt.textContent = s.replace('aim_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        aimGroup.appendChild(opt);
-      });
-      sel.insertBefore(aimGroup, noneOpt);
-
-      // Add custom sounds optgroup
-      if (sounds.length > 0) {
-        const customGroup = document.createElement('optgroup');
-        customGroup.label = '🎵 Custom';
-        customGroup.dataset.customGroup = '1';
-        sounds.forEach(s => {
-          const opt = document.createElement('option');
-          opt.value = `custom:${s.name}`;
-          opt.textContent = s.name;
-          opt.dataset.custom = '1';
-          opt.dataset.url = s.url;
-          customGroup.appendChild(opt);
-        });
-        sel.insertBefore(customGroup, noneOpt);
-      }
-
-      // Restore value
-      const currentVal = sel.value;
-      if (currentVal) sel.value = currentVal;
-    });
-  }
-
-  _renderSoundList(sounds) {
-    const list = document.getElementById('custom-sounds-list');
-    if (!list) return;
-
-    if (sounds.length === 0) {
-      list.innerHTML = '<p class="muted-text">No custom sounds uploaded</p>';
-      return;
-    }
-
-    list.innerHTML = sounds.map(s => `
-      <div class="custom-sound-item">
-        <span class="custom-sound-name">${this._escapeHtml(s.name)}</span>
-        <button class="btn-xs sound-preview-btn" data-url="${this._escapeHtml(s.url)}" title="Preview">▶</button>
-        <button class="btn-xs sound-delete-btn" data-name="${this._escapeHtml(s.name)}" title="Delete">🗑️</button>
-      </div>
-    `).join('');
-
-    // Preview buttons
-    list.querySelectorAll('.sound-preview-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const audio = new Audio(btn.dataset.url);
-        audio.volume = this.notifications.volume;
-        audio.play().catch(() => {});
-      });
-    });
-
-    // Delete buttons
-    list.querySelectorAll('.sound-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const name = btn.dataset.name;
-        try {
-          const res = await fetch(`/api/sounds/${encodeURIComponent(name)}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${this.token}` }
-          });
-          if (res.ok) {
-            this._showToast(`Sound "${name}" deleted`, 'success');
-            this._loadCustomSounds();
-          } else {
-            this._showToast('Delete failed', 'error');
-          }
-        } catch {
-          this._showToast('Delete failed', 'error');
-        }
-      });
-    });
-  }
-
-  // ═══════════════════════════════════════════════════════
   // NOTIFICATIONS
   // ═══════════════════════════════════════════════════════
 
@@ -1804,16 +1592,12 @@ class HavenApp {
     const msgSound = document.getElementById('notif-msg-sound');
     const mentionVolume = document.getElementById('notif-mention-volume');
     const mentionSound = document.getElementById('notif-mention-sound');
-    const joinSound = document.getElementById('notif-join-sound');
-    const leaveSound = document.getElementById('notif-leave-sound');
 
     toggle.checked = this.notifications.enabled;
     volume.value = this.notifications.volume * 100;
     msgSound.value = this.notifications.sounds.message;
     mentionVolume.value = this.notifications.mentionVolume * 100;
     mentionSound.value = this.notifications.sounds.mention;
-    if (joinSound) joinSound.value = this.notifications.sounds.join;
-    if (leaveSound) leaveSound.value = this.notifications.sounds.leave;
 
     toggle.addEventListener('change', () => {
       this.notifications.setEnabled(toggle.checked);
@@ -1836,20 +1620,6 @@ class HavenApp {
       this.notifications.setSound('mention', mentionSound.value);
       this.notifications.play('mention'); // Preview the selected sound
     });
-
-    if (joinSound) {
-      joinSound.addEventListener('change', () => {
-        this.notifications.setSound('join', joinSound.value);
-        this.notifications.play('join');
-      });
-    }
-
-    if (leaveSound) {
-      leaveSound.addEventListener('change', () => {
-        this.notifications.setSound('leave', leaveSound.value);
-        this.notifications.play('leave');
-      });
-    }
   }
 
   // ── Theme System ──────────────────────────────────────
@@ -1857,6 +1627,66 @@ class HavenApp {
   _setupThemes() {
     initThemeSwitcher('theme-selector', this.socket);
   }
+  async _setupSpotify() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('spotify_linked') === '1') {
+      this._showToast('🎵 Spotify connected!', 'success');
+      history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('spotify_error')) {
+      this._showToast(`Spotify error: ${params.get('spotify_error')}`, 'error');
+      history.replaceState({}, '', window.location.pathname);
+    }
+    await this._updateSpotifyUI();
+    const connectBtn = document.getElementById('spotify-connect-btn');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', async () => {
+        if (!this.spotifyPlayer) this.spotifyPlayer = new SpotifyPlayer(() => {}, (e) => console.warn('Spotify:', e), (s) => this._onSpotifyState(s));
+        const url = await this.spotifyPlayer.getAuthUrl();
+        if (url) window.location.href = url;
+        else this._showToast('Spotify not configured by admin', 'error');
+      });
+    }
+    const volSlider = document.getElementById('spotify-volume');
+    if (volSlider) volSlider.addEventListener('input', () => { if (this.spotifyPlayer) this.spotifyPlayer.setVolume(volSlider.value / 100); });
+    const seekSlider = document.getElementById('spotify-seek');
+    if (seekSlider) seekSlider.addEventListener('change', () => { if (this.spotifyPlayer && this._spotifyDuration) this.spotifyPlayer.seek((seekSlider.value / 100) * this._spotifyDuration); });
+  }
+  async _updateSpotifyUI() {
+    const statusEl = document.getElementById('spotify-status');
+    const connectRow = document.getElementById('spotify-connect-row');
+    if (!this.spotifyPlayer) this.spotifyPlayer = new SpotifyPlayer(() => { this._spotifyReady = true; }, (e) => console.warn('Spotify:', e), (s) => this._onSpotifyState(s));
+    const status = await this.spotifyPlayer.checkStatus();
+    if (!status.configured) { if (connectRow) connectRow.style.display = 'none'; return; }
+    if (status.linked) {
+      if (statusEl) { statusEl.textContent = status.premium ? '✓ Premium' : '✓ Linked'; statusEl.className = 'spotify-status ' + (status.premium ? 'premium' : 'linked'); }
+      if (connectRow) connectRow.style.display = 'none';
+      if (status.premium && !this._spotifyReady) await this.spotifyPlayer.init();
+    } else {
+      if (statusEl) { statusEl.textContent = ''; statusEl.className = 'spotify-status'; }
+      if (connectRow) connectRow.style.display = 'flex';
+    }
+  }
+  _onSpotifyState(state) {
+    if (!state) return;
+    const track = state.track_window?.current_track;
+    if (track) {
+      const nameEl = document.getElementById('spotify-track-name');
+      const artistEl = document.getElementById('spotify-artist-name');
+      const artEl = document.getElementById('spotify-album-art');
+      if (nameEl) nameEl.textContent = track.name;
+      if (artistEl) artistEl.textContent = track.artists?.map(a => a.name).join(', ') || '';
+      if (artEl && track.album?.images?.[0]?.url) artEl.src = track.album.images[0].url;
+    }
+    this._spotifyDuration = state.duration;
+    const seekEl = document.getElementById('spotify-seek');
+    const curEl = document.getElementById('spotify-time-current');
+    const totEl = document.getElementById('spotify-time-total');
+    if (seekEl && state.duration) seekEl.value = (state.position / state.duration) * 100;
+    if (curEl) curEl.textContent = this._formatMs(state.position);
+    if (totEl) totEl.textContent = this._formatMs(state.duration);
+  }
+  _formatMs(ms) { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`; }
+  _isSpotifyUrl(url) { return /open\.spotify\.com\/(track|album|playlist)\//.test(url); }
 
   // ── Status Bar ────────────────────────────────────────
 
@@ -1883,15 +1713,6 @@ class HavenApp {
       }
     }, 5000);
 
-    // Periodic member list + voice refresh every 30s to keep sidebar in sync
-    if (this._memberRefreshInterval) clearInterval(this._memberRefreshInterval);
-    this._memberRefreshInterval = setInterval(() => {
-      if (this.socket && this.socket.connected && this.currentChannel) {
-        this.socket.emit('request-online-users', { code: this.currentChannel });
-        this.socket.emit('request-voice-users', { code: this.currentChannel });
-      }
-    }, 30000);
-
     this._pingStart = Date.now();
     this.socket.emit('ping-check');
   }
@@ -1901,40 +1722,89 @@ class HavenApp {
     if (!el) return;
     el.className = 'led ' + state;
   }
+  _resyncState() {
+    this.socket.emit('get-channels');
+    this.socket.emit('get-server-settings');
+    this.socket.emit('get-preferences');
+    this.socket.emit('get-blocks');
+    this.socket.emit('get-dms');
+    if (this.currentChannel) {
+      this.socket.emit('enter-channel', { code: this.currentChannel });
+      this.socket.emit('get-messages', { code: this.currentChannel });
+      this.socket.emit('get-channel-members', { code: this.currentChannel });
+    }
+    if (this.currentDm) {
+      this.socket.emit('get-dm-messages', { code: this.currentDm });
+    }
+    if (this.voice?.inVoice && this.voice.currentChannel) {
+      this.socket.emit('voice-rejoin', { code: this.voice.currentChannel });
+    }
+  }
+  _showConnectionBanner(text, type) {
+    let banner = document.getElementById('connection-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'connection-banner';
+      const main = document.querySelector('.main-content') || document.body;
+      main.prepend(banner);
+    }
+    banner.className = 'connection-banner ' + type;
+    banner.innerHTML = `<span class="connection-banner-dot"></span>${text}`;
+    banner.style.display = 'flex';
+  }
+  _hideConnectionBanner() {
+    const banner = document.getElementById('connection-banner');
+    if (banner) {
+      banner.classList.add('hide');
+      setTimeout(() => { banner.style.display = 'none'; banner.classList.remove('hide'); }, 400);
+    }
+  }
+  _setupVisibilitySync() {
+    let lastHidden = 0;
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        lastHidden = Date.now();
+      } else if (this.socket?.connected && Date.now() - lastHidden > 30000) {
+        this._resyncState();
+      }
+    });
+  }
 
   // ── Channel Management ────────────────────────────────
 
   switchChannel(code) {
     if (this.currentChannel === code) return;
 
-    // Voice persists across channel switches — no auto-disconnect
+    if (this.voice && this.voice.inVoice && this.voice.currentChannel !== code) {
+      this.voice.leave();
+      this._updateVoiceButtons(false);
+      this._updateVoiceStatus(false);
+    }
 
     this.currentChannel = code;
     const channel = this.channels.find(c => c.code === code);
-    const isDm = channel && channel.is_dm;
-    const displayName = isDm && channel.dm_target
-      ? `@ ${channel.dm_target.username}`
-      : channel ? `# ${channel.name}` : code;
 
-    document.getElementById('channel-header-name').textContent = displayName;
-    document.getElementById('channel-code-display').textContent = isDm ? '' : code;
-    document.getElementById('copy-code-btn').style.display = isDm ? 'none' : 'inline-flex';
-    // Update voice button state — persist controls if in voice anywhere
-    if (this.voice && this.voice.inVoice) {
-      this._updateVoiceButtons(true);
-    } else {
-      // Show just the join button (not the dropdown/leave)
-      document.getElementById('voice-join-btn').style.display = 'inline-flex';
-      document.getElementById('voice-dropdown-toggle').style.display = 'none';
-      document.getElementById('voice-leave-btn').style.display = 'none';
-      const mobileJoin = document.getElementById('voice-join-mobile');
-      if (mobileJoin) mobileJoin.style.display = '';
-    }
+    document.getElementById('channel-header-name').textContent = channel ? `# ${channel.name}` : code;
+    document.getElementById('channel-code-display').textContent = code;
+    document.getElementById('copy-code-btn').style.display = 'inline-flex';
+    document.getElementById('voice-join-btn').style.display = 'inline-block';
     document.getElementById('search-toggle-btn').style.display = 'inline-flex';
     document.getElementById('pinned-toggle-btn').style.display = 'inline-flex';
+    document.getElementById('listen-together-btn').style.display = 'inline-block';
+    document.getElementById('listen-together-panel').style.display = 'none';
+    document.getElementById('game-together-btn').style.display = 'inline-block';
+    document.getElementById('game-together-panel').style.display = 'none';
+    this._updateToolbarVisibility();
+    this.socket.emit('listen-get', { channelCode: code });
+    this.socket.emit('game-get', { channelCode: code });
 
-    // Show/hide topic bar
-    this._updateTopicBar(channel?.topic || '');
+    if (this.user.isAdmin) {
+      document.getElementById('delete-channel-btn').style.display = 'inline-flex';
+      document.getElementById('manage-members-btn').style.display = 'inline-flex';
+    } else {
+      document.getElementById('manage-members-btn').style.display = 'none';
+    }
+    document.getElementById('leave-channel-btn').style.display = channel && !channel.is_private ? 'inline-flex' : 'none';
 
     document.getElementById('messages').innerHTML = '';
     document.getElementById('message-area').style.display = 'flex';
@@ -1947,51 +1817,12 @@ class HavenApp {
     this.unreadCounts[code] = 0;
     this._updateBadge(code);
 
-    document.getElementById('status-channel').textContent = isDm && channel.dm_target
-      ? `DM: ${channel.dm_target.username}` : channel ? channel.name : code;
+    document.getElementById('status-channel').textContent = channel ? channel.name : code;
 
     this.socket.emit('enter-channel', { code });
     this.socket.emit('get-messages', { code });
     this.socket.emit('get-channel-members', { code });
-    this.socket.emit('request-voice-users', { code });
     this._clearReply();
-  }
-
-  _updateTopicBar(topic) {
-    let bar = document.getElementById('channel-topic-bar');
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.id = 'channel-topic-bar';
-      bar.className = 'channel-topic-bar';
-      const header = document.querySelector('.channel-header');
-      header.parentNode.insertBefore(bar, header.nextSibling);
-    }
-    if (topic) {
-      bar.textContent = topic;
-      bar.style.display = 'block';
-      bar.title = this.user.isAdmin ? 'Click to edit topic' : topic;
-      bar.onclick = this.user.isAdmin ? () => this._editTopic() : null;
-      bar.style.cursor = this.user.isAdmin ? 'pointer' : 'default';
-    } else {
-      if (this.user.isAdmin) {
-        bar.textContent = 'Click to set a topic...';
-        bar.style.display = 'block';
-        bar.style.opacity = '0.4';
-        bar.style.cursor = 'pointer';
-        bar.onclick = () => this._editTopic();
-      } else {
-        bar.style.display = 'none';
-      }
-    }
-    if (topic) bar.style.opacity = '1';
-  }
-
-  _editTopic() {
-    const channel = this.channels.find(c => c.code === this.currentChannel);
-    const current = channel?.topic || '';
-    const newTopic = prompt('Set channel topic (max 256 chars):', current);
-    if (newTopic === null) return; // cancelled
-    this.socket.emit('set-channel-topic', { code: this.currentChannel, topic: newTopic.slice(0, 256) });
   }
 
   _showWelcome() {
@@ -2000,178 +1831,97 @@ class HavenApp {
     document.getElementById('channel-header-name').textContent = 'Select a channel';
     document.getElementById('channel-code-display').textContent = '';
     document.getElementById('copy-code-btn').style.display = 'none';
+    document.getElementById('manage-members-btn').style.display = 'none';
+    document.getElementById('leave-channel-btn').style.display = 'none';
+    document.getElementById('delete-channel-btn').style.display = 'none';
     document.getElementById('voice-join-btn').style.display = 'none';
-    document.getElementById('voice-dropdown-toggle').style.display = 'none';
+    document.getElementById('voice-mute-btn').style.display = 'none';
+    document.getElementById('voice-deafen-btn').style.display = 'none';
     document.getElementById('voice-leave-btn').style.display = 'none';
-    const mobileJoin = document.getElementById('voice-join-mobile');
-    if (mobileJoin) mobileJoin.style.display = 'none';
+    document.getElementById('screen-share-btn').style.display = 'none';
     document.getElementById('search-toggle-btn').style.display = 'none';
     document.getElementById('pinned-toggle-btn').style.display = 'none';
+    document.getElementById('listen-together-btn').style.display = 'none';
+    document.getElementById('listen-together-panel').style.display = 'none';
+    document.getElementById('game-together-btn').style.display = 'none';
+    document.getElementById('game-together-panel').style.display = 'none';
     document.getElementById('status-channel').textContent = 'None';
-    document.getElementById('status-online-count').textContent = '0';
-    const topicBar = document.getElementById('channel-topic-bar');
-    if (topicBar) topicBar.style.display = 'none';
-  }
-
-  /* ── Channel context menu helpers ─────────────────────── */
-  _initChannelContextMenu() {
-    this._ctxMenuChannel = null;
-    this._ctxMenuEl = document.getElementById('channel-ctx-menu');
-    // Delegate clicks on "..." buttons inside the channel list
-    document.getElementById('channel-list')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('.channel-more-btn');
-      if (!btn) return;
-      e.stopPropagation();
-      const code = btn.closest('.channel-item')?.dataset.code;
-      if (code) this._openChannelCtxMenu(code, btn);
-    });
-  }
-
-  _openChannelCtxMenu(code, btnEl) {
-    this._ctxMenuChannel = code;
-    const menu = this._ctxMenuEl;
-    if (!menu) return;
-    // Show/hide admin-only items
-    const isAdmin = this.user && this.user.isAdmin;
-    menu.querySelectorAll('.admin-only').forEach(el => {
-      el.style.display = isAdmin ? '' : 'none';
-    });
-    // Update mute label
-    const muted = JSON.parse(localStorage.getItem('haven_muted_channels') || '[]');
-    const muteBtn = menu.querySelector('[data-action="mute"]');
-    if (muteBtn) muteBtn.textContent = muted.includes(code) ? '🔕 Unmute Channel' : '🔔 Mute Channel';
-    // Position near the button
-    const rect = btnEl.getBoundingClientRect();
-    menu.style.display = 'block';
-    menu.style.top  = rect.bottom + 4 + 'px';
-    menu.style.left = rect.left + 'px';
-    // Keep menu inside viewport
-    requestAnimationFrame(() => {
-      const mr = menu.getBoundingClientRect();
-      if (mr.right > window.innerWidth) menu.style.left = (window.innerWidth - mr.width - 8) + 'px';
-      if (mr.bottom > window.innerHeight) menu.style.top = (rect.top - mr.height - 4) + 'px';
-    });
-  }
-
-  _closeChannelCtxMenu() {
-    if (this._ctxMenuEl) this._ctxMenuEl.style.display = 'none';
-    this._ctxMenuChannel = null;
+    this._updateToolbarVisibility();
   }
 
   _renderChannels() {
     const list = document.getElementById('channel-list');
     list.innerHTML = '';
-
-    const regularChannels = this.channels.filter(c => !c.is_dm);
-    const dmChannels = this.channels.filter(c => c.is_dm);
-
-    // Regular channels
-    regularChannels.forEach(ch => {
+    const topLevel = this.channels.filter(c => !c.parent_id);
+    const childMap = {};
+    this.channels.forEach(c => {
+      if (c.parent_id) {
+        (childMap[c.parent_id] = childMap[c.parent_id] || []).push(c);
+      }
+    });
+    const renderItem = (ch, depth) => {
       const el = document.createElement('div');
-      el.className = 'channel-item' + (ch.code === this.currentChannel ? ' active' : '');
+      el.className = 'channel-item' + (ch.code === this.currentChannel ? ' active' : '') + (depth > 0 ? ' subchannel' : '');
       el.dataset.code = ch.code;
-      el.innerHTML = `
-        <span class="channel-hash">#</span>
-        <span class="channel-name">${this._escapeHtml(ch.name)}</span>
-        <button class="channel-more-btn" title="Channel options">⋯</button>
-      `;
-
-      const count = this.unreadCounts[ch.code] || ch.unreadCount || 0;
-      if (count > 0) {
+      el.style.paddingLeft = `${8 + depth * 16}px`;
+      const typeIcon = ch.channel_type === 'voice' ? '\ud83d\udd0a' : ch.channel_type === 'text' ? '\ud83d\udcac' : '#';
+      const lockIcon = ch.is_private ? '\ud83d\udd12 ' : '';
+      const kids = childMap[ch.id];
+      let toggleHtml = '';
+      if (kids && kids.length) {
+        const collapsed = this._collapsedChannels && this._collapsedChannels.has(ch.id);
+        toggleHtml = `<span class="channel-toggle ${collapsed ? 'collapsed' : ''}" data-ch-id="${ch.id}">▾</span>`;
+      }
+      el.innerHTML = `${toggleHtml}<span class="channel-hash">${depth > 0 ? '└ ' : ''}${lockIcon}${typeIcon}</span><span class="channel-name">${this._escapeHtml(ch.name)}</span>`;
+      if (this.unreadCounts[ch.code] > 0) {
         const badge = document.createElement('span');
         badge.className = 'channel-badge';
-        badge.textContent = count > 99 ? '99+' : count;
+        badge.textContent = this.unreadCounts[ch.code];
         el.appendChild(badge);
       }
-
+      const toggle = el.querySelector('.channel-toggle');
+      if (toggle) {
+        toggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!this._collapsedChannels) this._collapsedChannels = new Set();
+          this._collapsedChannels.has(ch.id) ? this._collapsedChannels.delete(ch.id) : this._collapsedChannels.add(ch.id);
+          this._renderChannels();
+        });
+      }
       el.addEventListener('click', () => this.switchChannel(ch.code));
       list.appendChild(el);
-    });
-
-    // DM section (collapsible)
-    if (dmChannels.length > 0) {
-      const dmToggle = document.createElement('h5');
-      dmToggle.className = 'section-label dm-section-label dm-toggle';
-      const isCollapsed = localStorage.getItem('haven_dm_collapsed') === 'true';
-      const totalUnread = dmChannels.reduce((sum, ch) => sum + (this.unreadCounts[ch.code] || ch.unreadCount || 0), 0);
-      dmToggle.innerHTML = `<span class="dm-toggle-arrow${isCollapsed ? ' collapsed' : ''}">▾</span> Direct Messages${totalUnread > 0 ? ` <span class="dm-unread-count">${totalUnread > 99 ? '99+' : totalUnread}</span>` : ''}`;
-      dmToggle.style.cursor = 'pointer';
-      dmToggle.addEventListener('click', () => {
-        const dmList = document.getElementById('dm-list');
-        const arrow = dmToggle.querySelector('.dm-toggle-arrow');
-        if (dmList) {
-          const nowCollapsed = dmList.style.display === 'none';
-          dmList.style.display = nowCollapsed ? '' : 'none';
-          arrow.classList.toggle('collapsed', !nowCollapsed);
-          localStorage.setItem('haven_dm_collapsed', !nowCollapsed);
-        }
+      if (kids && kids.length && !(this._collapsedChannels && this._collapsedChannels.has(ch.id))) {
+        kids.forEach(kid => renderItem(kid, depth + 1));
+      }
+    };
+    topLevel.forEach(ch => renderItem(ch, 0));
+    const parentSelect = document.getElementById('new-channel-parent');
+    if (parentSelect) {
+      const curVal = parentSelect.value;
+      parentSelect.innerHTML = '<option value="">Top-level</option>';
+      this.channels.filter(c => !c.parent_id).forEach(c => {
+        const o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = c.name;
+        parentSelect.appendChild(o);
       });
-      list.appendChild(dmToggle);
-
-      const dmList = document.createElement('div');
-      dmList.id = 'dm-list';
-      if (isCollapsed) dmList.style.display = 'none';
-
-      dmChannels.forEach(ch => {
-        const el = document.createElement('div');
-        el.className = 'channel-item dm-item' + (ch.code === this.currentChannel ? ' active' : '');
-        el.dataset.code = ch.code;
-        const dmName = ch.dm_target ? ch.dm_target.username : 'Unknown';
-        el.innerHTML = `
-          <span class="channel-hash">@</span>
-          <span class="channel-name">${this._escapeHtml(dmName)}</span>
-        `;
-
-        const count = this.unreadCounts[ch.code] || ch.unreadCount || 0;
-        if (count > 0) {
-          const badge = document.createElement('span');
-          badge.className = 'channel-badge';
-          badge.textContent = count > 99 ? '99+' : count;
-          el.appendChild(badge);
-        }
-
-        el.addEventListener('click', () => this.switchChannel(ch.code));
-        dmList.appendChild(el);
-      });
-
-      list.appendChild(dmList);
+      parentSelect.value = curVal || '';
     }
-
-    // Render voice indicators for channels with active voice users
-    this._updateChannelVoiceIndicators();
   }
 
   _updateBadge(code) {
     const el = document.querySelector(`.channel-item[data-code="${code}"]`);
     if (!el) return;
-
     let badge = el.querySelector('.channel-badge');
     const count = this.unreadCounts[code] || 0;
-
     if (count > 0) {
       if (!badge) { badge = document.createElement('span'); badge.className = 'channel-badge'; el.appendChild(badge); }
       badge.textContent = count > 99 ? '99+' : count;
     } else if (badge) {
       badge.remove();
     }
-  }
-
-  _updateChannelVoiceIndicators() {
-    document.querySelectorAll('.channel-item').forEach(el => {
-      const code = el.dataset.code;
-      let indicator = el.querySelector('.channel-voice-indicator');
-      const count = this.voiceCounts[code] || 0;
-      if (count > 0) {
-        if (!indicator) {
-          indicator = document.createElement('span');
-          indicator.className = 'channel-voice-indicator';
-          el.appendChild(indicator);
-        }
-        indicator.innerHTML = `<span class="voice-icon">🔊</span>${count}`;
-      } else if (indicator) {
-        indicator.remove();
-      }
-    });
+    const totalUnread = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
+    this._updateMsgBubbleBadge(totalUnread);
   }
 
   // ── Messages ──────────────────────────────────────────
@@ -2179,7 +1929,7 @@ class HavenApp {
   _sendMessage() {
     const input = document.getElementById('message-input');
     const content = input.value.trim();
-    if (!content || !this.currentChannel) return;
+    if (!content || (!this.currentChannel && !this.currentDm)) return;
 
     // Client-side slash commands (not sent to server)
     if (content.startsWith('/')) {
@@ -2203,26 +1953,18 @@ class HavenApp {
           this._hideSlashDropdown();
           return;
         }
-        if (cmd === 'play') {
-          if (!arg) { this._showToast('Usage: /play <song name> or /play <url>', 'error'); }
-          else if (!this.voice || !this.voice.inVoice) { this._showToast('Join voice first to share music', 'error'); }
-          else if (this._getMusicEmbed(arg)) {
-            // Direct URL — share immediately
-            this.socket.emit('music-share', { code: this.voice.currentChannel, url: arg });
-          } else {
-            // Not a URL — treat as a search query
-            this._musicSearchQuery = arg;
-            this._musicSearchOffset = 0;
-            this.socket.emit('music-search', { query: arg, offset: 0 });
-            this._showToast('Searching…', 'info');
-          }
-          input.value = '';
-          input.style.height = 'auto';
-          this._hideMentionDropdown();
-          this._hideSlashDropdown();
-          return;
-        }
       }
+    }
+
+    // DM mode — send via send-dm
+    if (this.currentDm) {
+      this.socket.emit('send-dm', { code: this.currentDm, content });
+      input.value = '';
+      input.style.height = 'auto';
+      input.focus();
+      this._hideMentionDropdown();
+      this._hideSlashDropdown();
+      return;
     }
 
     const payload = { code: this.currentChannel, content };
@@ -2253,10 +1995,6 @@ class HavenApp {
     });
     // Fetch link previews for all messages
     this._fetchLinkPreviews(container);
-    // Mark as read (last message ID)
-    if (messages.length > 0) {
-      this._markRead(messages[messages.length - 1].id);
-    }
   }
 
   _appendMessage(message) {
@@ -2278,7 +2016,7 @@ class HavenApp {
     // Fetch link previews for this message
     this._fetchLinkPreviews(msgEl);
     if (wasAtBottom) {
-      this._scrollToBottom(true);
+      this._scrollToBottom();
       // Also scroll after images load (they shift content down)
       const imgs = container.lastElementChild?.querySelectorAll('img');
       if (imgs) imgs.forEach(img => {
@@ -2322,20 +2060,26 @@ class HavenApp {
       el.dataset.time = msg.created_at;
       el.dataset.msgId = msg.id;
       if (msg.pinned) el.dataset.pinned = '1';
+      const contentHtml = msg.is_html ? msg.content : this._formatContent(msg.content);
       el.innerHTML = `
         <span class="compact-time">${new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
-        <div class="message-content">${pinnedTag}${this._formatContent(msg.content)}${editedHtml}</div>
+        <div class="message-content">${pinnedTag}${contentHtml}${editedHtml}</div>
         ${toolbarHtml}
         ${reactionsHtml}
       `;
       return el;
     }
 
-    const color = this._getUserColor(msg.username);
-    const initial = msg.username.charAt(0).toUpperCase();
-    const avatarHtml = msg.avatar
-      ? `<img class="message-avatar message-avatar-img" src="${this._escapeHtml(msg.avatar)}" alt="${initial}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="message-avatar" style="background-color:${color};display:none">${initial}</div>`
-      : `<div class="message-avatar" style="background-color:${color}">${initial}</div>`;
+    const isSelf = msg.user_id === this.user.id;
+    const customColor = isSelf && this._avatarColor ? `hsl(${this._avatarColor}, 65%, 50%)` : null;
+    const color = customColor || this._getUserColor(msg.username);
+    const displayName = msg.displayName || msg.username;
+    const initial = displayName.charAt(0).toUpperCase();
+    const msgContentHtml = msg.is_html ? msg.content : this._formatContent(msg.content);
+    const shapeClass = 'avatar-' + (this._avatarShape || 'circle');
+    const avatarContent = (isSelf && this._avatarImg)
+      ? `<img src="${this._avatarImg}" alt="${initial}" style="width:100%;height:100%;object-fit:cover;">`
+      : initial;
 
     const el = document.createElement('div');
     el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '');
@@ -2346,14 +2090,14 @@ class HavenApp {
     el.innerHTML = `
       ${replyHtml}
       <div class="message-row">
-        ${avatarHtml}
+        <div class="message-avatar ${shapeClass}" style="background-color:${color}">${avatarContent}</div>
         <div class="message-body">
           <div class="message-header">
-            <span class="message-author" style="color:${color}">${this._escapeHtml(msg.username)}</span>
+            <span class="message-author" style="color:${color}">${this._escapeHtml(displayName)}</span>
             <span class="message-time">${this._formatTime(msg.created_at)}</span>
             ${pinnedTag}
           </div>
-          <div class="message-content">${this._formatContent(msg.content)}${editedHtml}</div>
+          <div class="message-content">${msgContentHtml}${editedHtml}</div>
           ${reactionsHtml}
         </div>
         ${toolbarHtml}
@@ -2423,7 +2167,7 @@ class HavenApp {
       seen.add(url);
       // Skip image URLs (already rendered inline) and internal URLs
       if (/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i.test(url)) return;
-      if (/^https:\/\/media\d*\.giphy\.com\//i.test(url)) return;
+      if (/^https:\/\/media\.tenor\.com\//i.test(url)) return;
       if (url.startsWith(window.location.origin)) return;
 
       fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
@@ -2447,7 +2191,7 @@ class HavenApp {
 
           let inner = '';
           if (data.image) {
-            inner += `<img class="link-preview-image" src="${this._escapeHtml(data.image)}" alt="" loading="lazy">`;
+            inner += `<img class="link-preview-image" src="${this._escapeHtml(data.image)}" alt="" loading="lazy" onerror="this.style.display='none'">`;
           }
           inner += '<div class="link-preview-text">';
           if (data.siteName) inner += `<span class="link-preview-site">${this._escapeHtml(data.siteName)}</span>`;
@@ -2469,127 +2213,53 @@ class HavenApp {
 
   _renderOnlineUsers(users) {
     this._lastOnlineUsers = users;
-    const el = document.getElementById('online-users');
     if (users.length === 0) {
-      el.innerHTML = '<p class="muted-text">No one here</p>';
+      const ovList = document.getElementById('online-overlay-list');
+      if (ovList) ovList.innerHTML = '<p class="muted-text">No one here</p>';
+      const sidebarEl = document.getElementById('sidebar-online-users');
+      if (sidebarEl) sidebarEl.innerHTML = '<p class="muted-text">No one online</p>';
+      const sc = document.getElementById('sidebar-online-count');
+      if (sc) sc.textContent = '0';
       return;
     }
-
-    // Build a score lookup from high scores data
-    const scoreLookup = {};
-    if (this.highScores.flappy) {
-      this.highScores.flappy.forEach(s => { scoreLookup[s.user_id] = s.score; });
-    }
-    // Also use highScore from server-sent user data
-    users.forEach(u => {
-      if (u.highScore && u.highScore > (scoreLookup[u.id] || 0)) {
-        scoreLookup[u.id] = u.highScore;
-      }
-    });
-
-    // Sort: online first, then alphabetical
     const sorted = [...users].sort((a, b) => {
-      const aOn = a.online !== false;
-      const bOn = b.online !== false;
-      if (aOn !== bOn) return aOn ? -1 : 1;
-      return a.username.toLowerCase().localeCompare(b.username.toLowerCase());
+      const aOn = a.online !== false, bOn = b.online !== false;
+      return aOn !== bOn ? (aOn ? -1 : 1) : a.username.toLowerCase().localeCompare(b.username.toLowerCase());
     });
-
-    // Separate into online/offline groups
     const onlineUsers = sorted.filter(u => u.online !== false);
     const offlineUsers = sorted.filter(u => u.online === false);
-
     let html = '';
     if (onlineUsers.length > 0) {
       html += `<div class="user-group-label">Online — ${onlineUsers.length}</div>`;
-      html += onlineUsers.map(u => this._renderUserItem(u, scoreLookup)).join('');
+      html += onlineUsers.map(u => this._renderUserItem(u)).join('');
     }
     if (offlineUsers.length > 0) {
       html += `<div class="user-group-label offline-label">Offline — ${offlineUsers.length}</div>`;
-      html += offlineUsers.map(u => this._renderUserItem(u, scoreLookup)).join('');
+      html += offlineUsers.map(u => this._renderUserItem(u)).join('');
     }
-    if (!onlineUsers.length && !offlineUsers.length) {
-      html = '<p class="muted-text">No one here</p>';
+    if (!html) html = '<p class="muted-text">No one here</p>';
+    const ovList = document.getElementById('online-overlay-list');
+    if (ovList) ovList.innerHTML = html;
+    const sidebarEl = document.getElementById('sidebar-online-users');
+    const sidebarCount = document.getElementById('sidebar-online-count');
+    if (sidebarEl) {
+      let sidebarHtml = '';
+      if (onlineUsers.length > 0) {
+        sidebarHtml += `<div class="user-group-label">Online — ${onlineUsers.length}</div>`;
+        sidebarHtml += onlineUsers.map(u => `<div class="user-item mini" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot"></span><span class="user-item-name">${this._escapeHtml(u.displayName || u.username)}</span></div>`).join('');
+      }
+      if (offlineUsers.length > 0) {
+        sidebarHtml += `<div class="user-group-label offline-label">Offline — ${offlineUsers.length}</div>`;
+        sidebarHtml += offlineUsers.map(u => `<div class="user-item mini offline" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot away"></span><span class="user-item-name">${this._escapeHtml(u.displayName || u.username)}</span></div>`).join('');
+      }
+      sidebarEl.innerHTML = sidebarHtml || '<p class="muted-text">No members</p>';
     }
-
-    el.innerHTML = html;
-
-    // Bind admin action buttons
-    if (this.user.isAdmin) {
-      el.querySelectorAll('.user-action-btn[data-action]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const action = btn.dataset.action;
-          const userId = parseInt(btn.dataset.uid);
-          const username = btn.dataset.uname;
-          this._showAdminActionModal(action, userId, username);
-        });
-      });
-    }
-
-    // Bind DM buttons
-    el.querySelectorAll('.user-dm-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const targetId = parseInt(btn.dataset.dmUid);
-        if (isNaN(targetId)) return;
-        const targetName = btn.closest('.user-item')?.querySelector('.user-item-name')?.textContent || 'user';
-        this._showToast(`Opening DM with ${targetName}…`, 'info');
-        btn.disabled = true;
-        btn.style.opacity = '0.5';
-        this.socket.emit('start-dm', { targetUserId: targetId });
-        // Re-enable after a timeout in case no response
-        setTimeout(() => { btn.disabled = false; btn.style.opacity = ''; }, 5000);
-      });
-    });
+    if (sidebarCount) sidebarCount.textContent = users.length;
   }
-
-  _renderUserItem(u, scoreLookup) {
+  _renderUserItem(u) {
     const onlineClass = u.online === false ? ' offline' : '';
-    const score = scoreLookup[u.id] || 0;
-    const scoreBadge = score > 0
-      ? `<span class="user-score-badge" title="Flappy Container: ${score}">🚢${score}</span>`
-      : '';
-
-    // Status dot color
-    const statusClass = u.status === 'dnd' ? 'dnd' : u.status === 'away' ? 'away'
-      : u.status === 'invisible' ? 'invisible' : (u.online === false ? 'away' : '');
-
-    const statusTextHtml = u.statusText
-      ? `<span class="user-status-text" title="${this._escapeHtml(u.statusText)}">${this._escapeHtml(u.statusText)}</span>`
-      : '';
-
-    // Avatar: image or letter fallback
-    const color = this._getUserColor(u.username);
-    const initial = u.username.charAt(0).toUpperCase();
-    const avatarImg = u.avatar
-      ? `<img class="user-item-avatar user-item-avatar-img" src="${this._escapeHtml(u.avatar)}" alt="${initial}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="user-item-avatar" style="background-color:${color};display:none">${initial}</div>`
-      : `<div class="user-item-avatar" style="background-color:${color}">${initial}</div>`;
-
-    // Wrap avatar + status dot together (Discord-style overlay)
-    const avatarHtml = `<div class="user-avatar-wrapper">${avatarImg}<span class="user-status-dot${statusClass ? ' ' + statusClass : ''}"></span></div>`;
-
-    const dmBtn = u.id !== this.user.id
-      ? `<button class="user-action-btn user-dm-btn" data-dm-uid="${u.id}" title="Direct Message">💬</button>`
-      : '';
-
-    const adminBtns = this.user.isAdmin && u.id !== this.user.id
-      ? `<div class="user-admin-actions">
-           ${dmBtn}
-           <button class="user-action-btn" data-action="kick" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Kick">👢</button>
-           <button class="user-action-btn" data-action="mute" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Mute">🔇</button>
-           <button class="user-action-btn" data-action="ban" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Ban">⛔</button>
-         </div>`
-      : (dmBtn ? `<div class="user-admin-actions">${dmBtn}</div>` : '');
-    return `
-      <div class="user-item${onlineClass}">
-        ${avatarHtml}
-        <span class="user-item-name">${this._escapeHtml(u.username)}</span>
-        ${statusTextHtml}
-        ${scoreBadge}
-        ${adminBtns}
-      </div>
-    `;
+    const displayName = u.displayName || u.username;
+    return `<div class="user-item${onlineClass}" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}"><span class="user-dot${u.online === false ? ' away' : ''}"></span><span class="user-item-name">${this._escapeHtml(displayName)}</span></div>`;
   }
 
   _renderVoiceUsers(users) {
@@ -2601,11 +2271,12 @@ class HavenApp {
     el.innerHTML = users.map(u => {
       const savedVol = this._getVoiceVolume(u.id);
       const isSelf = u.id === this.user.id;
+      const displayName = u.displayName || u.username;
       const talking = this.voice && ((isSelf && this.voice.talkingState.get('self')) || this.voice.talkingState.get(u.id));
       return `
         <div class="user-item voice-user-item${talking ? ' talking' : ''}" data-user-id="${u.id}">
           <span class="user-dot voice"></span>
-          <span class="user-item-name">${this._escapeHtml(u.username)}</span>
+          <span class="user-item-name">${this._escapeHtml(displayName)}</span>
           ${!isSelf ? `<input type="range" class="volume-slider" min="0" max="200" value="${savedVol}" data-user-id="${u.id}" title="Volume: ${savedVol}%">` : '<span class="you-tag">you</span>'}
         </div>
       `;
@@ -2649,12 +2320,10 @@ class HavenApp {
 
   async _joinVoice() {
     if (!this.currentChannel) return;
-    // voice.join() auto-leaves old channel if connected
     const success = await this.voice.join(this.currentChannel);
     if (success) {
       this._updateVoiceButtons(true);
       this._updateVoiceStatus(true);
-      this._updateVoiceBar();
       this._showToast('Joined voice chat', 'success');
     } else {
       this._showToast('Could not access microphone. Check permissions or use HTTPS.', 'error');
@@ -2663,12 +2332,8 @@ class HavenApp {
 
   _leaveVoice() {
     this.voice.leave();
-    this.notifications.playDirect('voice_leave');
     this._updateVoiceButtons(false);
     this._updateVoiceStatus(false);
-    this._updateVoiceBar();
-    this._hideMusicPanel();
-    this._showToast('Left voice chat', 'info');
   }
 
   _toggleMute() {
@@ -2711,31 +2376,23 @@ class HavenApp {
   }
 
   _updateVoiceButtons(inVoice) {
-    document.getElementById('voice-join-btn').style.display = inVoice ? 'none' : 'inline-flex';
-    document.getElementById('voice-dropdown-toggle').style.display = inVoice ? 'inline-flex' : 'none';
+    document.getElementById('voice-join-btn').style.display = inVoice ? 'none' : 'inline-block';
+    document.getElementById('voice-mute-btn').style.display = inVoice ? 'inline-flex' : 'none';
+    document.getElementById('voice-deafen-btn').style.display = inVoice ? 'inline-flex' : 'none';
     document.getElementById('voice-leave-btn').style.display = inVoice ? 'inline-flex' : 'none';
-
-    // Mobile voice join in right sidebar
-    const mobileJoin = document.getElementById('voice-join-mobile');
-    if (mobileJoin) mobileJoin.style.display = inVoice ? 'none' : '';
+    document.getElementById('screen-share-btn').style.display = inVoice ? 'inline-flex' : 'none';
+    const nsBtnUp = document.getElementById('noise-suppress-btn');
+    if (nsBtnUp) nsBtnUp.style.display = inVoice ? 'inline-flex' : 'none';
+    this._updateToolbarVisibility();
 
     if (!inVoice) {
-      document.getElementById('voice-dropdown-panel').style.display = 'none';
       document.getElementById('voice-mute-btn').textContent = '🔇 Mute';
       document.getElementById('voice-mute-btn').classList.remove('muted');
       document.getElementById('voice-deafen-btn').textContent = '🔇 Deafen';
       document.getElementById('voice-deafen-btn').classList.remove('muted');
       document.getElementById('screen-share-btn').textContent = '🖥️ Share';
       document.getElementById('screen-share-btn').classList.remove('sharing');
-      document.getElementById('voice-ns-slider').value = 10;
-      // Clear all stream tiles so no ghost tiles persist after leaving voice
-      const grid = document.getElementById('screen-share-grid');
-      grid.querySelectorAll('video').forEach(v => { v.srcObject = null; });
-      grid.innerHTML = '';
-      document.getElementById('screen-share-container').style.display = 'none';
-      this._screenShareMinimized = false;
-      this._removeScreenShareIndicator();
-      this._hideMusicPanel();
+      this._hideScreenShare();
     }
   }
 
@@ -2748,23 +2405,12 @@ class HavenApp {
       document.getElementById('status-voice-text').textContent = 'Off';
     }
   }
-
-  _updateVoiceBar() {
-    const bar = document.getElementById('voice-bar');
-    if (!bar) return;
-    if (this.voice && this.voice.inVoice && this.voice.currentChannel) {
-      const ch = this.channels.find(c => c.code === this.voice.currentChannel);
-      const name = ch ? (ch.is_dm && ch.dm_target ? `@ ${ch.dm_target.username}` : `# ${ch.name}`) : this.voice.currentChannel;
-      bar.innerHTML = `<span class="voice-bar-icon">🔊</span><span class="voice-bar-channel">${name}</span><button class="voice-bar-leave" id="voice-bar-leave-btn" title="Disconnect">✕</button>`;
-      bar.style.display = 'flex';
-      document.getElementById('voice-bar-leave-btn').addEventListener('click', () => this._leaveVoice());
-    } else {
-      bar.innerHTML = '';
-      bar.style.display = 'none';
-    }
+  _updateToolbarVisibility() {
+    const tb = document.getElementById('voice-toolbar');
+    if (!tb) return;
+    const hasVisible = Array.from(tb.querySelectorAll('.btn-voice')).some(b => b.style.display !== 'none');
+    tb.classList.toggle('active', hasVisible);
   }
-
-  // NS slider is handled directly via the input event listener in _setupUI
 
   // ── Screen Share ──────────────────────────────────────
 
@@ -2775,6 +2421,7 @@ class HavenApp {
       this.voice.stopScreenShare();
       document.getElementById('screen-share-btn').textContent = '🖥️ Share';
       document.getElementById('screen-share-btn').classList.remove('sharing');
+      this._handleScreenStream(this.user.id, null);
       this._showToast('Stopped screen sharing', 'info');
     } else {
       const ok = await this.voice.shareScreen();
@@ -2782,14 +2429,8 @@ class HavenApp {
         document.getElementById('screen-share-btn').textContent = '🛑 Stop';
         document.getElementById('screen-share-btn').classList.add('sharing');
         this._showToast('Screen sharing started', 'success');
-        // Show our own screen in the viewer
+        // Show our own screen in the viewer via the multi-stream handler
         this._handleScreenStream(this.user.id, this.voice.screenStream);
-        // Show audio/no-audio badge
-        if (this.voice.screenHasAudio) {
-          this._handleScreenAudio(this.user.id);
-        } else {
-          this._handleScreenNoAudio(this.user.id);
-        }
       } else {
         this._showToast('Screen share cancelled or not supported', 'error');
       }
@@ -2800,144 +2441,96 @@ class HavenApp {
     const container = document.getElementById('screen-share-container');
     const grid = document.getElementById('screen-share-grid');
     const label = document.getElementById('screen-share-label');
-
     if (stream) {
-      // Create a tile for this user's stream
       const tileId = `screen-tile-${userId || 'self'}`;
       let tile = document.getElementById(tileId);
       if (!tile) {
         tile = document.createElement('div');
         tile.id = tileId;
         tile.className = 'screen-share-tile';
-
         const vid = document.createElement('video');
         vid.autoplay = true;
         vid.playsInline = true;
-        vid.muted = true; // Always mute — screen audio routes through WebRTC audio track
+        vid.muted = true;
         tile.appendChild(vid);
-
         const lbl = document.createElement('div');
         lbl.className = 'screen-share-tile-label';
         const peer = this.voice.peers.get(userId);
         const who = userId === null || userId === this.user.id ? 'You' : (peer ? peer.username : 'Someone');
         lbl.textContent = who;
         tile.appendChild(lbl);
-
-        // Audio controls overlay (volume + mute for stream audio)
-        const controls = document.createElement('div');
-        controls.className = 'stream-audio-controls';
-        controls.id = `stream-controls-${userId || 'self'}`;
-
-        const muteBtn = document.createElement('button');
-        muteBtn.className = 'stream-mute-btn';
-        muteBtn.title = 'Mute/Unmute stream audio';
-        muteBtn.textContent = '🔊';
-        muteBtn.dataset.muted = 'false';
-
-        const volSlider = document.createElement('input');
-        volSlider.type = 'range';
-        volSlider.className = 'stream-vol-slider';
-        volSlider.min = '0';
-        volSlider.max = '200';
-        volSlider.title = 'Stream volume (0–200%)';
-
-        const volPct = document.createElement('span');
-        volPct.className = 'stream-vol-pct';
-
-        // Restore saved volume
-        try {
-          const savedVols = JSON.parse(localStorage.getItem('haven_stream_volumes') || '{}');
-          const sv = savedVols[userId] ?? 100;
-          volSlider.value = String(sv);
-          volPct.textContent = sv + '%';
-        } catch { volSlider.value = '100'; volPct.textContent = '100%'; }
-
-        muteBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const isMuted = muteBtn.dataset.muted === 'true';
-          if (isMuted) {
-            const vol = parseFloat(volSlider.value) / 100;
-            this.voice.setStreamVolume(userId, vol);
-            muteBtn.textContent = '🔊';
-            muteBtn.dataset.muted = 'false';
-            muteBtn.classList.remove('muted');
+        const toolbar = document.createElement('div');
+        toolbar.className = 'screen-tile-toolbar';
+        const maxBtn = document.createElement('button');
+        maxBtn.className = 'screen-tile-btn';
+        maxBtn.title = 'Fullscreen';
+        maxBtn.innerHTML = '⛶';
+        maxBtn.addEventListener('click', () => {
+          if (document.fullscreenElement === tile) {
+            document.exitFullscreen().catch(() => {});
           } else {
-            this.voice.setStreamVolume(userId, 0);
-            muteBtn.textContent = '🔇';
-            muteBtn.dataset.muted = 'true';
-            muteBtn.classList.add('muted');
+            tile.requestFullscreen().catch(() => {});
           }
         });
-
-        volSlider.addEventListener('input', (e) => {
-          e.stopPropagation();
-          const val = parseInt(volSlider.value);
-          this.voice.setStreamVolume(userId, val / 100);
-          volPct.textContent = val + '%';
-          muteBtn.textContent = val === 0 ? '🔇' : '🔊';
-          muteBtn.dataset.muted = val === 0 ? 'true' : 'false';
-          muteBtn.classList.toggle('muted', val === 0);
-          try {
-            const vols = JSON.parse(localStorage.getItem('haven_stream_volumes') || '{}');
-            vols[userId] = val;
-            localStorage.setItem('haven_stream_volumes', JSON.stringify(vols));
-          } catch {}
+        toolbar.appendChild(maxBtn);
+        const volWrap = document.createElement('div');
+        volWrap.className = 'screen-tile-vol';
+        const volIcon = document.createElement('span');
+        volIcon.textContent = '🔊';
+        volIcon.className = 'screen-tile-vol-icon';
+        const volSlider = document.createElement('input');
+        volSlider.type = 'range';
+        volSlider.min = '0';
+        volSlider.max = '100';
+        volSlider.value = '100';
+        volSlider.className = 'screen-tile-vol-slider';
+        volSlider.addEventListener('input', () => {
+          vid.muted = volSlider.value === '0';
+          vid.volume = volSlider.value / 100;
+          volIcon.textContent = volSlider.value === '0' ? '🔇' : (volSlider.value < 50 ? '🔉' : '🔊');
         });
-
-        controls.appendChild(muteBtn);
-        controls.appendChild(volSlider);
-        controls.appendChild(volPct);
-        tile.appendChild(controls);
-
-        // Double-click to toggle focus mode (expand tile to fill chat area)
-        tile.addEventListener('dblclick', (e) => {
-          e.preventDefault();
-          this._toggleStreamFocus(tile);
+        volWrap.appendChild(volIcon);
+        volWrap.appendChild(volSlider);
+        toolbar.appendChild(volWrap);
+        const resSelect = document.createElement('select');
+        resSelect.className = 'screen-tile-res';
+        resSelect.title = 'Playback quality';
+        ['Auto','1080p','720p','480p','360p'].forEach(r => {
+          const o = document.createElement('option');
+          o.value = r.toLowerCase();
+          o.textContent = r;
+          resSelect.appendChild(o);
         });
-
-        // Pop-out button
-        const popoutBtn = document.createElement('button');
-        popoutBtn.className = 'stream-popout-btn';
-        popoutBtn.title = 'Pop out stream';
-        popoutBtn.textContent = '⧉';
-        popoutBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._popOutStream(tile, userId);
+        resSelect.addEventListener('change', () => {
+          const track = stream.getVideoTracks()[0];
+          if (!track || resSelect.value === 'auto') return;
+          const h = parseInt(resSelect.value);
+          const w = Math.round(h * (16 / 9));
+          track.applyConstraints({ width: { ideal: w }, height: { ideal: h } }).catch(() => {});
         });
-        tile.appendChild(popoutBtn);
-
-        // Hide button — collapses tile with restore option
-        const hideBtn = document.createElement('button');
-        hideBtn.className = 'stream-hide-btn';
-        hideBtn.title = 'Hide this stream';
-        hideBtn.textContent = '👁‍🗨';
-        hideBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._hideStreamTile(tile, userId, who);
+        toolbar.appendChild(resSelect);
+        tile.appendChild(toolbar);
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'screen-share-tile-close';
+        closeBtn.title = (userId === null || userId === this.user.id) ? 'Stop sharing' : 'Dismiss stream';
+        closeBtn.textContent = '✕';
+        closeBtn.addEventListener('click', () => {
+          if (userId === null || userId === this.user.id) {
+            this.voice.isScreenSharing ? this._toggleScreenShare() : this._handleScreenStream(userId, null);
+          } else {
+            this._handleScreenStream(userId, null);
+          }
         });
-        tile.appendChild(hideBtn);
-
+        tile.appendChild(closeBtn);
         grid.appendChild(tile);
       }
       const videoEl = tile.querySelector('video');
       videoEl.srcObject = stream;
-      videoEl.play().catch(() => {}); // ensure autoplay isn't blocked
-      // Auto-show container (even if minimized) when new stream arrives
+      videoEl.play().catch(() => {});
       container.style.display = 'flex';
-      this._screenShareMinimized = false;
-      this._removeScreenShareIndicator();
-      // Apply saved stream size so it doesn't start at default/cut-off height
-      const savedStreamSize = localStorage.getItem('haven_stream_size');
-      if (savedStreamSize) {
-        const vh = parseInt(savedStreamSize, 10);
-        container.style.maxHeight = vh + 'vh';
-        grid.style.maxHeight = (vh - 2) + 'vh';
-        document.querySelectorAll('.screen-share-tile video').forEach(v => { v.style.maxHeight = (vh - 4) + 'vh'; });
-      }
       const count = grid.children.length;
       label.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''}`;
     } else {
-      // Stream ended — remove this tile
       const tileId = `screen-tile-${userId || 'self'}`;
       const tile = document.getElementById(tileId);
       if (tile) {
@@ -2953,942 +2546,97 @@ class HavenApp {
     const container = document.getElementById('screen-share-container');
     const grid = document.getElementById('screen-share-grid');
     const label = document.getElementById('screen-share-label');
-    const totalCount = grid.children.length;
-    const visibleCount = grid.querySelectorAll('.screen-share-tile:not([data-hidden=\"true\"])').length;
-    const hiddenCount = totalCount - visibleCount;
-    if (totalCount === 0) {
+    const count = grid.children.length;
+    if (count === 0) {
       container.style.display = 'none';
-      this._screenShareMinimized = false;
-      this._removeScreenShareIndicator();
-      // Clean up hidden streams bar
-      document.getElementById('hidden-streams-bar')?.remove();
-    } else if (visibleCount === 0) {
-      // All tiles hidden — collapse the container to avoid empty gray space,
-      // but keep the "hidden streams" bar in the header so user can restore.
-      container.style.display = 'none';
-    } else if (this._screenShareMinimized) {
-      this._showScreenShareIndicator(totalCount);
     } else {
-      container.style.display = 'flex';
-      const labelParts = [`🖥️ ${visibleCount} stream${visibleCount !== 1 ? 's' : ''}`];
-      if (hiddenCount > 0) labelParts.push(`(${hiddenCount} hidden)`);
-      label.textContent = labelParts.join(' ');
+      label.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''}`;
     }
   }
 
   _hideScreenShare() {
-    const container = document.getElementById('screen-share-container');
-    const grid = document.getElementById('screen-share-grid');
-    // Just minimize — don't destroy streams or stop sharing
-    container.style.display = 'none';
-    this._screenShareMinimized = true;
-    // Show a "streams hidden" indicator if there are still tiles
-    if (grid.children.length > 0) {
-      this._showScreenShareIndicator(grid.children.length);
-    }
-  }
-
-  _showScreenShareIndicator(count) {
-    let ind = document.getElementById('screen-share-indicator');
-    if (!ind) {
-      ind = document.createElement('button');
-      ind.id = 'screen-share-indicator';
-      ind.className = 'screen-share-indicator';
-      ind.addEventListener('click', () => {
-        const container = document.getElementById('screen-share-container');
-        container.style.display = 'flex';
-        this._screenShareMinimized = false;
-        ind.remove();
-      });
-      document.querySelector('.channel-header')?.appendChild(ind);
-    }
-    ind.textContent = `🖥️ ${count} stream${count > 1 ? 's' : ''} hidden`;
-  }
-
-  _removeScreenShareIndicator() {
-    document.getElementById('screen-share-indicator')?.remove();
-  }
-
-  // ── Hide / Show individual stream tiles ─────────────
-
-  _hideStreamTile(tile, userId, who) {
-    tile.style.display = 'none';
-    tile.dataset.hidden = 'true';
-    this._updateHiddenStreamsBar();
-    this._updateScreenShareVisibility();
-  }
-
-  _showStreamTile(tileId) {
-    const tile = document.getElementById(tileId);
-    if (tile) {
-      tile.style.display = '';
-      delete tile.dataset.hidden;
-    }
-    this._updateHiddenStreamsBar();
-    this._updateScreenShareVisibility();
-  }
-
-  _updateHiddenStreamsBar() {
-    const grid = document.getElementById('screen-share-grid');
-    const container = document.getElementById('screen-share-container');
-    let bar = document.getElementById('hidden-streams-bar');
-    const hiddenTiles = grid.querySelectorAll('.screen-share-tile[data-hidden="true"]');
-
-    if (hiddenTiles.length === 0) {
-      if (bar) bar.remove();
+    if (this.voice?.isScreenSharing) {
+      this.voice.stopScreenShare();
+      document.getElementById('screen-share-btn').textContent = '🖥️ Share';
+      document.getElementById('screen-share-btn').classList.remove('sharing');
+      this._handleScreenStream(this.user.id, null);
+      this._showToast('Stopped screen sharing', 'info');
       return;
-    }
-
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.id = 'hidden-streams-bar';
-      bar.className = 'hidden-streams-bar';
-      // Insert inside voice-controls so it groups with other header buttons
-      document.querySelector('.voice-controls')?.appendChild(bar);
-    }
-
-    bar.innerHTML = `<button class="hidden-stream-restore-btn" title="Show hidden streams">🖥 ${hiddenTiles.length} stream${hiddenTiles.length > 1 ? 's' : ''} hidden</button>`;
-
-    // Bind restore button — clicking it restores all hidden streams
-    bar.querySelector('.hidden-stream-restore-btn').addEventListener('click', () => {
-      hiddenTiles.forEach(t => {
-        t.style.display = '';
-        delete t.dataset.hidden;
-      });
-      this._updateHiddenStreamsBar();
-      this._updateScreenShareVisibility();
-    });
-
-    // Show the container only if there are still visible tiles — _updateScreenShareVisibility handles this.
-    // (Removed forced container.style.display = 'flex' that caused empty gray space.)
-  }
-
-  _closeScreenShare() {
-    // Actually stop your screen share if sharing, otherwise just close viewer
-    if (this.voice && this.voice.screenStream) {
-      this._toggleScreenShare(); // stops sharing
     }
     const container = document.getElementById('screen-share-container');
     const grid = document.getElementById('screen-share-grid');
-    container.style.display = 'none';
-    this._screenShareMinimized = false;
-    // Remove any lingering indicator
-    const ind = document.getElementById('screen-share-indicator');
-    if (ind) ind.remove();
-  }
-
-  // ── Screen Share Audio ──────────────────────────────
-
-  _handleScreenAudio(userId) {
-    const tileId = `screen-tile-${userId || 'self'}`;
-    const tile = document.getElementById(tileId);
-    if (tile && !tile.querySelector('.stream-audio-badge')) {
-      const badge = document.createElement('div');
-      badge.className = 'stream-audio-badge';
-      badge.innerHTML = '🔊 Audio';
-      tile.appendChild(badge);
-    }
-    // Flash controls visible briefly
-    const controls = document.getElementById(`stream-controls-${userId || 'self'}`);
-    if (controls) {
-      controls.style.opacity = '1';
-      setTimeout(() => { controls.style.opacity = ''; }, 3000);
-    }
-  }
-
-  _handleScreenNoAudio(userId) {
-    const tileId = `screen-tile-${userId || 'self'}`;
-    const tile = document.getElementById(tileId);
-    if (!tile) {
-      // Tile may not exist yet — defer until it's created
-      const checkInterval = setInterval(() => {
-        const t = document.getElementById(tileId);
-        if (t) {
-          clearInterval(checkInterval);
-          this._applyNoAudioBadge(t, userId);
-        }
-      }, 200);
-      setTimeout(() => clearInterval(checkInterval), 5000);
+    if (grid.children.length === 0) {
+      container.style.display = 'none';
+      container.classList.remove('screen-collapsed');
       return;
     }
-    this._applyNoAudioBadge(tile, userId);
+    const collapsed = container.classList.toggle('screen-collapsed');
+    const btn = document.getElementById('screen-share-close');
+    btn.textContent = collapsed ? '▸' : '▾';
+    btn.title = collapsed ? 'Expand streams' : 'Minimize streams';
   }
-
-  _applyNoAudioBadge(tile, userId) {
-    if (tile.querySelector('.stream-no-audio-badge')) return;
-    // Add the no-audio badge
-    const badge = document.createElement('div');
-    badge.className = 'stream-no-audio-badge';
-    badge.innerHTML = '🔇 No Audio';
-    tile.appendChild(badge);
-    // Hide audio controls since there's no audio to control
-    const controls = document.getElementById(`stream-controls-${userId || 'self'}`);
-    if (controls) controls.style.display = 'none';
+  _buildEmbedUrl(url) {
+    let m;
+    if ((m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/))) return `https://www.youtube-nocookie.com/embed/${m[1]}?autoplay=1&enablejsapi=1&rel=0&origin=${encodeURIComponent(window.location.origin)}`;
+    if ((m = url.match(/open\.spotify\.com\/(track|album|playlist)\/([\w]+)/))) return `https://open.spotify.com/embed/${m[1]}/${m[2]}?utm_source=generator&theme=0`;
+    if ((m = url.match(/soundcloud\.com\/.+/))) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&auto_play=true&visual=true`;
+    if ((m = url.match(/vimeo\.com\/(\d+)/))) return `https://player.vimeo.com/video/${m[1]}?autoplay=1`;
+    return '';
   }
-
-  // ── Stream Focus & Pop-out ──────────────────────────
-
-  _toggleStreamFocus(tile) {
-    const container = document.getElementById('screen-share-container');
-    const grid = document.getElementById('screen-share-grid');
-    const wasFocused = tile.classList.contains('stream-focused');
-
-    // Remove focus from all tiles first
-    grid.querySelectorAll('.screen-share-tile').forEach(t => {
-      t.classList.remove('stream-focused');
-    });
-    container.classList.remove('stream-focus-mode');
-
-    if (!wasFocused) {
-      tile.classList.add('stream-focused');
-      container.classList.add('stream-focus-mode');
-    }
-  }
-
-  _popOutStream(tile, userId) {
-    const video = tile.querySelector('video');
-    if (!video || !video.srcObject) return;
-
-    // If already in Picture-in-Picture, exit it
-    if (document.pictureInPictureElement === video) {
-      document.exitPictureInPicture().catch(() => {});
+  _onListenSession(session) {
+    this._listenSession = session;
+    const activeEl = document.getElementById('listen-active-session');
+    const hostCtrl = document.getElementById('listen-host-controls');
+    const embedCont = document.getElementById('listen-embed-container');
+    const sdkPlayer = document.getElementById('spotify-sdk-player');
+    const playPause = document.getElementById('listen-play-pause');
+    const stopBtn = document.getElementById('listen-stop-btn');
+    if (!session) {
+      activeEl.style.display = 'none';
+      hostCtrl.style.display = 'block';
+      embedCont.innerHTML = '';
+      if (sdkPlayer) sdkPlayer.style.display = 'none';
+      if (this.spotifyPlayer) this.spotifyPlayer.pause();
       return;
     }
-
-    // If already popped out to a window, don't open another
-    if (tile.classList.contains('stream-popped-out')) return;
-
-    // Try native Picture-in-Picture first
-    if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
-      video.requestPictureInPicture().then(pipWindow => {
-        // Update button to show "pop back in"
-        const popoutBtn = tile.querySelector('.stream-popout-btn');
-        if (popoutBtn) {
-          popoutBtn.textContent = '⧈';
-          popoutBtn.title = 'Pop in stream';
-        }
-        tile.classList.add('stream-popped-out');
-
-        video.addEventListener('leavepictureinpicture', () => {
-          if (popoutBtn) {
-            popoutBtn.textContent = '⧉';
-            popoutBtn.title = 'Pop out stream';
-          }
-          tile.classList.remove('stream-popped-out');
-        }, { once: true });
-      }).catch(() => {
-        this._popOutStreamWindow(tile, userId);
-      });
-    } else {
-      this._popOutStreamWindow(tile, userId);
-    }
-  }
-
-  _popOutStreamWindow(tile, userId) {
-    const video = tile.querySelector('video');
-    if (!video || !video.srcObject) return;
-
-    const stream = video.srcObject;
-    const peer = this.voice.peers.get(userId);
-    const who = userId === null || userId === this.user.id ? 'You' : (peer ? peer.username : 'Stream');
-
-    // Create floating in-page overlay (like music PiP) instead of window.open
-    const pipId = `stream-pip-${userId || 'self'}`;
-    if (document.getElementById(pipId)) return; // already open
-
-    const savedOpacity = parseInt(localStorage.getItem('haven_pip_opacity') ?? '100');
-    const pip = document.createElement('div');
-    pip.id = pipId;
-    pip.className = 'music-pip-overlay stream-pip-overlay';
-    pip.style.opacity = savedOpacity / 100;
-    pip.style.width = '480px';
-    pip.style.minHeight = '320px';
-
-    pip.innerHTML = `
-      <div class="music-pip-header stream-pip-drag">
-        <button class="music-pip-btn stream-pip-popin" title="Minimize (back to inline)">─</button>
-        <span class="music-pip-label">🖥️ ${who}</span>
-        <button class="music-pip-btn stream-pip-close" title="Close">✕</button>
-      </div>
-      <div class="music-pip-embed stream-pip-video"></div>
-      <div class="music-pip-controls">
-        <span class="music-pip-vol-icon stream-pip-opacity-icon" title="Window opacity">👁</span>
-        <input type="range" class="music-pip-vol pip-opacity-slider stream-pip-opacity" min="20" max="100" value="${savedOpacity}">
-      </div>
-    `;
-
-    document.body.appendChild(pip);
-
-    // Clone video into PiP (keep original in tile for when user pops back in)
-    const pipVideo = document.createElement('video');
-    pipVideo.autoplay = true;
-    pipVideo.playsInline = true;
-    pipVideo.muted = true;
-    pipVideo.srcObject = stream;
-    pipVideo.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
-    pip.querySelector('.stream-pip-video').appendChild(pipVideo);
-    pipVideo.play().catch(() => {});
-
-    const popoutBtn = tile.querySelector('.stream-popout-btn');
-    if (popoutBtn) { popoutBtn.textContent = '⧈'; popoutBtn.title = 'Pop in stream'; }
-    tile.classList.add('stream-popped-out');
-
-    // Pop-in handler (minimize — return to inline grid)
-    const popIn = () => {
-      pip.remove();
-      if (popoutBtn) { popoutBtn.textContent = '⧉'; popoutBtn.title = 'Pop out stream'; }
-      tile.classList.remove('stream-popped-out');
-    };
-
-    // Close handler (destroy the PiP overlay)
-    const closePip = () => {
-      pip.remove();
-      if (popoutBtn) { popoutBtn.textContent = '⧉'; popoutBtn.title = 'Pop out stream'; }
-      tile.classList.remove('stream-popped-out');
-    };
-
-    pip.querySelector('.stream-pip-popin').addEventListener('click', popIn);
-    pip.querySelector('.stream-pip-close').addEventListener('click', closePip);
-
-    // Opacity slider
-    pip.querySelector('.stream-pip-opacity').addEventListener('input', (e) => {
-      const val = parseInt(e.target.value);
-      pip.style.opacity = val / 100;
-      localStorage.setItem('haven_pip_opacity', val);
-    });
-
-    // Dragging
-    this._initPipDrag(pip, pip.querySelector('.stream-pip-drag'));
-
-    // Clean up if stream ends
-    const streamTrack = stream.getVideoTracks()[0];
-    if (streamTrack) {
-      const prevOnEnded = streamTrack.onended;
-      streamTrack.onended = () => {
-        if (prevOnEnded) prevOnEnded();
-        popIn();
-      };
-    }
-  }
-
-  // ── Music Streaming ───────────────────────────────
-
-  _openMusicModal() {
-    if (!this.voice || !this.voice.inVoice) {
-      this._showToast('Join voice first to share music', 'error');
+    hostCtrl.style.display = 'none';
+    activeEl.style.display = 'block';
+    document.getElementById('listen-now-title').textContent = session.title || session.url;
+    document.getElementById('listen-now-host').textContent = `Hosted by ${session.hostName}`;
+    const isHost = session.hostId === this.user.id;
+    playPause.style.display = isHost ? '' : 'none';
+    stopBtn.style.display = isHost ? '' : 'none';
+    playPause.textContent = session.isPlaying ? '⏸ Pause' : '▶ Play';
+    const isSpotify = this._isSpotifyUrl(session.url);
+    if (isSpotify && this._spotifyReady && this.spotifyPlayer?.isPremium) {
+      embedCont.style.display = 'none';
+      if (sdkPlayer) sdkPlayer.style.display = 'block';
+      const uri = this.spotifyPlayer.spotifyUrlToUri(session.url);
+      if (uri) this.spotifyPlayer.play(uri);
+      this._showToast(`🎵 ${session.hostName} started Listen Together`, 'info');
       return;
     }
-    document.getElementById('music-link-input').value = '';
-    document.getElementById('music-link-preview').innerHTML = '';
-    document.getElementById('music-link-preview').classList.remove('active');
-    document.getElementById('music-modal').style.display = 'flex';
-    setTimeout(() => document.getElementById('music-link-input').focus(), 100);
+    embedCont.style.display = '';
+    if (sdkPlayer) sdkPlayer.style.display = 'none';
+    const embedUrl = this._buildEmbedUrl(session.url);
+    if (!embedUrl) return this._showToast('Unsupported media URL', 'error');
+    embedCont.innerHTML = `<iframe src="${this._escapeHtml(embedUrl)}" width="100%" height="${embedUrl.includes('spotify') ? '152' : '80'}" frameborder="0" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" allowfullscreen style="border-radius:8px"></iframe>${embedUrl.includes('spotify') ? '<div class="spotify-embed-hint">Tip: Log into <a href="https://open.spotify.com" target="_blank" rel="noopener">open.spotify.com</a> in your browser first for full playback, or use Connect Spotify above</div>' : ''}`;
+    this._showToast(`🎵 ${session.hostName} started Listen Together`, 'info');
   }
-
-  _closeMusicModal() {
-    document.getElementById('music-modal').style.display = 'none';
+  _onListenSync(data) {
+    if (!this._listenSession) return;
+    this._listenSession.isPlaying = data.isPlaying;
+    this._listenSession.position = data.position;
   }
-
-  _previewMusicLink(url) {
-    const preview = document.getElementById('music-link-preview');
-    if (!url) { preview.innerHTML = ''; preview.classList.remove('active'); return; }
-    const platform = this._getMusicPlatform(url);
-    const embedUrl = this._getMusicEmbed(url);
-    if (platform && embedUrl) {
-      preview.classList.add('active');
-      preview.innerHTML = `${platform.icon} <strong>${platform.name}</strong> — Ready to share`;
-    } else {
-      preview.classList.remove('active');
-      preview.innerHTML = '';
-    }
-  }
-
-  _shareMusic() {
-    const url = document.getElementById('music-link-input').value.trim();
-    if (!url) { this._showToast('Please paste a music link', 'error'); return; }
-    if (!this._getMusicEmbed(url)) {
-      this._showToast('Unsupported link — try Spotify, YouTube, or SoundCloud', 'error');
-      return;
-    }
-    if (!this.voice || !this.voice.inVoice) { this._showToast('Join voice first', 'error'); return; }
-    this.socket.emit('music-share', { code: this.voice.currentChannel, url });
-    this._closeMusicModal();
-  }
-
-  _stopMusic() {
-    if (this.voice && this.voice.inVoice) {
-      this.socket.emit('music-stop', { code: this.voice.currentChannel });
-    }
-    this._hideMusicPanel();
-  }
-
-  _showMusicSearchResults(data) {
-    // Remove any existing search picker
-    this._closeMusicSearchPicker();
-
-    const { results, query, offset } = data;
-    if (!results || results.length === 0) {
-      this._showToast(offset > 0 ? 'No more results' : `No results for "${query}"`, 'error');
-      return;
-    }
-
-    const picker = document.createElement('div');
-    picker.id = 'music-search-picker';
-    picker.className = 'music-search-picker';
-    picker.innerHTML = `
-      <div class="music-search-picker-header">
-        <span>🔍 Results for "<strong>${this._escapeHtml(query)}</strong>"</span>
-        <button class="music-search-picker-close" title="Cancel">✕</button>
-      </div>
-      <div class="music-search-picker-list">
-        ${results.map((r, i) => `
-          <div class="music-search-picker-item" data-video-id="${r.videoId}">
-            <div class="music-search-picker-thumb">
-              ${r.thumbnail ? `<img src="${this._escapeHtml(r.thumbnail)}" alt="" loading="lazy">` : '<span>🎵</span>'}
-            </div>
-            <div class="music-search-picker-info">
-              <div class="music-search-picker-title">${this._escapeHtml(r.title || `Result ${offset + i + 1}`)}</div>
-              <div class="music-search-picker-meta">${this._escapeHtml(r.channel)}${r.duration ? ` · ${r.duration}` : ''}</div>
-            </div>
-            <button class="music-search-picker-play" data-video-id="${r.videoId}" title="Play this">▶</button>
-          </div>
-        `).join('')}
-      </div>
-      <div class="music-search-picker-footer">
-        <button class="music-search-picker-more">More results</button>
-        <button class="music-search-picker-cancel">Cancel</button>
-      </div>
-    `;
-
-    // Insert above the message input area
-    const msgArea = document.getElementById('message-area');
-    msgArea.appendChild(picker);
-
-    // Event handlers
-    picker.querySelector('.music-search-picker-close').addEventListener('click', () => this._closeMusicSearchPicker());
-    picker.querySelector('.music-search-picker-cancel').addEventListener('click', () => this._closeMusicSearchPicker());
-    picker.querySelector('.music-search-picker-more').addEventListener('click', () => {
-      const newOffset = (offset || 0) + 5;
-      this._musicSearchOffset = newOffset;
-      this.socket.emit('music-search', { query: this._musicSearchQuery, offset: newOffset });
-      this._closeMusicSearchPicker();
-      this._showToast('Loading more…', 'info');
-    });
-
-    picker.querySelectorAll('.music-search-picker-play').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const videoId = btn.dataset.videoId;
-        const url = `https://www.youtube.com/watch?v=${videoId}`;
-        this.socket.emit('music-share', { code: this.voice.currentChannel, url });
-        this._closeMusicSearchPicker();
-      });
-    });
-
-    // Also allow clicking the whole row
-    picker.querySelectorAll('.music-search-picker-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        if (e.target.closest('.music-search-picker-play')) return; // already handled
-        const videoId = item.dataset.videoId;
-        const url = `https://www.youtube.com/watch?v=${videoId}`;
-        this.socket.emit('music-share', { code: this.voice.currentChannel, url });
-        this._closeMusicSearchPicker();
-      });
-    });
-  }
-
-  _closeMusicSearchPicker() {
-    const existing = document.getElementById('music-search-picker');
-    if (existing) existing.remove();
-  }
-
-  _handleMusicShared(data) {
-    const embedUrl = this._getMusicEmbed(data.url);
-    if (!embedUrl) return;
-    const platform = this._getMusicPlatform(data.url);
-    const panel = document.getElementById('music-panel');
-    const container = document.getElementById('music-embed-container');
-    const label = document.getElementById('music-panel-label');
-
-    // Clean up previous player references
-    this._musicYTPlayer = null;
-    this._musicSCWidget = null;
-    this._musicPlatform = platform ? platform.name : null;
-    this._musicPlaying = true;
-    this._musicActive = true;
-    this._musicUrl = data.url;
-    this._removeMusicIndicator();
-
-    let iframeH = '152';
-    if (data.url.includes('spotify.com')) iframeH = '152';
-    else if (data.url.includes('soundcloud.com')) iframeH = '166';
-    else if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) iframeH = '200';
-
-    // Wrap iframe in a container; overlay blocks direct clicks for SoundCloud (Haven has API control)
-    // For Spotify & YouTube, no overlay — user interacts with their native controls (seek bar, etc.)
-    const isSpotify = data.url.includes('spotify.com');
-    const isYouTube = data.url.includes('youtube.com') || data.url.includes('youtu.be') || data.url.includes('music.youtube.com');
-    const needsOverlay = !isSpotify && !isYouTube; // only SoundCloud gets the click-blocker now
-    // referrerpolicy="no-referrer" prevents the browser from sending localhost/private-IP Referer
-    // headers that cause YouTube to show "Video unavailable" for self-hosted instances.
-    const refPolicy = isYouTube ? ' referrerpolicy="no-referrer"' : '';
-    container.innerHTML = `<div class="music-embed-wrapper"><iframe id="music-iframe" src="${embedUrl}" width="100%" height="${iframeH}" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"${refPolicy}></iframe>${needsOverlay ? '<div class="music-embed-overlay"></div>' : ''}</div>`;
-    if (data.resolvedFrom === 'spotify') {
-      label.textContent = `🎵 🟢 Spotify (via YouTube) — shared by ${data.username || 'someone'}`;
-    } else {
-      label.textContent = `🎵 ${platform ? platform.name : 'Music'} — shared by ${data.username || 'someone'}`;
-    }
-    panel.style.display = 'flex';
-
-    // Update play/pause button — hide for Spotify (no external API)
-    const ppBtn = document.getElementById('music-play-pause-btn');
-    if (ppBtn) {
-      ppBtn.textContent = isSpotify ? '' : '⏸';
-      ppBtn.style.display = isSpotify ? 'none' : '';
-    }
-
-    // Apply saved volume
-    const savedVol = parseInt(localStorage.getItem('haven_music_volume') ?? '80');
-    document.getElementById('music-volume-slider').value = savedVol;
-
-    // For Spotify: volume can only be controlled inside the embed — show disclaimer
-    const volSlider = document.getElementById('music-volume-slider');
-    const muteBtn = document.getElementById('music-mute-btn');
-    if (isSpotify) {
-      if (volSlider) { volSlider.disabled = true; volSlider.title = 'Use Spotify\'s built-in controls for volume'; }
-      if (muteBtn) { muteBtn.disabled = true; muteBtn.title = 'Use Spotify\'s built-in controls for volume'; }
-    } else {
-      if (volSlider) { volSlider.disabled = false; volSlider.title = ''; }
-      if (muteBtn) { muteBtn.disabled = false; muteBtn.title = 'Mute/Unmute'; }
-    }
-
-
-    // Initialize platform-specific APIs for volume & sync control
-    const iframe = document.getElementById('music-iframe');
-    if (iframe) {
-      if (data.url.includes('youtube.com') || data.url.includes('youtu.be') || data.url.includes('music.youtube.com')) {
-        this._initYouTubePlayer(iframe, savedVol);
-      } else if (data.url.includes('soundcloud.com')) {
-        this._initSoundCloudWidget(iframe, savedVol);
-      }
-    }
-
-    const who = data.userId === this.user?.id ? 'You shared' : `${data.username} shared`;
-    const platformLabel = data.resolvedFrom === 'spotify' ? 'Spotify (via YouTube)' : (platform ? platform.name : 'music');
-    this._showToast(`${who} ${platformLabel}`, 'info');
-  }
-
-  _initYouTubePlayer(iframe, volume) {
-    // YouTube IFrame API — load the API script once, then create a player
-    if (!window.YT || !window.YT.Player) {
-      if (!document.getElementById('yt-iframe-api')) {
-        const tag = document.createElement('script');
-        tag.id = 'yt-iframe-api';
-        tag.src = 'https://www.youtube.com/iframe_api';
-        document.head.appendChild(tag);
-      }
-      // Wait for API to load, then retry
-      const check = setInterval(() => {
-        if (window.YT && window.YT.Player) {
-          clearInterval(check);
-          this._createYTPlayer(iframe, volume);
-        }
-      }, 200);
-      setTimeout(() => clearInterval(check), 10000); // give up after 10s
-    } else {
-      this._createYTPlayer(iframe, volume);
-    }
-  }
-
-  _createYTPlayer(iframe, volume) {
-    try {
-      this._musicYTPlayer = new YT.Player(iframe, {
-        events: {
-          onReady: (e) => {
-            e.target.setVolume(volume);
-          },
-          onStateChange: (e) => {
-            // Sync Haven's play/pause state when user interacts with YT's native controls
-            const ppBtn = document.getElementById('music-play-pause-btn');
-            const pipPP = document.getElementById('music-pip-pp');
-            if (e.data === YT.PlayerState.PLAYING) {
-              this._musicPlaying = true;
-              if (ppBtn) ppBtn.textContent = '⏸';
-              if (pipPP) pipPP.textContent = '⏸';
-            } else if (e.data === YT.PlayerState.PAUSED) {
-              this._musicPlaying = false;
-              if (ppBtn) ppBtn.textContent = '▶';
-              if (pipPP) pipPP.textContent = '▶';
-            }
-          }
-        }
-      });
-    } catch { /* iframe may already be destroyed */ }
-  }
-
-  _initSoundCloudWidget(iframe, volume) {
-    // SoundCloud Widget API
-    if (!window.SC || !window.SC.Widget) {
-      if (!document.getElementById('sc-widget-api')) {
-        const tag = document.createElement('script');
-        tag.id = 'sc-widget-api';
-        tag.src = 'https://w.soundcloud.com/player/api.js';
-        document.head.appendChild(tag);
-      }
-      const check = setInterval(() => {
-        if (window.SC && window.SC.Widget) {
-          clearInterval(check);
-          this._createSCWidget(iframe, volume);
-        }
-      }, 200);
-      setTimeout(() => clearInterval(check), 10000);
-    } else {
-      this._createSCWidget(iframe, volume);
-    }
-  }
-
-  _createSCWidget(iframe, volume) {
-    try {
-      this._musicSCWidget = SC.Widget(iframe);
-      this._musicSCWidget.bind(SC.Widget.Events.READY, () => {
-        this._musicSCWidget.setVolume(volume);
-      });
-    } catch { /* iframe may already be destroyed */ }
-  }
-
-  _handleMusicStopped(data) {
-    this._musicYTPlayer = null;
-    this._musicSCWidget = null;
-    this._musicPlatform = null;
-    this._musicPlaying = false;
-    this._hideMusicPanel();
-    const who = data.userId === this.user?.id ? 'You' : (data.username || 'Someone');
-    this._showToast(`${who} stopped the music`, 'info');
-  }
-
-  _handleMusicControl(data) {
-    if (data.action === 'pause') {
-      this._pauseMusicEmbed();
-      this._musicPlaying = false;
-    } else if (data.action === 'play') {
-      this._playMusicEmbed();
-      this._musicPlaying = true;
-    }
-    const ppBtn = document.getElementById('music-play-pause-btn');
-    if (ppBtn) ppBtn.textContent = this._musicPlaying ? '⏸' : '▶';
-  }
-
-  _toggleMusicPlayPause() {
-    if (this._musicPlaying) {
-      this._pauseMusicEmbed();
-      this._musicPlaying = false;
-    } else {
-      this._playMusicEmbed();
-      this._musicPlaying = true;
-    }
-    const ppBtn = document.getElementById('music-play-pause-btn');
-    if (ppBtn) ppBtn.textContent = this._musicPlaying ? '⏸' : '▶';
-    // Broadcast to others in voice
-    if (this.voice && this.voice.inVoice) {
-      this.socket.emit('music-control', {
-        code: this.voice.currentChannel,
-        action: this._musicPlaying ? 'play' : 'pause'
-      });
-    }
-  }
-
-  _playMusicEmbed() {
-    try {
-      if (this._musicYTPlayer && this._musicYTPlayer.playVideo) {
-        this._musicYTPlayer.playVideo();
-      } else if (this._musicSCWidget) {
-        this._musicSCWidget.play();
-      } else {
-        // Spotify or fallback — restore paused src to resume
-        const iframe = document.getElementById('music-iframe');
-        if (iframe) {
-          const src = iframe.dataset.pausedSrc || iframe.src;
-          delete iframe.dataset.pausedSrc;
-          if (src && src !== 'about:blank') iframe.src = src;
-        }
-      }
-    } catch { /* player may be destroyed */ }
-  }
-
-  _pauseMusicEmbed() {
-    try {
-      if (this._musicYTPlayer && this._musicYTPlayer.pauseVideo) {
-        this._musicYTPlayer.pauseVideo();
-      } else if (this._musicSCWidget) {
-        this._musicSCWidget.pause();
-      } else {
-        // Spotify — no external API; remove src to pause, store for resume
-        const iframe = document.getElementById('music-iframe');
-        if (iframe) {
-          iframe.dataset.pausedSrc = iframe.src;
-          iframe.src = 'about:blank';
-        }
-      }
-    } catch { /* player may be destroyed */ }
-  }
-
-  _hideMusicPanel() {
-    // Clean up PiP overlay if active
-    if (this._musicPip) {
-      this._musicPip.remove();
-      this._musicPip = null;
-    }
-    const panel = document.getElementById('music-panel');
-    if (panel) {
-      document.getElementById('music-embed-container').innerHTML = '';
-      panel.style.display = 'none';
-    }
-    this._removeMusicIndicator();
-    this._musicActive = false;
-  }
-
-  _minimizeMusicPanel() {
-    document.getElementById('music-panel').style.display = 'none';
-    // Show an indicator in the channel header so user can reopen
-    if (this._musicActive) {
-      this._showMusicIndicator();
-    }
-  }
-
-  _popOutMusicPlayer() {
-    const panel = document.getElementById('music-panel');
-    const container = document.getElementById('music-embed-container');
-    if (!container || !container.innerHTML.trim()) {
-      this._showToast('No music playing', 'error');
-      return;
-    }
-
-    // If already in PiP overlay, pop back in
-    if (this._musicPip) {
-      this._popInMusicPlayer();
-      return;
-    }
-
-    // Create floating PiP overlay
-    const pip = document.createElement('div');
-    pip.id = 'music-pip-overlay';
-    pip.className = 'music-pip-overlay';
-
-    const volume = parseInt(document.getElementById('music-volume-slider')?.value ?? '80');
-    const platform = this._musicPlatform || 'Music';
-    const playing = this._musicPlaying;
-
-    const savedOpacity = parseInt(localStorage.getItem('haven_pip_opacity') ?? '100');
-
-    pip.innerHTML = `
-      <div class="music-pip-header" id="music-pip-drag">
-        <button class="music-pip-btn" id="music-pip-popin" title="Minimize (back to panel)">─</button>
-        <span class="music-pip-label">🎵 ${platform}</span>
-        <button class="music-pip-btn" id="music-pip-close" title="Close / stop music">✕</button>
-      </div>
-      <div class="music-pip-embed" id="music-pip-embed"></div>
-      <div class="music-pip-controls">
-        <button class="music-pip-btn" id="music-pip-pp" title="Play/Pause">${playing ? '⏸' : '▶'}</button>
-        <span class="music-pip-vol-icon" id="music-pip-mute" title="Mute">🔊</span>
-        <input type="range" class="music-pip-vol" id="music-pip-vol" min="0" max="100" value="${volume}">
-        <span class="pip-opacity-divider"></span>
-        <span class="music-pip-vol-icon" id="music-pip-opacity-icon" title="Window opacity">👁</span>
-        <input type="range" class="music-pip-vol pip-opacity-slider" id="music-pip-opacity" min="20" max="100" value="${savedOpacity}">
-      </div>
-    `;
-
-    pip.style.opacity = savedOpacity / 100;
-
-    document.body.appendChild(pip);
-
-    // Move the embed wrapper (with live iframe) into the PiP overlay — no reload!
-    const embedWrapper = container.querySelector('.music-embed-wrapper');
-    if (embedWrapper) {
-      // Remove the click-blocking overlay so user can interact directly in PiP
-      const overlay = embedWrapper.querySelector('.music-embed-overlay');
-      if (overlay) overlay.style.display = 'none';
-      document.getElementById('music-pip-embed').appendChild(embedWrapper);
-    }
-
-    // Hide the original panel
-    panel.style.display = 'none';
-    this._showMusicIndicator();
-    this._musicPip = pip;
-
-    // Update popout button icon to show "pop-in"
-    const popBtn = document.getElementById('music-popout-btn');
-    if (popBtn) { popBtn.textContent = '⧈'; popBtn.title = 'Pop back in'; }
-
-    // ── PiP controls ──
-    document.getElementById('music-pip-popin').addEventListener('click', () => this._popInMusicPlayer());
-    document.getElementById('music-pip-close').addEventListener('click', () => this._stopMusic());
-    document.getElementById('music-pip-pp').addEventListener('click', () => {
-      this._toggleMusicPlayPause();
-      document.getElementById('music-pip-pp').textContent = this._musicPlaying ? '⏸' : '▶';
-    });
-    document.getElementById('music-pip-vol').addEventListener('input', (e) => {
-      this._setMusicVolume(parseInt(e.target.value));
-      document.getElementById('music-pip-mute').textContent = parseInt(e.target.value) === 0 ? '🔇' : '🔊';
-    });
-    document.getElementById('music-pip-mute').addEventListener('click', () => {
-      this._toggleMusicMute();
-      const v = parseInt(document.getElementById('music-volume-slider')?.value ?? '0');
-      document.getElementById('music-pip-vol').value = v;
-      document.getElementById('music-pip-mute').textContent = v === 0 ? '🔇' : '🔊';
-    });
-
-    // ── Opacity ──
-    document.getElementById('music-pip-opacity').addEventListener('input', (e) => {
-      const val = parseInt(e.target.value);
-      pip.style.opacity = val / 100;
-      localStorage.setItem('haven_pip_opacity', val);
-    });
-
-    // ── Dragging ──
-    this._initPipDrag(pip, document.getElementById('music-pip-drag'));
-  }
-
-  _popInMusicPlayer() {
-    const pip = this._musicPip;
-    if (!pip) return;
-
-    const container = document.getElementById('music-embed-container');
-    const panel = document.getElementById('music-panel');
-
-    // Move embed wrapper back to the panel
-    const embedWrapper = pip.querySelector('.music-embed-wrapper');
-    if (embedWrapper && container) {
-      // Re-add the click-blocking overlay
-      const overlay = embedWrapper.querySelector('.music-embed-overlay');
-      if (overlay) overlay.style.display = '';
-      container.appendChild(embedWrapper);
-    }
-
-    pip.remove();
-    this._musicPip = null;
-
-    // Restore panel
-    if (this._musicActive && panel) {
-      panel.style.display = 'flex';
-      this._removeMusicIndicator();
-    }
-
-    // Restore popout button icon
-    const popBtn = document.getElementById('music-popout-btn');
-    if (popBtn) { popBtn.textContent = '⧉'; popBtn.title = 'Pop out player'; }
-  }
-
-  _initPipDrag(pip, handle) {
-    let dragging = false, startX, startY, origX, origY;
-    handle.addEventListener('mousedown', (e) => {
-      dragging = true;
-      startX = e.clientX; startY = e.clientY;
-      const rect = pip.getBoundingClientRect();
-      origX = rect.left; origY = rect.top;
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      pip.style.left = (origX + e.clientX - startX) + 'px';
-      pip.style.top = (origY + e.clientY - startY) + 'px';
-      pip.style.right = 'auto';
-      pip.style.bottom = 'auto';
-    });
-    document.addEventListener('mouseup', () => { dragging = false; });
-    // Touch support
-    handle.addEventListener('touchstart', (e) => {
-      dragging = true;
-      const t = e.touches[0];
-      startX = t.clientX; startY = t.clientY;
-      const rect = pip.getBoundingClientRect();
-      origX = rect.left; origY = rect.top;
-    }, { passive: true });
-    document.addEventListener('touchmove', (e) => {
-      if (!dragging) return;
-      const t = e.touches[0];
-      pip.style.left = (origX + t.clientX - startX) + 'px';
-      pip.style.top = (origY + t.clientY - startY) + 'px';
-      pip.style.right = 'auto';
-      pip.style.bottom = 'auto';
-    }, { passive: true });
-    document.addEventListener('touchend', () => { dragging = false; });
-  }
-
-  _showMusicIndicator() {
-    let ind = document.getElementById('music-indicator');
-    if (ind) return; // already showing
-    ind = document.createElement('button');
-    ind.id = 'music-indicator';
-    ind.className = 'music-indicator';
-    ind.textContent = '🎵 Music playing';
-    ind.title = 'Click to show music player';
-    ind.addEventListener('click', () => {
-      // If PiP is active, pop back in first
-      if (this._musicPip) {
-        this._popInMusicPlayer();
-        return;
-      }
-      const panel = document.getElementById('music-panel');
-      panel.style.display = 'flex';
-      ind.remove();
-    });
-    // Append inside voice-controls so it groups with other header buttons
-    document.querySelector('.voice-controls')?.appendChild(ind);
-  }
-
-  _removeMusicIndicator() {
-    document.getElementById('music-indicator')?.remove();
-  }
-
-  _setMusicVolume(vol) {
-    localStorage.setItem('haven_music_volume', vol);
-    const muteBtn = document.getElementById('music-mute-btn');
-    if (muteBtn) muteBtn.textContent = vol === 0 ? '🔇' : '🔊';
-    // Apply to active player
-    try {
-      if (this._musicYTPlayer && this._musicYTPlayer.setVolume) {
-        this._musicYTPlayer.setVolume(vol);
-      } else if (this._musicSCWidget) {
-        this._musicSCWidget.setVolume(vol);
-      }
-    } catch { /* player may be gone */ }
-  }
-
-  _toggleMusicMute() {
-    const slider = document.getElementById('music-volume-slider');
-    const muteBtn = document.getElementById('music-mute-btn');
-    if (!slider) return;
-    if (parseInt(slider.value) > 0) {
-      slider.dataset.prevValue = slider.value;
-      slider.value = 0;
-      muteBtn.textContent = '🔇';
-    } else {
-      slider.value = slider.dataset.prevValue || 80;
-      muteBtn.textContent = '🔊';
-    }
-    this._setMusicVolume(parseInt(slider.value));
-  }
-
-  _getMusicEmbed(url) {
-    if (!url) return null;
-    const spotifyMatch = url.match(/open\.spotify\.com\/(track|album|playlist|episode|show)\/([a-zA-Z0-9]+)/);
-    if (spotifyMatch) return `https://open.spotify.com/embed/${spotifyMatch[1]}/${spotifyMatch[2]}?theme=0&utm_source=generator&autoplay=1`;
-    const ytMusicMatch = url.match(/music\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/);
-    if (ytMusicMatch) return `https://www.youtube-nocookie.com/embed/${ytMusicMatch[1]}?autoplay=1&enablejsapi=1`;
-    const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
-    if (ytMatch) return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1`;
-    if (url.includes('soundcloud.com/')) {
-      return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=true&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=false`;
-    }
-    return null;
-  }
-
-  _getMusicPlatform(url) {
-    if (!url) return null;
-    if (url.includes('spotify.com')) return { name: 'Spotify', icon: '🟢' };
-    if (url.includes('music.youtube.com')) return { name: 'YouTube Music', icon: '🔴' };
-    if (url.includes('youtube.com') || url.includes('youtu.be')) return { name: 'YouTube', icon: '🔴' };
-    if (url.includes('soundcloud.com')) return { name: 'SoundCloud', icon: '🟠' };
-    return null;
+  _onListenEnded() {
+    this._listenSession = null;
+    document.getElementById('listen-active-session').style.display = 'none';
+    document.getElementById('listen-host-controls').style.display = 'block';
+    document.getElementById('listen-embed-container').innerHTML = '';
+    const sdkPlayer = document.getElementById('spotify-sdk-player');
+    if (sdkPlayer) sdkPlayer.style.display = 'none';
+    if (this.spotifyPlayer) this.spotifyPlayer.pause();
+    this._showToast('🎵 Listen Together ended', 'info');
   }
 
   // ── Utilities ─────────────────────────────────────────
@@ -3896,7 +2644,7 @@ class HavenApp {
   _escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
-    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    return div.innerHTML;
   }
 
   _isImageUrl(str) {
@@ -3904,8 +2652,8 @@ class HavenApp {
     const trimmed = str.trim();
     if (/^\/uploads\/[\w\-]+\.(jpg|jpeg|png|gif|webp)$/i.test(trimmed)) return true;
     if (/^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)(\?[^"'<>]*)?$/i.test(trimmed)) return true;
-    // GIPHY GIF URLs (may not have file extensions)
-    if (/^https:\/\/media\d*\.giphy\.com\/.+/i.test(trimmed)) return true;
+    // Tenor GIF URLs (don't have file extensions)
+    if (/^https:\/\/media\.tenor\.com\/.+/i.test(trimmed)) return true;
     return false;
   }
 
@@ -3916,40 +2664,6 @@ class HavenApp {
   }
 
   _formatContent(str) {
-    // Render file attachments [file:name](url|size)
-    const fileMatch = str.match(/^\[file:(.+?)\]\((.+?)\|(.+?)\)$/);
-    if (fileMatch) {
-      const fileName = this._escapeHtml(fileMatch[1]);
-      const fileUrl = this._escapeHtml(fileMatch[2]);
-      const fileSize = this._escapeHtml(fileMatch[3]);
-      const ext = fileName.split('.').pop().toLowerCase();
-      const icon = { pdf: '📄', zip: '📦', '7z': '📦', rar: '📦',
-        mp3: '🎵', ogg: '🎵', wav: '🎵', mp4: '🎬', webm: '🎬',
-        doc: '📝', docx: '📝', xls: '📊', xlsx: '📊', ppt: '📊', pptx: '📊',
-        txt: '📄', csv: '📄', json: '📄', md: '📄' }[ext] || '📎';
-      // Audio/video get inline players
-      if (['mp3', 'ogg', 'wav', 'webm'].includes(ext) && /^audio\//.test('audio/')) {
-        return `<div class="file-attachment">
-          <div class="file-info">${icon} <span class="file-name">${fileName}</span> <span class="file-size">(${fileSize})</span></div>
-          <audio controls preload="none" src="${fileUrl}"></audio>
-        </div>`;
-      }
-      if (['mp4', 'webm'].includes(ext)) {
-        return `<div class="file-attachment">
-          <div class="file-info">${icon} <span class="file-name">${fileName}</span> <span class="file-size">(${fileSize})</span></div>
-          <video controls preload="none" src="${fileUrl}" class="file-video"></video>
-        </div>`;
-      }
-      return `<div class="file-attachment">
-        <a href="${fileUrl}" target="_blank" rel="noopener noreferrer" class="file-download-link" download="${fileName}">
-          <span class="file-icon">${icon}</span>
-          <span class="file-name">${fileName}</span>
-          <span class="file-size">(${fileSize})</span>
-          <span class="file-download-arrow">⬇</span>
-        </a>
-      </div>`;
-    }
-
     // Render server-hosted images inline (early return)
     if (/^\/uploads\/[\w\-]+\.(jpg|jpeg|png|gif|webp)$/i.test(str.trim())) {
       return `<img src="${this._escapeHtml(str.trim())}" class="chat-image" alt="image" loading="lazy">`;
@@ -3972,7 +2686,7 @@ class HavenApp {
         try { new URL(url); } catch { return url; }
         const safeUrl = url.replace(/['"<>]/g, '');
         if (/\.(jpg|jpeg|png|gif|webp)(\?[^"'<>]*)?$/i.test(safeUrl) ||
-            /^https:\/\/media\d*\.giphy\.com\//i.test(safeUrl)) {
+            /^https:\/\/media\.tenor\.com\//i.test(safeUrl)) {
           return `<img src="${safeUrl}" class="chat-image" alt="image" loading="lazy">`;
         }
         return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer nofollow">${safeUrl}</a>`;
@@ -4063,17 +2777,17 @@ class HavenApp {
     }
   }
 
-  _showToast(message, type = 'info') {
+  _showToast(message, type = 'info', duration = 4000) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
     container.appendChild(toast);
-    setTimeout(() => toast.remove(), 4000);
+    setTimeout(() => toast.remove(), duration);
   }
 
   // ═══════════════════════════════════════════════════════
-  // EMOJI PICKER (categorized + searchable)
+  // EMOJI PICKER
   // ═══════════════════════════════════════════════════════
 
   _toggleEmojiPicker() {
@@ -4083,94 +2797,26 @@ class HavenApp {
       return;
     }
     picker.innerHTML = '';
-    this._emojiActiveCategory = this._emojiActiveCategory || Object.keys(this.emojiCategories)[0];
-
-    // Search bar
-    const searchRow = document.createElement('div');
-    searchRow.className = 'emoji-search-row';
-    const searchInput = document.createElement('input');
-    searchInput.type = 'text';
-    searchInput.className = 'emoji-search-input';
-    searchInput.placeholder = 'Search emoji\u2026';
-    searchInput.maxLength = 30;
-    searchRow.appendChild(searchInput);
-    picker.appendChild(searchRow);
-
-    // Category tabs
-    const tabRow = document.createElement('div');
-    tabRow.className = 'emoji-tab-row';
-    const catIcons = { 'Smileys':'😀', 'People':'👋', 'Animals':'🐶', 'Food':'🍕', 'Activities':'🎮', 'Travel':'🚀', 'Objects':'💡', 'Symbols':'❤️' };
-    for (const cat of Object.keys(this.emojiCategories)) {
-      const tab = document.createElement('button');
-      tab.className = 'emoji-tab' + (cat === this._emojiActiveCategory ? ' active' : '');
-      tab.textContent = catIcons[cat] || cat.charAt(0);
-      tab.title = cat;
-      tab.addEventListener('click', () => {
-        this._emojiActiveCategory = cat;
-        searchInput.value = '';
-        renderGrid();
-        tabRow.querySelectorAll('.emoji-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
+    this.emojis.forEach(emoji => {
+      const btn = document.createElement('button');
+      btn.className = 'emoji-item';
+      btn.textContent = emoji;
+      btn.addEventListener('click', () => {
+        const input = document.getElementById('message-input');
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.substring(0, start) + emoji + input.value.substring(end);
+        input.selectionStart = input.selectionEnd = start + emoji.length;
+        input.focus();
+        picker.style.display = 'none';
       });
-      tabRow.appendChild(tab);
-    }
-    picker.appendChild(tabRow);
-
-    // Grid
-    const grid = document.createElement('div');
-    grid.className = 'emoji-grid';
-    picker.appendChild(grid);
-
-    const self = this;
-    function renderGrid(filter) {
-      grid.innerHTML = '';
-      let emojis;
-      if (filter) {
-        // Simple search: match emoji by checking if any category name contains the query,
-        // or just show all matches from every category
-        emojis = self.emojis.filter(() => true); // show all, we filter visually below
-        // Actually let's just filter all emojis - since we can't search by name,
-        // show emojis from categories whose name matches the query
-        emojis = [];
-        for (const [cat, list] of Object.entries(self.emojiCategories)) {
-          if (cat.toLowerCase().includes(filter.toLowerCase())) {
-            emojis.push(...list);
-          }
-        }
-        // If no category matched, show all (user might be looking visually)
-        if (emojis.length === 0) emojis = self.emojis;
-      } else {
-        emojis = self.emojiCategories[self._emojiActiveCategory] || self.emojis;
-      }
-      emojis.forEach(emoji => {
-        const btn = document.createElement('button');
-        btn.className = 'emoji-item';
-        btn.textContent = emoji;
-        btn.addEventListener('click', () => {
-          const input = document.getElementById('message-input');
-          const start = input.selectionStart;
-          const end = input.selectionEnd;
-          input.value = input.value.substring(0, start) + emoji + input.value.substring(end);
-          input.selectionStart = input.selectionEnd = start + emoji.length;
-          input.focus();
-          picker.style.display = 'none';
-        });
-        grid.appendChild(btn);
-      });
-    }
-
-    searchInput.addEventListener('input', () => {
-      const q = searchInput.value.trim();
-      renderGrid(q || null);
+      picker.appendChild(btn);
     });
-
-    renderGrid();
     picker.style.display = 'flex';
-    searchInput.focus();
   }
 
   // ═══════════════════════════════════════════════════════
-  // GIF PICKER (GIPHY)
+  // GIF PICKER (Tenor)
   // ═══════════════════════════════════════════════════════
 
   _setupGifPicker() {
@@ -4179,42 +2825,24 @@ class HavenApp {
     const searchInput = document.getElementById('gif-search-input');
     const grid = document.getElementById('gif-grid');
     if (!btn || !picker) return;
-
     this._gifDebounce = null;
-
     btn.addEventListener('click', () => {
-      if (picker.style.display === 'flex') {
-        picker.style.display = 'none';
-        return;
-      }
-      // Close emoji picker if open
+      if (picker.style.display === 'flex') { picker.style.display = 'none'; return; }
       document.getElementById('emoji-picker').style.display = 'none';
       picker.style.display = 'flex';
       searchInput.value = '';
       searchInput.focus();
       this._loadTrendingGifs();
     });
-
-    // Close when clicking outside
     document.addEventListener('click', (e) => {
-      if (picker.style.display !== 'none' &&
-          !picker.contains(e.target) && !btn.contains(e.target)) {
-        picker.style.display = 'none';
-      }
+      if (picker.style.display !== 'none' && !picker.contains(e.target) && !btn.contains(e.target)) picker.style.display = 'none';
     });
-
-    // Search on typing with debounce
     searchInput.addEventListener('input', () => {
       clearTimeout(this._gifDebounce);
       const q = searchInput.value.trim();
-      if (!q) {
-        this._loadTrendingGifs();
-        return;
-      }
+      if (!q) { this._loadTrendingGifs(); return; }
       this._gifDebounce = setTimeout(() => this._searchGifs(q), 350);
     });
-
-    // Click on a GIF to send it
     grid.addEventListener('click', (e) => {
       const img = e.target.closest('img');
       if (!img || !img.dataset.full) return;
@@ -4226,12 +2854,11 @@ class HavenApp {
   _loadTrendingGifs() {
     const grid = document.getElementById('gif-grid');
     grid.innerHTML = '<div class="gif-picker-empty">Loading...</div>';
-    fetch('/api/gif/trending?limit=20', {
-      headers: { 'Authorization': `Bearer ${this.token}` }
-    })
+    const endpoint = '/api/gif/giphy/trending?limit=20';
+    fetch(endpoint)
       .then(r => r.json())
       .then(data => {
-        if (data.error === 'gif_not_configured') {
+        if (data.error === 'gif_not_configured' || data.error === 'giphy_not_configured') {
           this._showGifSetupGuide(grid);
           return;
         }
@@ -4249,12 +2876,11 @@ class HavenApp {
   _searchGifs(query) {
     const grid = document.getElementById('gif-grid');
     grid.innerHTML = '<div class="gif-picker-empty">Searching...</div>';
-    fetch(`/api/gif/search?q=${encodeURIComponent(query)}&limit=20`, {
-      headers: { 'Authorization': `Bearer ${this.token}` }
-    })
+    const endpoint = `/api/gif/giphy/search?q=${encodeURIComponent(query)}&limit=20`;
+    fetch(endpoint)
       .then(r => r.json())
       .then(data => {
-        if (data.error === 'gif_not_configured') {
+        if (data.error === 'gif_not_configured' || data.error === 'giphy_not_configured') {
           this._showGifSetupGuide(grid);
           return;
         }
@@ -4280,19 +2906,17 @@ class HavenApp {
       grid.innerHTML = `
         <div class="gif-setup-guide">
           <h3>🎞️ Set Up GIF Search</h3>
-          <p>GIF search is powered by <strong>GIPHY</strong> and needs a free API key.</p>
+          <p>GIF search is powered by <strong>Giphy</strong> and needs a free API key.</p>
           <ol>
-            <li>Go to <a href="https://developers.giphy.com/" target="_blank" rel="noopener">developers.giphy.com</a></li>
-            <li>Create an account (or sign in)</li>
-            <li>Click <b>Create an App</b> → choose <b>API</b></li>
-            <li>Name it anything (e.g. "Haven Chat")</li>
+            <li>Go to <a href="https://developers.giphy.com" target="_blank" rel="noopener">developers.giphy.com</a></li>
+            <li>Create an app (select API, not SDK)</li>
             <li>Copy the API key and paste it below</li>
           </ol>
           <div class="gif-setup-input-row">
-            <input type="text" id="gif-giphy-key-input" placeholder="Paste your GIPHY API key…" spellcheck="false" autocomplete="off" />
+            <input type="text" id="gif-giphy-key-input" placeholder="Paste Giphy API key…" spellcheck="false" autocomplete="off" />
             <button id="gif-giphy-key-save">Save</button>
           </div>
-          <p class="gif-setup-note">💡 No payment required — GIPHY's free tier is generous enough for a private server.</p>
+          <p class="gif-setup-note">💡 Free tier = 100 searches/hr. More than enough!</p>
         </div>`;
       const saveBtn = document.getElementById('gif-giphy-key-save');
       const input = document.getElementById('gif-giphy-key-input');
@@ -4303,14 +2927,12 @@ class HavenApp {
         grid.innerHTML = '<div class="gif-picker-empty">Saved! Loading GIFs…</div>';
         setTimeout(() => this._loadTrendingGifs(), 500);
       });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') saveBtn.click();
-      });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveBtn.click(); });
     } else {
       grid.innerHTML = `
         <div class="gif-setup-guide">
           <h3>🎞️ GIF Search Not Available</h3>
-          <p>An admin needs to set up the GIPHY API key before GIF search can work.</p>
+          <p>An admin needs to set up the Giphy API key in Settings before GIF search can work.</p>
         </div>`;
     }
   }
@@ -4331,15 +2953,144 @@ class HavenApp {
 
   _sendGifMessage(url) {
     if (!this.currentChannel || !url) return;
-    const payload = {
-      code: this.currentChannel,
-      content: url,
-    };
-    if (this.replyingTo) {
-      payload.replyTo = this.replyingTo.id;
-      this._clearReply();
-    }
+    const payload = { code: this.currentChannel, content: url };
+    if (this.replyTo) { payload.replyTo = this.replyTo; this._clearReply(); }
     this.socket.emit('send-message', payload);
+  }
+  async _setupGameUI() {
+    const gameBtn = document.getElementById('game-together-btn');
+    const gamePanel = document.getElementById('game-together-panel');
+    const gameCloseBtn = document.getElementById('game-panel-close');
+    const consoleSelect = document.getElementById('game-console-select');
+    const romBtn = document.getElementById('game-rom-btn');
+    const romInput = document.getElementById('game-rom-input');
+    const startBtn = document.getElementById('game-start-btn');
+    const controllerSelect = document.getElementById('game-controller-select');
+    const fullscreenBtn = document.getElementById('game-fullscreen-btn');
+    const endBtn = document.getElementById('game-end-btn');
+    if (!gameBtn || !gamePanel) return;
+    await this.gameManager.loadLibrary();
+    const consoles = this.gameManager.getConsoles();
+    consoles.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.unsupported ? `${c.name} (Coming Soon)` : c.name;
+      if (c.unsupported) { opt.disabled = true; opt.style.color = '#666'; }
+      consoleSelect.appendChild(opt);
+    });
+    const html5Grid = document.getElementById('html5-game-grid');
+    if (html5Grid) {
+      const allGames = this.gameManager.getAllGames();
+      html5Grid.innerHTML = allGames.map(g =>
+        `<div class="html5-game-card${g.type === 'flash' ? ' flash-game' : ''}" data-game-id="${g.id}" data-game-type="${g.type}" title="${g.desc}"><span class="html5-game-icon">${g.icon}</span><span class="html5-game-name">${g.name}</span><span class="html5-game-players">${g.type === 'flash' ? '⚡' : ''} ${g.maxPlayers > 1 ? g.maxPlayers + 'P' : '1P'}</span></div>`
+      ).join('');
+      html5Grid.addEventListener('click', (e) => {
+        const card = e.target.closest('.html5-game-card');
+        if (!card) return;
+        const gid = card.dataset.gameId;
+        try {
+          document.getElementById('game-host-controls').style.display = 'none';
+          document.getElementById('game-active-session').style.display = 'block';
+          const gm = this.gameManager.getAllGames().find(g => g.id === gid);
+          document.getElementById('game-now-title').textContent = gm?.name || gid;
+          document.getElementById('game-now-host').textContent = `Host: ${this.user.username}`;
+          endBtn.style.display = 'inline-flex';
+          this.gameManager.startHTML5Game(gid, this.currentChannel);
+        } catch (err) { this._showToast(err.message, 'error'); this._resetGameUI(); }
+      });
+    }
+    document.querySelectorAll('.game-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.game-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.game-tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        const target = document.getElementById(tab.dataset.tab);
+        if (target) target.classList.add('active');
+      });
+    });
+    gameBtn.addEventListener('click', () => {
+      gamePanel.style.display = gamePanel.style.display === 'none' ? 'block' : 'none';
+      if (gamePanel.style.display === 'block') this.socket.emit('game-get', { channelCode: this.currentChannel });
+    });
+    gameCloseBtn?.addEventListener('click', () => { gamePanel.style.display = 'none'; });
+    consoleSelect.addEventListener('change', () => {
+      const v = consoleSelect.value;
+      romBtn.disabled = !v;
+      startBtn.disabled = true;
+      romInput.value = '';
+    });
+    romBtn.addEventListener('click', () => romInput.click());
+    romInput.addEventListener('change', () => {
+      startBtn.disabled = !romInput.files?.length;
+    });
+    startBtn.addEventListener('click', async () => {
+      const cid = consoleSelect.value;
+      const rom = romInput.files?.[0];
+      if (!cid || !rom) return this._showToast('Select console and ROM', 'error');
+      try {
+        document.getElementById('game-host-controls').style.display = 'none';
+        document.getElementById('game-active-session').style.display = 'block';
+        document.getElementById('game-now-title').textContent = rom.name;
+        document.getElementById('game-now-host').textContent = `Host: ${this.user.username}`;
+        endBtn.style.display = 'inline-flex';
+        await this.gameManager.startGame(cid, rom, this.currentChannel);
+      } catch (e) {
+        this._showToast(e.message, 'error');
+        this._resetGameUI();
+      }
+    });
+    controllerSelect?.addEventListener('change', () => {
+      const v = controllerSelect.value;
+      v ? this.gameManager.requestController(parseInt(v)) : this.gameManager.releaseController();
+    });
+    fullscreenBtn?.addEventListener('click', () => {
+      const container = document.getElementById('game-container');
+      container?.requestFullscreen?.() || container?.webkitRequestFullscreen?.();
+    });
+    endBtn?.addEventListener('click', () => {
+      this.gameManager.endGame();
+      this._resetGameUI();
+    });
+    this.gameManager.onSessionUpdate = (session) => {
+      document.getElementById('game-host-controls').style.display = 'none';
+      document.getElementById('game-active-session').style.display = 'block';
+      document.getElementById('game-now-title').textContent = session.romName;
+      const host = session.players.find(p => p.id === session.hostId);
+      document.getElementById('game-now-host').textContent = `Host: ${host?.name || 'Unknown'}`;
+      endBtn.style.display = session.hostId === this.user.id ? 'inline-flex' : 'none';
+      const opts = controllerSelect.querySelectorAll('option');
+      opts.forEach(o => {
+        const v = parseInt(o.value);
+        if (isNaN(v)) return;
+        const taken = session.controllers?.find(c => c[0] === v);
+        o.disabled = !!taken && taken[1] !== this.user.id;
+        o.textContent = taken ? `Player ${v} (${session.players.find(p => p.id === taken[1])?.name || '?'})` : `Player ${v}`;
+      });
+    };
+    this.gameManager.onSessionEnd = () => this._resetGameUI();
+  }
+  _resetGameUI() {
+    document.getElementById('game-host-controls').style.display = 'block';
+    document.getElementById('game-active-session').style.display = 'none';
+    document.getElementById('game-end-btn').style.display = 'none';
+    document.getElementById('game-console-select').value = '';
+    document.getElementById('game-rom-input').value = '';
+    document.getElementById('game-rom-btn').disabled = true;
+    document.getElementById('game-start-btn').disabled = true;
+  }
+  _renderChannelMembers(data) {
+    const list = document.getElementById('channel-members-list');
+    const info = document.getElementById('channel-members-info');
+    if (!data || !data.users) { list.innerHTML = '<p class="muted-text">No data</p>'; return; }
+    info.textContent = data.isPrivate ? '🔒 Private channel - only listed users can access' : '🌐 Public channel - anyone with the code can join';
+    if (data.users.length === 0) { list.innerHTML = '<p class="muted-text">No users have explicit permission</p>'; return; }
+    list.innerHTML = data.users.map(u => `<div class="member-item" data-user-id="${u.id}"><span class="member-name">${this._escapeHtml(u.username)}</span>${this.user.isAdmin ? `<button class="btn-sm btn-danger-fill remove-member-btn" data-user-id="${u.id}">Remove</button>` : ''}</div>`).join('');
+    list.querySelectorAll('.remove-member-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const userId = parseInt(btn.dataset.userId);
+        this.socket.emit('remove-channel-user', { code: this.currentChannel, userId });
+      });
+    });
   }
 
   // ═══════════════════════════════════════════════════════
@@ -4471,9 +3222,6 @@ class HavenApp {
   // ═══════════════════════════════════════════════════════
 
   _startEditMessage(msgEl, msgId) {
-    // Guard against re-entering edit mode
-    if (msgEl.classList.contains('editing')) return;
-
     const contentEl = msgEl.querySelector('.message-content');
     if (!contentEl) return;
 
@@ -4483,7 +3231,6 @@ class HavenApp {
     // Replace content with an editable textarea
     const originalHtml = contentEl.innerHTML;
     contentEl.innerHTML = '';
-    msgEl.classList.add('editing'); // hide toolbar while editing
 
     const textarea = document.createElement('textarea');
     textarea.className = 'edit-textarea';
@@ -4502,18 +3249,11 @@ class HavenApp {
     textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
 
     const cancel = () => {
-      msgEl.classList.remove('editing');
       contentEl.innerHTML = originalHtml;
     };
 
-    btnRow.querySelector('.edit-cancel-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      cancel();
-    });
-    btnRow.querySelector('.edit-save-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
+    btnRow.querySelector('.edit-cancel-btn').addEventListener('click', cancel);
+    btnRow.querySelector('.edit-save-btn').addEventListener('click', () => {
       const newContent = textarea.value.trim();
       if (!newContent) return cancel();
       if (newContent === rawText) return cancel();
@@ -4522,21 +3262,12 @@ class HavenApp {
     });
 
     textarea.addEventListener('keydown', (e) => {
-      e.stopPropagation();
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         btnRow.querySelector('.edit-save-btn').click();
       }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        cancel();
-      }
+      if (e.key === 'Escape') cancel();
     });
-
-    // Click inside edit area should not bubble to delegation handler
-    contentEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-    }, { once: false });
   }
 
   // ═══════════════════════════════════════════════════════
@@ -4590,9 +3321,16 @@ class HavenApp {
     if (whitelistToggle) {
       whitelistToggle.checked = this.serverSettings.whitelist_enabled === 'true';
     }
-    // Fetch whitelist entries when admin opens settings
+    const tunnelToggle = document.getElementById('tunnel-enabled');
+    if (tunnelToggle) tunnelToggle.checked = this.serverSettings.tunnel_enabled === 'true';
+    const tunnelProv = document.getElementById('tunnel-provider-select');
+    if (tunnelProv && this.serverSettings.tunnel_provider) tunnelProv.value = this.serverSettings.tunnel_provider;
     if (this.user && this.user.isAdmin) {
       this.socket.emit('get-whitelist');
+      fetch('/api/tunnel/status', { headers: { 'Authorization': `Bearer ${this.token}` } }).then(r => r.json()).then(s => {
+        const disp = document.getElementById('tunnel-status-display');
+        if (disp) disp.textContent = s.active ? `Active: ${s.url}` : 'Inactive';
+      }).catch(() => {});
     }
   }
 
@@ -4810,203 +3548,279 @@ class HavenApp {
     input.selectionStart = input.selectionEnd = input.value.length;
     input.focus();
     this._hideSlashDropdown();
-    // If no args needed and not a "needs space" command, could auto-send
-    // but user might want to add optional args, so just fill it in
   }
-
-  // ═══════════════════════════════════════════════════════
-  // ── User Status Picker ────────────────────────────────
-  // ═══════════════════════════════════════════════════════
-
-  _setupStatusPicker() {
-    const userBar = document.querySelector('.user-bar');
-    if (!userBar) return;
-
-    // Insert status dot before username
-    const statusDot = document.createElement('span');
-    statusDot.id = 'user-status-dot';
-    statusDot.className = 'user-dot status-picker-dot';
-    statusDot.title = 'Set status';
-    statusDot.addEventListener('click', () => this._toggleStatusPicker());
-    const currentUser = document.getElementById('current-user');
-    userBar.insertBefore(statusDot, currentUser);
-
-    // Build dropdown
-    const picker = document.createElement('div');
-    picker.id = 'status-picker';
-    picker.className = 'status-picker';
-    picker.style.display = 'none';
-    picker.innerHTML = `
-      <div class="status-option" data-status="online"><span class="user-dot"></span> Online</div>
-      <div class="status-option" data-status="away"><span class="user-dot away"></span> Away</div>
-      <div class="status-option" data-status="dnd"><span class="user-dot dnd"></span> Do Not Disturb</div>
-      <div class="status-option" data-status="invisible"><span class="user-dot invisible"></span> Invisible</div>
-      <div class="status-text-row">
-        <input type="text" id="status-text-input" placeholder="Custom status..." maxlength="128">
-      </div>
-    `;
-    userBar.appendChild(picker);
-
-    picker.querySelectorAll('.status-option').forEach(opt => {
-      opt.addEventListener('click', () => {
-        const status = opt.dataset.status;
-        const statusText = document.getElementById('status-text-input').value.trim();
-        this.socket.emit('set-status', { status, statusText });
-        picker.style.display = 'none';
-      });
-    });
-
-    document.getElementById('status-text-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const statusText = e.target.value.trim();
-        this.socket.emit('set-status', { status: this.userStatus, statusText });
-        picker.style.display = 'none';
-      }
-    });
-
-    // Close picker on outside click
-    document.addEventListener('click', (e) => {
-      if (!picker.contains(e.target) && e.target !== statusDot) {
-        picker.style.display = 'none';
-      }
-    });
-  }
-
-  _toggleStatusPicker() {
-    const picker = document.getElementById('status-picker');
-    picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
-  }
-
-  _updateStatusPickerUI() {
-    const dot = document.getElementById('user-status-dot');
-    if (dot) {
-      dot.className = 'user-dot status-picker-dot';
-      if (this.userStatus === 'away') dot.classList.add('away');
-      else if (this.userStatus === 'dnd') dot.classList.add('dnd');
-      else if (this.userStatus === 'invisible') dot.classList.add('invisible');
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // ── Idle Detection (auto-away after 5 min) ────────────
-  // ═══════════════════════════════════════════════════════
-
-  _setupIdleDetection() {
-    const resetIdle = () => {
-      if (this.userStatus === 'away' && this._wasAutoAway) {
-        this._wasAutoAway = false;
-        this.socket.emit('set-status', { status: 'online', statusText: this.userStatusText });
-      }
-      clearTimeout(this.idleTimer);
-      this.idleTimer = setTimeout(() => {
-        if (this.userStatus === 'online') {
-          this._wasAutoAway = true;
-          this.socket.emit('set-status', { status: 'away', statusText: this.userStatusText });
-        }
-      }, 5 * 60 * 1000);
-    };
-
-    ['mousemove', 'keydown', 'click', 'scroll'].forEach(evt => {
-      document.addEventListener(evt, resetIdle, { passive: true });
-    });
-    resetIdle();
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // ── General File Upload ───────────────────────────────
-  // ═══════════════════════════════════════════════════════
-
-  _setupFileUpload() {
-    // Expand the existing file input to accept all file types
-    // Add a separate file upload button next to the image upload
-    const inputArea = document.querySelector('.message-input-area');
-    const uploadBtn = document.getElementById('upload-btn');
-
-    const fileBtn = document.createElement('button');
-    fileBtn.id = 'file-upload-btn';
-    fileBtn.className = 'btn-upload';
-    fileBtn.title = 'Upload File';
-    fileBtn.innerHTML = '📎';
-    inputArea.insertBefore(fileBtn, uploadBtn.nextSibling);
-
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.id = 'general-file-input';
-    fileInput.style.display = 'none';
-    inputArea.appendChild(fileInput);
-
-    fileBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', () => this._handleFileUpload(fileInput));
-  }
-
-  _handleFileUpload(input) {
-    if (!input.files.length || !this.currentChannel) return;
-    const file = input.files[0];
-    if (file.size > 25 * 1024 * 1024) {
-      this._showToast('File too large (max 25 MB)', 'error');
-      input.value = '';
+  _renderDMs() {
+    const el = document.getElementById('dm-list');
+    if (!el) return;
+    if (!this.dms || this.dms.length === 0) {
+      el.innerHTML = '<p class="muted-text">No conversations yet</p>';
       return;
     }
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    this._showToast('Uploading file...', 'info');
-
-    fetch('/api/upload-file', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.token}` },
-      body: formData
-    })
-    .then(r => {
-      if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
-      return r.json();
-    })
-    .then(data => {
-      if (data.error) {
-        this._showToast(data.error, 'error');
-        return;
-      }
-      // Send as a message with file attachment format
-      const sizeStr = this._formatFileSize(data.fileSize);
-      let content;
-      if (data.isImage) {
-        content = data.url; // images render inline already
-      } else {
-        // Use a special file attachment format: [file:name](url|size)
-        content = `[file:${data.originalName}](${data.url}|${sizeStr})`;
-      }
-      this.socket.emit('send-message', {
-        code: this.currentChannel,
-        content,
-        replyTo: this.replyingTo ? this.replyingTo.id : null
+    el.innerHTML = this.dms.map(d => {
+      const active = this.currentDm === d.channel_code ? ' active' : '';
+      return `<div class="dm-item${active}" data-dm="${d.channel_code}"><span class="dm-user">${this._escapeHtml(d.other_username || d.username || 'DM')}</span></div>`;
+    }).join('');
+    el.querySelectorAll('.dm-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this.currentDm = item.dataset.dm;
+        this.currentChannel = null;
+        document.querySelectorAll('.dm-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+        document.querySelectorAll('.channel-item').forEach(c => c.classList.remove('active'));
+        document.getElementById('messages').innerHTML = '';
+        const dmName = item.querySelector('.dm-user').textContent;
+        document.getElementById('channel-header-name').textContent = `DM — ${dmName}`;
+        document.getElementById('no-channel-msg').style.display = 'none';
+        document.getElementById('message-area').style.display = 'flex';
+        // Load DM history
+        this.socket.emit('get-dm-messages', { code: this.currentDm });
       });
-      this._clearReply();
-    })
-    .catch(() => this._showToast('Upload failed', 'error'));
+    });
+  }
+  _startDm(userId) {
+    if (!userId || userId === this.user.id) return;
+    this.socket.emit('create-dm', { userId });
+  }
+  _initiateCall(userId, type = 'audio') {
+    if (!userId || userId === this.user.id) return;
+    this.socket.emit('initiate-call', { targetUserId: userId, type });
+    this.activeCall = { targetUserId: userId, type, role: 'caller' };
+    const modal = document.getElementById('call-modal');
+    document.getElementById('call-modal-title').textContent = `Outgoing ${type} call`;
+    document.getElementById('call-modal-desc').textContent = 'Ringing...';
+    document.getElementById('call-accept-btn').style.display = 'none';
+    document.getElementById('call-reject-btn').style.display = 'none';
+    document.getElementById('call-end-btn').style.display = '';
+    modal.style.display = 'flex';
+  }
+  _toggleBlock(userId) {
+    if (!userId) return;
+    const action = this.blockedUsers.has(userId) ? 'unblock-user' : 'block-user';
+    this.socket.emit(action, { userId });
+  }
+  _setupAvatarSettings() {
+    // Avatar shape
+    const shapePicker = document.getElementById('avatar-shape-picker');
+    const savedShape = localStorage.getItem('haven_avatar_shape') || 'circle';
+    this._avatarShape = savedShape;
+    if (shapePicker) {
+      shapePicker.querySelectorAll('.avatar-shape-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.shape === savedShape);
+        btn.addEventListener('click', () => {
+          shapePicker.querySelectorAll('.avatar-shape-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this._avatarShape = btn.dataset.shape;
+          localStorage.setItem('haven_avatar_shape', btn.dataset.shape);
+          this._applyAvatarShape();
+        });
+      });
+    }
+    this._applyAvatarShape();
 
-    input.value = '';
+    // Avatar color
+    const hueSlider = document.getElementById('avatar-hue-slider');
+    const colorPreview = document.getElementById('avatar-color-preview');
+    const savedColor = localStorage.getItem('haven_avatar_color');
+    if (savedColor && hueSlider) hueSlider.value = savedColor;
+    this._avatarColor = savedColor || null;
+    if (hueSlider) {
+      const updatePreview = () => {
+        const hue = hueSlider.value;
+        if (colorPreview) colorPreview.style.background = `hsl(${hue}, 65%, 50%)`;
+      };
+      updatePreview();
+      hueSlider.addEventListener('input', () => {
+        updatePreview();
+        this._avatarColor = hueSlider.value;
+        localStorage.setItem('haven_avatar_color', hueSlider.value);
+      });
+    }
+    const colorReset = document.getElementById('avatar-color-reset');
+    if (colorReset) {
+      colorReset.addEventListener('click', () => {
+        this._avatarColor = null;
+        localStorage.removeItem('haven_avatar_color');
+        if (hueSlider) hueSlider.value = 200;
+        if (colorPreview) colorPreview.style.background = '';
+      });
+    }
+
+    // Avatar image upload
+    const uploadBtn = document.getElementById('avatar-upload-btn');
+    const clearBtn = document.getElementById('avatar-clear-btn');
+    const fileInput = document.getElementById('avatar-file-input');
+    const preview = document.getElementById('avatar-upload-preview');
+    this._avatarImg = localStorage.getItem('haven_avatar_img') || null;
+    if (this._avatarImg && preview) {
+      preview.innerHTML = `<img src="${this._avatarImg}" alt="avatar">`;
+    }
+    if (uploadBtn && fileInput) {
+      uploadBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        if (file.size > 256 * 1024) {
+          this._showToast('Image too large (max 256KB)', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const size = Math.min(128, img.width, img.height);
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const sx = (img.width - size) / 2;
+            const sy = (img.height - size) / 2;
+            ctx.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+            const dataUrl = canvas.toDataURL('image/webp', 0.8);
+            this._avatarImg = dataUrl;
+            localStorage.setItem('haven_avatar_img', dataUrl);
+            if (preview) preview.innerHTML = `<img src="${dataUrl}" alt="avatar">`;
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+        fileInput.value = '';
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        this._avatarImg = null;
+        localStorage.removeItem('haven_avatar_img');
+        if (preview) preview.innerHTML = '';
+      });
+    }
   }
 
-  _formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  _applyAvatarShape() {
+    const shapeClass = 'avatar-' + (this._avatarShape || 'circle');
+    document.querySelectorAll('.message-avatar').forEach(el => {
+      el.classList.remove('avatar-circle', 'avatar-rounded', 'avatar-hex', 'avatar-triangle', 'avatar-squircle');
+      el.classList.add(shapeClass);
+    });
   }
 
-  // ═══════════════════════════════════════════════════════
-  // ── Mark-Read Helper ──────────────────────────────────
-  // ═══════════════════════════════════════════════════════
+  _setupDensitySettings() {
+    const picker = document.getElementById('density-picker');
+    const saved = localStorage.getItem('haven_layout_density') || 'cozy';
+    document.documentElement.setAttribute('data-density', saved);
+    if (picker) {
+      picker.querySelectorAll('.density-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.density === saved);
+        btn.addEventListener('click', () => {
+          picker.querySelectorAll('.density-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const density = btn.dataset.density;
+          document.documentElement.setAttribute('data-density', density);
+          localStorage.setItem('haven_layout_density', density);
+        });
+      });
+    }
+  }
 
-  _markRead(messageId) {
-    if (!this.currentChannel || !messageId) return;
-    // Debounce: don't spam the server
-    clearTimeout(this._markReadTimer);
-    this._markReadTimer = setTimeout(() => {
-      this.socket.emit('mark-read', { code: this.currentChannel, messageId });
-    }, 500);
+  _setupContextMenu() {
+    const menu = document.getElementById('user-context-menu');
+    if (!menu) return;
+    let ctxUserId = null;
+    let ctxUsername = null;
+
+    // Right-click on user items
+    document.addEventListener('contextmenu', (e) => {
+      const userItem = e.target.closest('.user-item[data-user-id]');
+      if (!userItem) return;
+      e.preventDefault();
+      ctxUserId = parseInt(userItem.dataset.userId);
+      ctxUsername = userItem.dataset.username;
+      const nameDisplay = userItem.querySelector('.user-item-name')?.textContent || ctxUsername;
+      const headerEl = document.getElementById('ctx-menu-username');
+      if (headerEl) headerEl.textContent = nameDisplay;
+      const isSelf = ctxUserId === this.user.id;
+      const isAdmin = this.user.isAdmin;
+      const isBlocked = this.blockedUsers.has(ctxUserId);
+
+      // Show/hide items based on context
+      menu.querySelectorAll('[data-requires="not-self"]').forEach(el => {
+        el.style.display = isSelf ? 'none' : '';
+      });
+      menu.querySelectorAll('[data-requires="admin"]').forEach(el => {
+        el.style.display = (!isSelf && isAdmin) ? '' : 'none';
+      });
+      // Hide DM/Call for self
+      const dmItem = menu.querySelector('[data-action="dm"]');
+      const callItem = menu.querySelector('[data-action="call"]');
+      if (dmItem) dmItem.style.display = isSelf ? 'none' : '';
+      if (callItem) callItem.style.display = isSelf ? 'none' : '';
+      // Update block label
+      const blockItem = menu.querySelector('[data-action="block"]');
+      if (blockItem) {
+        blockItem.innerHTML = isBlocked ? '🔓 <span>Unblock</span>' : '🚫 <span>Block</span>';
+      }
+
+      // Position the menu
+      const x = Math.min(e.clientX, window.innerWidth - 180);
+      const y = Math.min(e.clientY, window.innerHeight - 250);
+      menu.style.left = x + 'px';
+      menu.style.top = y + 'px';
+      menu.style.display = 'block';
+    });
+
+    // Long-press support for touch devices
+    let longPressTimer = null;
+    document.addEventListener('touchstart', (e) => {
+      const userItem = e.target.closest('.user-item[data-user-id]');
+      if (!userItem) return;
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        const touch = e.touches[0];
+        userItem.dispatchEvent(new MouseEvent('contextmenu', {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          bubbles: true
+        }));
+      }, 500);
+    }, { passive: true });
+    document.addEventListener('touchend', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }, { passive: true });
+    document.addEventListener('touchmove', () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }, { passive: true });
+
+    // Close context menu
+    const closeMenu = () => { menu.style.display = 'none'; };
+    document.addEventListener('click', closeMenu);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+
+    // Handle context menu actions
+    menu.addEventListener('click', (e) => {
+      const item = e.target.closest('.context-menu-item');
+      if (!item || !ctxUserId) return;
+      const action = item.dataset.action;
+      switch (action) {
+        case 'dm': this._startDm(ctxUserId); break;
+        case 'call': this._initiateCall(ctxUserId, 'audio'); break;
+        case 'block': this._toggleBlock(ctxUserId); break;
+        case 'kick': this._showAdminActionModal('kick', ctxUserId, ctxUsername); break;
+        case 'mute': this._showAdminActionModal('mute', ctxUserId, ctxUsername); break;
+        case 'ban': this._showAdminActionModal('ban', ctxUserId, ctxUsername); break;
+      }
+      closeMenu();
+    });
+  }
+
+  _renderBlockList() {
+    const el = document.getElementById('block-list-content');
+    if (!el) return;
+    if (this.blockedUsers.size === 0) {
+      el.innerHTML = '<p class="muted-text">No blocked users</p>';
+      return;
+    }
+    const members = this._lastOnlineUsers || [];
+    el.innerHTML = [...this.blockedUsers].map(uid => {
+      const m = members.find(u => u.id === uid);
+      const name = m ? this._escapeHtml(m.username) : `User #${uid}`;
+      return `<div class="block-item"><span>${name}</span><button class="btn-sm btn-unblock" onclick="app._toggleBlock(${uid})">Unblock</button></div>`;
+    }).join('');
   }
 }
-
-// ── Boot ───────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => new HavenApp());
+let app;
+document.addEventListener('DOMContentLoaded', () => { app = new HavenApp(); });

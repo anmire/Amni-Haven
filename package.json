@@ -1,8 +1,12 @@
 {
   "name": "haven",
-  "version": "1.4.7",
-  "description": "Self-hosted private chat — your server, your rules",
+  "version": "2.0.0",
+  "description": "Self-hosted private chat — your server, your rules. Enhanced with glassmorphic UI, game emulators, Spotify SDK, tunnels, bots, and more.",
   "license": "MIT-NC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ancsemi/Haven.git"
+  },
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -5,8 +5,7 @@
 class VoiceManager {
   constructor(socket) {
     this.socket = socket;
-    this.localStream = null;        // Processed stream (sent to peers)
-    this.rawStream = null;          // Raw mic stream (for local talk detection)
+    this.localStream = null;
     this.screenStream = null;       // Screen share MediaStream
     this.isScreenSharing = false;
     this.peers = new Map();         // userId → { connection, stream, username }
@@ -14,7 +13,6 @@ class VoiceManager {
     this.isMuted = false;
     this.isDeafened = false;
     this.inVoice = false;
-    this.noiseSensitivity = 10;     // Noise gate sensitivity 0 (off) to 100 (aggressive)
     this.audioCtx = null;           // Web Audio context for volume boost
     this.gainNodes = new Map();     // userId → GainNode
     this.onScreenStream = null;     // callback(userId, stream|null) — set by app.js
@@ -22,14 +20,12 @@ class VoiceManager {
     this.onVoiceLeave = null;       // callback(userId, username)
     this.onTalkingChange = null;    // callback(userId, isTalking)
     this.screenSharers = new Set();  // userIds currently sharing
-    this.screenGainNodes = new Map(); // userId → GainNode for screen share audio
-    this.onScreenAudio = null;       // callback(userId) — screen share audio available
     this.talkingState = new Map();  // userId → boolean
     this.analysers = new Map();     // userId → { analyser, dataArray, interval }
     this._localTalkInterval = null;
-    this._noiseGateInterval = null;
+    this.noiseSuppression = false;
+    this._noiseGate = null;
     this._noiseGateGain = null;
-    this._noiseGateAnalyser = null;
 
     this.rtcConfig = {
       iceServers: [
@@ -136,10 +132,6 @@ class VoiceManager {
     // Someone started screen sharing
     this.socket.on('screen-share-started', (data) => {
       this.screenSharers.add(data.userId);
-      // Notify UI about audio availability for this stream
-      if (!data.hasAudio && this.onScreenNoAudio) {
-        this.onScreenNoAudio(data.userId);
-      }
     });
 
     // Someone stopped screen sharing
@@ -147,49 +139,19 @@ class VoiceManager {
       this.screenSharers.delete(data.userId);
       if (this.onScreenStream) this.onScreenStream(data.userId, null);
     });
-
-    // Late joiner: server tells us about active screen sharers
-    this.socket.on('active-screen-sharers', (data) => {
-      if (data && data.sharers) {
-        data.sharers.forEach(s => this.screenSharers.add(s.id));
-      }
-    });
-
-    // Server asks us to renegotiate our screen share with a late joiner
-    this.socket.on('renegotiate-screen', async (data) => {
-      if (!this.screenStream || !this.isScreenSharing) return;
-      const peer = this.peers.get(data.targetUserId);
-      if (!peer) return;
-      const conn = peer.connection;
-
-      // Add screen share tracks if they weren't negotiated in the initial exchange
-      const senders = conn.getSenders();
-      const hasVideo = senders.some(s => s.track && s.track.kind === 'video');
-      if (!hasVideo) {
-        this.screenStream.getTracks().forEach(track => {
-          conn.addTrack(track, this.screenStream);
-        });
-      }
-
-      // Renegotiate to include the video tracks
-      await this._renegotiate(data.targetUserId, conn);
-    });
   }
 
   // ── Public API ──────────────────────────────────────────
 
   async join(channelCode) {
     try {
-      // Leave existing voice channel if connected elsewhere
-      if (this.inVoice) this.leave();
-
       // Create/resume AudioContext with user gesture (needed for volume boost)
       if (!this.audioCtx) {
         this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
       if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
 
-      this.rawStream = await navigator.mediaDevices.getUserMedia({
+      this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -198,33 +160,13 @@ class VoiceManager {
         video: false
       });
 
-      // ── Noise Gate via Web Audio ──
-      // Route mic through an analyser + gain node so we can silence
-      // audio below a threshold before sending it to peers.
-      const source = this.audioCtx.createMediaStreamSource(this.rawStream);
-      const gateAnalyser = this.audioCtx.createAnalyser();
-      gateAnalyser.fftSize = 2048;
-      gateAnalyser.smoothingTimeConstant = 0.3;
-      source.connect(gateAnalyser);
-
-      const gateGain = this.audioCtx.createGain();
-      source.connect(gateGain);
-
-      const dest = this.audioCtx.createMediaStreamDestination();
-      gateGain.connect(dest);
-
-      this._noiseGateAnalyser = gateAnalyser;
-      this._noiseGateGain = gateGain;
-      this.localStream = dest.stream;   // processed stream → peers
-      this._startNoiseGate();
-
       this.currentChannel = channelCode;
       this.inVoice = true;
       this.isMuted = false;
-
+      if (this.noiseSuppression) this._applyNoiseGate();
       this.socket.emit('voice-join', { code: channelCode });
 
-      // Start local talk indicator (use raw stream for accurate detection)
+      // Start local talk indicator
       this._startLocalTalkDetection();
 
       return true;
@@ -240,8 +182,7 @@ class VoiceManager {
       this.stopScreenShare();
     }
 
-    // Stop noise gate and talk detection
-    this._stopNoiseGate();
+    // Stop all talk analysers
     this._stopLocalTalkDetection();
     for (const [id] of this.analysers) this._stopAnalyser(id);
 
@@ -255,11 +196,7 @@ class VoiceManager {
     }
     this.gainNodes.clear();
 
-    // Stop local tracks (both raw and processed)
-    if (this.rawStream) {
-      this.rawStream.getTracks().forEach(t => t.stop());
-      this.rawStream = null;
-    }
+    // Stop local tracks
     if (this.localStream) {
       this.localStream.getTracks().forEach(t => t.stop());
       this.localStream = null;
@@ -270,16 +207,10 @@ class VoiceManager {
     this.isMuted = false;
     this.isDeafened = false;
     this.screenSharers.clear();
-    this.screenGainNodes.clear();
   }
 
   toggleMute() {
     this.isMuted = !this.isMuted;
-    if (this.rawStream) {
-      this.rawStream.getAudioTracks().forEach(track => {
-        track.enabled = !this.isMuted;
-      });
-    }
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach(track => {
         track.enabled = !this.isMuted;
@@ -290,13 +221,9 @@ class VoiceManager {
 
   toggleDeafen() {
     this.isDeafened = !this.isDeafened;
-    // Mute/unmute all incoming audio (voice)
+    // Mute/unmute all incoming audio
     for (const [userId, gainNode] of this.gainNodes) {
       gainNode.gain.value = this.isDeafened ? 0 : this._getSavedVolume(userId);
-    }
-    // Mute/unmute screen share audio
-    for (const [userId, gainNode] of this.screenGainNodes) {
-      gainNode.gain.value = this.isDeafened ? 0 : this._getSavedStreamVolume(userId);
     }
     // Also mute all audio elements as fallback
     document.querySelectorAll('#audio-container audio').forEach(el => {
@@ -315,21 +242,11 @@ class VoiceManager {
   async shareScreen() {
     if (!this.inVoice || this.isScreenSharing) return false;
     try {
-      const displayMediaOptions = {
+      this.screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: { cursor: 'always' },
-        audio: true, // capture tab/system audio if available
-        surfaceSwitching: 'exclude', // prevent re-picker on alt-tab / focus changes
-        selfBrowserSurface: 'include',
-        monitorTypeSurfaces: 'include'
-      };
-
-      // Use CaptureController if available to manage the capture session
-      if (typeof CaptureController !== 'undefined') {
-        this._captureController = new CaptureController();
-        displayMediaOptions.controller = this._captureController;
-      }
-
-      this.screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+        audio: true,
+        surfaceSwitching: 'exclude'
+      });
 
       this.isScreenSharing = true;
 
@@ -347,11 +264,8 @@ class VoiceManager {
         await this._renegotiate(userId, peer.connection);
       }
 
-      // Tell the server we're sharing (include audio availability)
-      const hasAudio = this.screenStream.getAudioTracks().length > 0;
-      this.screenHasAudio = hasAudio;
-      this.socket.emit('screen-share-started', { code: this.currentChannel, hasAudio });
-
+      // Tell the server we're sharing
+      this.socket.emit('screen-share-started', { code: this.currentChannel });
       return true;
     } catch (err) {
       console.error('Screen share failed:', err);
@@ -378,11 +292,10 @@ class VoiceManager {
 
     this.screenStream = null;
     this.isScreenSharing = false;
-    this._captureController = null;
 
     this.socket.emit('screen-share-stopped', { code: this.currentChannel });
-    // Notify local UI
-    if (this.onScreenStream) this.onScreenStream(null, null);
+    if (this.onScreenShareStopped) this.onScreenShareStopped();
+    if (this.onScreenStream) this.onScreenStream(this._localUserId, null);
   }
 
   async _renegotiate(userId, connection) {
@@ -420,49 +333,23 @@ class VoiceManager {
 
     // Handle incoming remote tracks — route audio and video separately
     const remoteAudioStream = new MediaStream();
-    const knownScreenStreamIds = new Set();
-    let voiceStreamId = null;
-    const deferredAudio = []; // audio tracks that arrived before their video
-
     connection.ontrack = (event) => {
       const track = event.track;
-      const sourceStream = event.streams?.[0];
       if (track.kind === 'video') {
-        if (sourceStream) knownScreenStreamIds.add(sourceStream.id);
-        const videoStream = sourceStream || new MediaStream([track]);
+        // Incoming screen share — prefer the sender's stream for proper track association
+        const videoStream = event.streams?.[0] || new MediaStream([track]);
         if (this.onScreenStream) this.onScreenStream(userId, videoStream);
+
+        // Re-fire when track actually starts receiving data (may arrive muted)
         track.onunmute = () => {
           if (this.onScreenStream) this.onScreenStream(userId, videoStream);
         };
         track.onended = () => {
           if (this.onScreenStream) this.onScreenStream(userId, null);
         };
-        // Check if any deferred audio belongs to this screen stream
-        for (let i = deferredAudio.length - 1; i >= 0; i--) {
-          const d = deferredAudio[i];
-          if (d.sourceStream && knownScreenStreamIds.has(d.sourceStream.id)) {
-            deferredAudio.splice(i, 1);
-            this._playScreenAudio(userId, d.sourceStream);
-          }
-        }
       } else {
-        // Is this audio from a screen share stream?
-        const isScreenAudio = sourceStream && (
-          knownScreenStreamIds.has(sourceStream.id) ||
-          sourceStream.getVideoTracks().length > 0 ||
-          (voiceStreamId && sourceStream.id !== voiceStreamId)
-        );
-        if (isScreenAudio) {
-          this._playScreenAudio(userId, sourceStream);
-        } else if (!voiceStreamId && sourceStream) {
-          // First audio — assume voice, but defer re-check in case it's actually screen audio
-          voiceStreamId = sourceStream.id;
-          remoteAudioStream.addTrack(track);
-          this._playAudio(userId, remoteAudioStream);
-        } else {
-          remoteAudioStream.addTrack(track);
-          this._playAudio(userId, remoteAudioStream);
-        }
+        remoteAudioStream.addTrack(track);
+        this._playAudio(userId, remoteAudioStream);
       }
     };
 
@@ -509,9 +396,6 @@ class VoiceManager {
       peer.connection.close();
       const audioEl = document.getElementById(`voice-audio-${userId}`);
       if (audioEl) audioEl.remove();
-      const screenAudioEl = document.getElementById(`voice-audio-screen-${userId}`);
-      if (screenAudioEl) screenAudioEl.remove();
-      this.screenGainNodes.delete(userId);
       this.gainNodes.delete(userId);
       this.peers.delete(userId);
     }
@@ -536,106 +420,6 @@ class VoiceManager {
       const vols = JSON.parse(localStorage.getItem('haven_voice_volumes') || '{}');
       return (vols[userId] ?? 100) / 100;
     } catch { return 1; }
-  }
-
-  // ── Screen Share Audio ────────────────────────────────
-
-  _playScreenAudio(userId, stream) {
-    const key = `screen-${userId}`;
-    let audioEl = document.getElementById(`voice-audio-${key}`);
-    if (!audioEl) {
-      audioEl = document.createElement('audio');
-      audioEl.id = `voice-audio-${key}`;
-      audioEl.autoplay = true;
-      audioEl.playsInline = true;
-      document.getElementById('audio-container').appendChild(audioEl);
-    }
-    audioEl.srcObject = stream;
-
-    if (this.screenGainNodes.has(userId)) { audioEl.volume = 0; return; }
-
-    try {
-      if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
-      const source = this.audioCtx.createMediaStreamSource(stream);
-      const gainNode = this.audioCtx.createGain();
-      gainNode.gain.value = this._getSavedStreamVolume(userId);
-      source.connect(gainNode);
-      gainNode.connect(this.audioCtx.destination);
-      this.screenGainNodes.set(userId, gainNode);
-      audioEl.volume = 0;
-    } catch {
-      audioEl.volume = Math.min(1, this._getSavedStreamVolume(userId));
-    }
-    if (this.onScreenAudio) this.onScreenAudio(userId);
-  }
-
-  setStreamVolume(userId, volume) {
-    const gainNode = this.screenGainNodes.get(userId);
-    if (gainNode) {
-      gainNode.gain.value = Math.max(0, Math.min(2, volume));
-    } else {
-      const audioEl = document.getElementById(`voice-audio-screen-${userId}`);
-      if (audioEl) audioEl.volume = Math.max(0, Math.min(1, volume));
-    }
-  }
-
-  _getSavedStreamVolume(userId) {
-    try {
-      const vols = JSON.parse(localStorage.getItem('haven_stream_volumes') || '{}');
-      return (vols[userId] ?? 100) / 100;
-    } catch { return 1; }
-  }
-
-  // ── Noise Gate ───────────────────────────────────────────
-
-  setNoiseSensitivity(value) {
-    // value: 0 (off / gate open) → 100 (aggressive gating)
-    this.noiseSensitivity = Math.max(0, Math.min(100, value));
-    // Immediately open gate if set to 0
-    if (this.noiseSensitivity === 0 && this._noiseGateGain) {
-      this._noiseGateGain.gain.setTargetAtTime(1, this.audioCtx.currentTime, 0.01);
-    }
-    return this.noiseSensitivity;
-  }
-
-  _startNoiseGate() {
-    if (this._noiseGateInterval) return;
-    const analyser = this._noiseGateAnalyser;
-    const gain = this._noiseGateGain;
-    if (!analyser || !gain) return;
-
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    const ATTACK = 0.015;    // Gate opens fast (seconds, ~15ms)
-    const RELEASE = 0.12;    // Gate closes gently (seconds, ~120ms)
-
-    this._noiseGateInterval = setInterval(() => {
-      if (this.noiseSensitivity === 0) {
-        gain.gain.value = 1;
-        return;
-      }
-      // Map sensitivity 1-100 → threshold 2-40
-      const threshold = 2 + (this.noiseSensitivity / 100) * 38;
-      analyser.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-      const avg = sum / dataArray.length;
-
-      if (avg > threshold) {
-        gain.gain.setTargetAtTime(1, this.audioCtx.currentTime, ATTACK);
-      } else {
-        gain.gain.setTargetAtTime(0, this.audioCtx.currentTime, RELEASE);
-      }
-    }, 20);
-  }
-
-  _stopNoiseGate() {
-    if (this._noiseGateInterval) {
-      clearInterval(this._noiseGateInterval);
-      this._noiseGateInterval = null;
-    }
-    this._noiseGateAnalyser = null;
-    this._noiseGateGain = null;
   }
 
   // ── Talking Detection ───────────────────────────────────
@@ -688,21 +472,21 @@ class VoiceManager {
   }
 
   _startLocalTalkDetection() {
-    if (!this.rawStream || this._localTalkInterval) return;
+    if (!this.localStream || this._localTalkInterval) return;
     try {
       if (!this.audioCtx) {
         this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
       if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
 
-      const source = this.audioCtx.createMediaStreamSource(this.rawStream);
+      const source = this.audioCtx.createMediaStreamSource(this.localStream);
       const analyser = this.audioCtx.createAnalyser();
       analyser.fftSize = 512;
       analyser.smoothingTimeConstant = 0.5;
       source.connect(analyser);
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const THRESHOLD = 15; // Slightly higher than noise gate to avoid flickering
+      const THRESHOLD = 20;
       let wasTalking = false;
       let holdTimer = null;
       const HOLD_MS = 300;
@@ -797,8 +581,55 @@ class VoiceManager {
       // Mute element playback — audio routes through GainNode instead
       audioEl.volume = 0;
     } catch {
-      // Fallback: use element volume directly (no boost beyond 100%)
       audioEl.volume = Math.min(1, this._getSavedVolume(userId));
     }
+  }
+  toggleNoiseSuppression() {
+    this.noiseSuppression = !this.noiseSuppression;
+    if (this.inVoice && this.localStream) {
+      this.noiseSuppression ? this._applyNoiseGate() : this._removeNoiseGate();
+    }
+    return this.noiseSuppression;
+  }
+  _applyNoiseGate() {
+    if (!this.localStream || !this.audioCtx || this._noiseGate) return;
+    try {
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+      const src = this.audioCtx.createMediaStreamSource(this.localStream);
+      const analyser = this.audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.8;
+      const gateGain = this.audioCtx.createGain();
+      gateGain.gain.value = 1;
+      src.connect(analyser);
+      src.connect(gateGain);
+      const dest = this.audioCtx.createMediaStreamDestination();
+      gateGain.connect(dest);
+      const dataArr = new Uint8Array(analyser.frequencyBinCount);
+      const GATE_THRESHOLD = 15;
+      const gateInterval = setInterval(() => {
+        analyser.getByteFrequencyData(dataArr);
+        let sum = 0;
+        for (let i = 0; i < dataArr.length; i++) sum += dataArr[i];
+        const avg = sum / dataArr.length;
+        gateGain.gain.value = avg > GATE_THRESHOLD ? 1 : 0;
+      }, 20);
+      const gatedTrack = dest.stream.getAudioTracks()[0];
+      for (const [, peer] of this.peers) {
+        const sender = peer.connection.getSenders().find(s => s.track && s.track.kind === 'audio');
+        if (sender) sender.replaceTrack(gatedTrack);
+      }
+      this._noiseGate = { src, analyser, gateGain, dest, interval: gateInterval, origTrack: this.localStream.getAudioTracks()[0] };
+    } catch (e) { console.error('Noise gate failed:', e); }
+  }
+  _removeNoiseGate() {
+    if (!this._noiseGate) return;
+    clearInterval(this._noiseGate.interval);
+    const origTrack = this._noiseGate.origTrack;
+    for (const [, peer] of this.peers) {
+      const sender = peer.connection.getSenders().find(s => s.track && s.track.kind === 'audio');
+      if (sender && origTrack) sender.replaceTrack(origTrack);
+    }
+    this._noiseGate = null;
   }
 }

@@ -61,16 +61,12 @@ router.post('/register', async (req, res) => {
     const username = sanitizeString(req.body.username, 20);
     const password = typeof req.body.password === 'string' ? req.body.password : '';
     const eulaVersion = typeof req.body.eulaVersion === 'string' ? req.body.eulaVersion.trim() : '';
-    const ageVerified = req.body.ageVerified === true;
 
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
     }
     if (!eulaVersion) {
-      return res.status(400).json({ error: 'You must accept the Terms of Service & Release of Liability Agreement' });
-    }
-    if (!ageVerified) {
-      return res.status(400).json({ error: 'You must confirm that you are 18 years of age or older' });
+      return res.status(400).json({ error: 'You must accept the Release of Liability Agreement' });
     }
 
     if (!username || !password) {
@@ -79,8 +75,8 @@ router.post('/register', async (req, res) => {
     if (username.length < 3 || username.length > 20) {
       return res.status(400).json({ error: 'Username must be 3-20 characters' });
     }
-    if (password.length < 8 || password.length > 128) {
-      return res.status(400).json({ error: 'Password must be 8-128 characters' });
+    if (password.length < 6 || password.length > 128) {
+      return res.status(400).json({ error: 'Password must be 6-128 characters' });
     }
     if (!/^[a-zA-Z0-9_]+$/.test(username)) {
       return res.status(400).json({ error: 'Username: letters, numbers, underscores only' });
@@ -99,7 +95,7 @@ router.post('/register', async (req, res) => {
 
     const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
     if (existing) {
-      return res.status(400).json({ error: 'Registration could not be completed' });
+      return res.status(409).json({ error: 'Username already taken' });
     }
 
     const hash = await bcrypt.hash(password, 12);
@@ -110,7 +106,7 @@ router.post('/register', async (req, res) => {
     ).run(username, hash, isAdmin);
 
     const token = jwt.sign(
-      { id: result.lastInsertRowid, username, isAdmin: !!isAdmin, displayName: username },
+      { id: result.lastInsertRowid, username, isAdmin: !!isAdmin },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -119,14 +115,14 @@ router.post('/register', async (req, res) => {
     if (eulaVersion) {
       try {
         db.prepare(
-          'INSERT OR IGNORE INTO eula_acceptances (user_id, version, ip_address, age_verified) VALUES (?, ?, ?, ?)'
-        ).run(result.lastInsertRowid, eulaVersion, req.ip || req.socket.remoteAddress || '', ageVerified ? 1 : 0);
+          'INSERT OR IGNORE INTO eula_acceptances (user_id, version, ip_address) VALUES (?, ?, ?)'
+        ).run(result.lastInsertRowid, eulaVersion, req.ip || req.socket.remoteAddress || '');
       } catch { /* non-critical */ }
     }
 
     res.json({
       token,
-      user: { id: result.lastInsertRowid, username, isAdmin: !!isAdmin, displayName: username }
+      user: { id: result.lastInsertRowid, username, displayName: null, isAdmin: !!isAdmin }
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -140,16 +136,9 @@ router.post('/login', async (req, res) => {
     const username = sanitizeString(req.body.username, 20);
     const password = typeof req.body.password === 'string' ? req.body.password : '';
     const eulaVersion = typeof req.body.eulaVersion === 'string' ? req.body.eulaVersion.trim() : '';
-    const ageVerified = req.body.ageVerified === true;
 
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
-    }
-    if (!eulaVersion) {
-      return res.status(400).json({ error: 'You must accept the Terms of Service & Release of Liability Agreement' });
-    }
-    if (!ageVerified) {
-      return res.status(400).json({ error: 'You must confirm that you are 18 years of age or older' });
     }
 
     const db = getDb();
@@ -177,9 +166,8 @@ router.post('/login', async (req, res) => {
       user.is_admin = shouldBeAdmin;
     }
 
-    const displayName = user.display_name || user.username;
     const token = jwt.sign(
-      { id: user.id, username: user.username, isAdmin: !!user.is_admin, displayName },
+      { id: user.id, username: user.username, isAdmin: !!user.is_admin },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -188,59 +176,17 @@ router.post('/login', async (req, res) => {
     if (eulaVersion) {
       try {
         db.prepare(
-          'INSERT OR IGNORE INTO eula_acceptances (user_id, version, ip_address, age_verified) VALUES (?, ?, ?, ?)'
-        ).run(user.id, eulaVersion, req.ip || req.socket.remoteAddress || '', ageVerified ? 1 : 0);
+          'INSERT OR IGNORE INTO eula_acceptances (user_id, version, ip_address) VALUES (?, ?, ?)'
+        ).run(user.id, eulaVersion, req.ip || req.socket.remoteAddress || '');
       } catch { /* non-critical */ }
     }
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, isAdmin: !!user.is_admin, displayName }
+      user: { id: user.id, username: user.username, displayName: user.display_name || null, isAdmin: !!user.is_admin }
     });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ── Change Password ──────────────────────────────────────
-router.post('/change-password', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    const decoded = verifyToken(token);
-    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
-
-    const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
-    const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'Current and new password required' });
-    }
-    if (newPassword.length < 8 || newPassword.length > 128) {
-      return res.status(400).json({ error: 'New password must be 8-128 characters' });
-    }
-
-    const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    const valid = await bcrypt.compare(currentPassword, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
-
-    const hash = await bcrypt.hash(newPassword, 12);
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, user.id);
-
-    // Issue a fresh token so the session stays alive
-    const freshToken = jwt.sign(
-      { id: user.id, username: user.username, isAdmin: !!user.is_admin, displayName: user.display_name || user.username },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    res.json({ message: 'Password changed successfully', token: freshToken });
-  } catch (err) {
-    console.error('Change password error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
