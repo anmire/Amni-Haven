@@ -2228,8 +2228,8 @@ class HavenApp {
 
       el.innerHTML = `
         <span class="channel-hash">${isSub ? '↳' : '#'}</span>
-        <span class="channel-name">${this._escapeHtml(ch.name)}</span>
         ${hasSubs ? `<span class="channel-collapse-arrow${isCollapsed ? ' collapsed' : ''}" title="Expand/collapse sub-channels">▾</span>` : ''}
+        <span class="channel-name">${this._escapeHtml(ch.name)}</span>
         <button class="channel-more-btn" title="Channel options">⋯</button>
       `;
 

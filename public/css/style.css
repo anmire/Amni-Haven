@@ -6649,8 +6649,6 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   user-select: none;
   flex-shrink: 0;
   transition: transform 0.15s ease, color 0.15s;
-  margin-left: auto;
-  order: 99;
 }
 .channel-collapse-arrow:hover {
   color: var(--accent);

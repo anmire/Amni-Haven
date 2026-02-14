@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Haven — Private Chat That Lives On Your Machine</title>
-  <meta name="description" content="Haven is a free, open-source private chat server you run on your own computer. Voice chat, screen sharing, themes, and more. Only the host downloads — friends join from their browser.">
+  <meta name="description" content="Haven is a free, open-source private chat server you run on your own computer. Voice chat, screen sharing, 25+ themes, sub-channels, direct messages, file sharing, and more. Only the host downloads — friends join from their browser.">
   <meta name="keywords" content="private chat, self-hosted, discord alternative, open source, voice chat, screen sharing, encrypted, no cloud, mobile compatible">
 
   <!-- Open Graph -->
   <meta property="og:title" content="Haven — Private Chat That Lives On Your Machine">
-  <meta property="og:description" content="Free, open-source private chat with voice, screen sharing, and 17+ themes. Only the host downloads — friends join from their browser.">
+  <meta property="og:description" content="Free, open-source private chat with voice, screen sharing, and 25+ themes. Only the host downloads — friends join from their browser.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://ancsemi.github.io/Haven/">
   <meta property="og:image" content="https://github.com/user-attachments/assets/a3205eb4-7011-4b7b-825e-7aba76aa5c11">
@@ -20,7 +20,7 @@
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Haven — Private Chat That Lives On Your Machine">
-  <meta name="twitter:description" content="Free, open-source private chat. Voice, streaming, 17+ themes. Only the host downloads.">
+  <meta name="twitter:description" content="Free, open-source private chat. Voice, streaming, 25+ themes. Only the host downloads.">
   <meta name="twitter:image" content="https://github.com/user-attachments/assets/a3205eb4-7011-4b7b-825e-7aba76aa5c11">
   <meta name="twitter:site" content="@ancsemi">
 
@@ -183,7 +183,12 @@
       border-radius: var(--radius-lg); overflow: hidden;
       box-shadow: 0 20px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border), 0 0 60px var(--accent-glow);
     }
-    .hero-screenshot img { width: 100%; height: auto; display: block; }
+    .hero-screenshot img {
+      width: 100%; height: auto; display: block;
+      position: absolute; top: 0; left: 0;
+      opacity: 0; transition: opacity 1s ease-in-out;
+    }
+    .hero-screenshot img.active { opacity: 1; position: relative; }
 
     /* ============================================
        PLATFORM SHOWCASE (Desktop + Mobile)
@@ -634,7 +639,7 @@
         </div>
         <h1>Free private chat that<br><span class="gradient-text">lives on your machine</span></h1>
         <p class="hero-subtitle">
-          Haven is a chat server you run on your own computer. Voice chat, screen sharing, themes, GIFs, and more &mdash; no cloud, no accounts with Big Tech, no one reading your messages.
+          Haven is a full-featured chat server you host yourself. Voice chat, screen sharing, 25+ themes, GIFs, sub-channels, direct messages, file sharing, and more &mdash; no cloud, no Big Tech accounts, no one reading your messages.
         </p>
         <div class="hero-actions">
           <a href="#download" class="btn btn-primary">
@@ -649,11 +654,20 @@
         </p>
       </div>
 
-      <!-- Hero image: Login screen -->
+      <!-- Hero image carousel -->
       <div class="hero-screenshot fade-in" style="margin-top: 48px;">
         <img src="https://github.com/user-attachments/assets/a3205eb4-7011-4b7b-825e-7aba76aa5c11"
-             alt="Haven login screen showing clean authentication UI with theme icons"
-             loading="eager">
+             alt="Haven login screen with theme selection" class="active" loading="eager">
+        <img src="https://github.com/user-attachments/assets/4103f3b8-547a-4508-b4d7-07fb321118e4"
+             alt="Haven chat interface with voice chat" loading="lazy">
+        <img src="https://github.com/user-attachments/assets/ac18c642-0410-4900-ba88-52f925cde982"
+             alt="Haven themed chat view" loading="lazy">
+        <img src="https://github.com/user-attachments/assets/47bfe39d-4fb2-4923-bf75-cc781e8d57a7"
+             alt="Haven desktop with channels and sidebar" loading="lazy">
+        <img src="https://github.com/user-attachments/assets/f745a6b8-ed7a-4f2f-a073-61c001cfda61"
+             alt="Haven screen sharing and streaming" loading="lazy">
+        <img src="https://github.com/user-attachments/assets/a6da197e-66df-4df6-a2a8-c215bf02ac10"
+             alt="Haven theme gallery showcase" loading="lazy">
       </div>
     </div>
   </section>
@@ -779,7 +793,7 @@
         <div class="sell-card">
           <span class="card-icon">🎤</span>
           <h3>Crystal-clear voice chat</h3>
-          <p>Peer-to-peer voice that goes directly between users &mdash; not through a middleman server. Per-user volume sliders, mute, deafen, talking indicators, join/leave sounds.</p>
+          <p>Peer-to-peer voice that goes directly between users &mdash; not through a middleman server. Per-user volume sliders, mute, deafen, talking indicators, join/leave sounds, and sound effects.</p>
         </div>
         <div class="sell-card">
           <span class="card-icon">🖥️</span>
@@ -845,7 +859,7 @@
         <div class="feature-card">
           <span class="f-icon">💬</span>
           <h3>Rich Chat</h3>
-          <p>Real-time messaging, image uploads, typing indicators, message editing, replies, emoji reactions, @mentions.</p>
+          <p>Real-time messaging, image uploads, typing indicators, message editing, replies, emoji reactions, @mentions, and editable channel names with collapsible sub-channels.</p>
         </div>
         <div class="feature-card">
           <span class="f-icon">🎙️</span>
@@ -864,8 +878,8 @@
         </div>
         <div class="feature-card">
           <span class="f-icon">🎨</span>
-          <h3>17+ Themes</h3>
-          <p>Haven, Discord, Matrix, Tron, HALO, LoTR, Cyberpunk, Dark Souls, Elden Ring, Minecraft, and more. Plus custom &amp; RGB.</p>
+          <h3>25+ Themes</h3>
+          <p>Haven, Discord, Matrix, Tron, HALO, LoTR, Cyberpunk, Dark Souls, Elden Ring, Minecraft, Scripture, Chapel, Gospel, FFX, Zelda, Fallout, CRT, Win95, RGB, and more.</p>
         </div>
         <div class="feature-card">
           <span class="f-icon">🎞️</span>
@@ -978,7 +992,7 @@
             </tr>
             <tr>
               <td>Themes / customization</td>
-              <td><span class="check">17+</span></td>
+              <td><span class="check">25+</span></td>
               <td><span class="meh">Limited</span></td>
               <td><span class="meh">Limited</span></td>
               <td><span class="cross">&#10007;</span></td>
@@ -1175,6 +1189,18 @@
     window.addEventListener('scroll', () => {
       document.querySelector('nav').style.background = window.scrollY > 100 ? 'rgba(21, 23, 42, 0.97)' : 'rgba(21, 23, 42, 0.85)';
     });
+
+    // Hero image carousel
+    (() => {
+      const imgs = document.querySelectorAll('.hero-screenshot img');
+      if (imgs.length < 2) return;
+      let current = 0;
+      setInterval(() => {
+        imgs[current].classList.remove('active');
+        current = (current + 1) % imgs.length;
+        imgs[current].classList.add('active');
+      }, 2000);
+    })();
   </script>
 
 </body>
