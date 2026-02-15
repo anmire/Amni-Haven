@@ -235,12 +235,10 @@
             <button id="voice-join-btn" class="btn-voice" style="display:none">
               🎤 Join Voice
             </button>
-            <button id="voice-dropdown-toggle" class="btn-voice voice-active-btn" style="display:none" title="Voice Active">
-              🎤 <span class="voice-label-text">Voice</span>
-            </button>
-            <button id="voice-leave-btn" class="btn-voice btn-danger" style="display:none">
-              ✕
-            </button>
+            <div id="voice-active-indicator" class="voice-active-indicator" style="display:none">
+              <span class="voice-indicator-icon">🎤</span>
+              <span class="voice-indicator-text">Voice Active</span>
+            </div>
           </div>
         </header>
 
@@ -345,28 +343,13 @@
       <aside class="right-sidebar" id="right-sidebar">
         <div class="right-sidebar-resize-handle" id="right-sidebar-resize-handle"></div>
         <button id="mobile-right-close" class="mobile-panel-close mobile-panel-close-right" title="Close" aria-label="Close panel">&times;</button>
-        <!-- Voice section (fixed at top, never scrolls away) -->
+        <!-- Voice users section (top) -->
         <div class="right-sidebar-voice" id="right-sidebar-voice">
           <div class="panel">
             <h5 class="panel-title">🔊 Voice</h5>
             <button id="voice-join-mobile" class="btn-voice mobile-voice-join" style="display:none">🎤 Join Voice</button>
             <div id="voice-users" class="user-list">
               <p class="muted-text">No one in voice</p>
-            </div>
-          </div>
-          <!-- Voice controls bar (icon-only row, shown when in voice) -->
-          <div id="voice-panel" class="voice-panel" style="display:none">
-            <button id="voice-mute-btn" class="voice-panel-btn" title="Mute">🔇</button>
-            <button id="voice-deafen-btn" class="voice-panel-btn" title="Deafen">🔈</button>
-            <button id="screen-share-btn" class="voice-panel-btn" title="Share Screen">🖥️</button>
-            <button id="music-share-btn" class="voice-panel-btn" title="Listen Together">🎵</button>
-            <button id="voice-settings-toggle" class="voice-panel-btn" title="Voice Settings">⚙️</button>
-          </div>
-          <!-- Slide-up voice settings sub-panel -->
-          <div id="voice-settings-panel" class="voice-settings-panel" style="display:none">
-            <div class="voice-settings-row">
-              <label class="voice-settings-label">🤫 Noise Suppression</label>
-              <input type="range" id="voice-ns-slider" class="ns-slider" min="0" max="100" value="10" title="Noise gate: 0 = off, 100 = aggressive">
             </div>
           </div>
         </div>
@@ -378,6 +361,22 @@
               <p class="muted-text">Select a channel</p>
             </div>
           </div>
+        </div>
+        <!-- Voice settings sub-panel (slides up above controls) -->
+        <div id="voice-settings-panel" class="voice-settings-panel" style="display:none">
+          <div class="voice-settings-row">
+            <label class="voice-settings-label">🤫 Noise Suppression</label>
+            <input type="range" id="voice-ns-slider" class="ns-slider" min="0" max="100" value="10" title="Noise gate: 0 = off, 100 = aggressive">
+          </div>
+        </div>
+        <!-- Voice controls bar (pinned above settings) -->
+        <div id="voice-panel" class="voice-panel" style="display:none">
+          <button id="voice-mute-btn" class="voice-panel-btn" title="Mute">🔇</button>
+          <button id="voice-deafen-btn" class="voice-panel-btn" title="Deafen">🔈</button>
+          <button id="screen-share-btn" class="voice-panel-btn" title="Share Screen">🖥️</button>
+          <button id="music-share-btn" class="voice-panel-btn" title="Listen Together">🎵</button>
+          <button id="voice-settings-toggle" class="voice-panel-btn" title="Voice Settings">⚙️</button>
+          <button id="voice-leave-sidebar-btn" class="voice-panel-btn voice-panel-leave" title="Leave Voice">✕</button>
         </div>
         <!-- Settings button pinned at bottom -->
         <div class="panel sidebar-settings-panel">

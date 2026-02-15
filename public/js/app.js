@@ -1070,7 +1070,7 @@ class HavenApp {
     });
     document.getElementById('voice-mute-btn').addEventListener('click', () => this._toggleMute());
     document.getElementById('voice-deafen-btn').addEventListener('click', () => this._toggleDeafen());
-    document.getElementById('voice-leave-btn').addEventListener('click', () => this._leaveVoice());
+    document.getElementById('voice-leave-sidebar-btn').addEventListener('click', () => this._leaveVoice());
     document.getElementById('screen-share-btn').addEventListener('click', () => this._toggleScreenShare());
     document.getElementById('screen-share-minimize').addEventListener('click', () => this._hideScreenShare());
     document.getElementById('screen-share-close').addEventListener('click', () => this._closeScreenShare());
@@ -1096,10 +1096,9 @@ class HavenApp {
       this._previewMusicLink(e.target.value.trim());
     });
 
-    // Voice controls — now in right sidebar
-    // The voice-dropdown-toggle in the header is just a static indicator on desktop,
-    // and opens the RIGHT sidebar on mobile to reveal the voice panel.
-    document.getElementById('voice-dropdown-toggle')?.addEventListener('click', (e) => {
+    // Voice controls — now pinned at bottom of right sidebar
+    // The header voice-active-indicator opens the RIGHT sidebar on mobile
+    document.getElementById('voice-active-indicator')?.addEventListener('click', (e) => {
       e.stopPropagation();
       // On mobile, open the RIGHT sidebar so the user can access voice controls
       const appBody = document.getElementById('app-body');
@@ -2805,10 +2804,12 @@ class HavenApp {
     if (this.voice && this.voice.inVoice) {
       this._updateVoiceButtons(true);
     } else {
-      // Show just the join button (not the dropdown/leave)
+      // Show just the join button (not the indicator)
       document.getElementById('voice-join-btn').style.display = 'inline-flex';
-      document.getElementById('voice-dropdown-toggle').style.display = 'none';
-      document.getElementById('voice-leave-btn').style.display = 'none';
+      const indic = document.getElementById('voice-active-indicator');
+      if (indic) indic.style.display = 'none';
+      const vp = document.getElementById('voice-panel');
+      if (vp) vp.style.display = 'none';
       const mobileJoin = document.getElementById('voice-join-mobile');
       if (mobileJoin) mobileJoin.style.display = '';
     }
@@ -2886,8 +2887,10 @@ class HavenApp {
     document.getElementById('channel-code-display').textContent = '';
     document.getElementById('copy-code-btn').style.display = 'none';
     document.getElementById('voice-join-btn').style.display = 'none';
-    document.getElementById('voice-dropdown-toggle').style.display = 'none';
-    document.getElementById('voice-leave-btn').style.display = 'none';
+    const indic2 = document.getElementById('voice-active-indicator');
+    if (indic2) indic2.style.display = 'none';
+    const vp2 = document.getElementById('voice-panel');
+    if (vp2) vp2.style.display = 'none';
     const mobileJoin = document.getElementById('voice-join-mobile');
     if (mobileJoin) mobileJoin.style.display = 'none';
     const actionsBox = document.getElementById('header-actions-box');
@@ -3912,23 +3915,14 @@ class HavenApp {
 
     el.innerHTML = html;
 
-    // Bind admin/mod action buttons
+    // Bind gear button → dropdown menu with mod actions
     if (this.user.isAdmin || this._canModerate() || this._hasPerm('promote_user')) {
-      el.querySelectorAll('.user-action-btn[data-action]').forEach(btn => {
+      el.querySelectorAll('.user-gear-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const action = btn.dataset.action;
           const userId = parseInt(btn.dataset.uid);
           const username = btn.dataset.uname;
-          if (action === 'assign-role') {
-            this._loadRoles(() => {
-              this._openAssignRoleModal(userId, username);
-            });
-          } else if (action === 'transfer-admin') {
-            this._confirmTransferAdmin(userId, username);
-          } else {
-            this._showAdminActionModal(action, userId, username);
-          }
+          this._showUserGearMenu(btn, userId, username);
         });
       });
     }
@@ -3948,6 +3942,73 @@ class HavenApp {
         setTimeout(() => { btn.disabled = false; btn.style.opacity = ''; }, 5000);
       });
     });
+  }
+
+  _showUserGearMenu(anchorEl, userId, username) {
+    // Close any existing gear menu
+    this._closeUserGearMenu();
+
+    const canMod = this.user.isAdmin || this._canModerate();
+    const canPromote = this._hasPerm('promote_user');
+    const isAdmin = this.user.isAdmin;
+
+    let items = '';
+    if (canPromote) items += `<button class="gear-menu-item" data-action="assign-role">👑 Assign Role</button>`;
+    if (canMod) items += `<button class="gear-menu-item" data-action="kick">👢 Kick</button>`;
+    if (canMod) items += `<button class="gear-menu-item" data-action="mute">🔇 Mute</button>`;
+    if (isAdmin) items += `<button class="gear-menu-item gear-menu-danger" data-action="ban">⛔ Ban</button>`;
+    if (isAdmin) items += `<div class="gear-menu-divider"></div><button class="gear-menu-item gear-menu-danger" data-action="transfer-admin">🔑 Transfer Admin</button>`;
+
+    const menu = document.createElement('div');
+    menu.className = 'user-gear-menu';
+    menu.innerHTML = items;
+    document.body.appendChild(menu);
+
+    // Position near the gear button
+    const rect = anchorEl.getBoundingClientRect();
+    menu.style.top = `${rect.bottom + 4}px`;
+    menu.style.left = `${rect.left - 100}px`;
+
+    // Keep in viewport
+    requestAnimationFrame(() => {
+      const mr = menu.getBoundingClientRect();
+      if (mr.right > window.innerWidth - 8) menu.style.left = `${window.innerWidth - mr.width - 8}px`;
+      if (mr.bottom > window.innerHeight - 8) menu.style.top = `${rect.top - mr.height - 4}px`;
+      if (mr.left < 8) menu.style.left = '8px';
+    });
+
+    // Bind item clicks
+    menu.querySelectorAll('.gear-menu-item').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        this._closeUserGearMenu();
+        if (action === 'assign-role') {
+          this._loadRoles(() => this._openAssignRoleModal(userId, username));
+        } else if (action === 'transfer-admin') {
+          this._confirmTransferAdmin(userId, username);
+        } else {
+          this._showAdminActionModal(action, userId, username);
+        }
+      });
+    });
+
+    // Close on outside click
+    setTimeout(() => {
+      this._gearMenuOutsideHandler = (e) => {
+        if (!menu.contains(e.target)) this._closeUserGearMenu();
+      };
+      document.addEventListener('click', this._gearMenuOutsideHandler, true);
+    }, 10);
+  }
+
+  _closeUserGearMenu() {
+    const existing = document.querySelector('.user-gear-menu');
+    if (existing) existing.remove();
+    if (this._gearMenuOutsideHandler) {
+      document.removeEventListener('click', this._gearMenuOutsideHandler, true);
+      this._gearMenuOutsideHandler = null;
+    }
   }
 
   _renderUserItem(u, scoreLookup) {
@@ -3997,21 +4058,16 @@ class HavenApp {
       ? `<button class="user-action-btn user-dm-btn" data-dm-uid="${u.id}" title="Direct Message">💬</button>`
       : '';
 
-    // Show mod actions for admins AND users with mod roles (kick/mute for mods, ban only for admins)
+    // Show DM + Gear icon. Gear opens a dropdown with mod actions.
     const canModThis = (this.user.isAdmin || this._canModerate()) && u.id !== this.user.id;
     const canPromote = this._hasPerm('promote_user') && u.id !== this.user.id;
-    const modBtns = canModThis
-      ? `<div class="user-admin-actions">
-           ${dmBtn}
-           ${canPromote ? `<button class="user-action-btn" data-action="assign-role" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Assign Role">👑</button>` : ''}
-           <button class="user-action-btn" data-action="kick" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Kick">👢</button>
-           <button class="user-action-btn" data-action="mute" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Mute">🔇</button>
-           ${this.user.isAdmin ? `<button class="user-action-btn" data-action="ban" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Ban">⛔</button>` : ''}
-           ${this.user.isAdmin ? `<button class="user-action-btn" data-action="transfer-admin" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Transfer Admin">🔑</button>` : ''}
-         </div>`
-      : (canPromote && u.id !== this.user.id
-          ? `<div class="user-admin-actions">${dmBtn}<button class="user-action-btn" data-action="assign-role" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="Assign Role">👑</button></div>`
-          : (dmBtn ? `<div class="user-admin-actions">${dmBtn}</div>` : ''));
+    const hasGear = canModThis || canPromote;
+    const gearBtn = hasGear
+      ? `<button class="user-action-btn user-gear-btn" data-uid="${u.id}" data-uname="${this._escapeHtml(u.username)}" title="More Actions">⚙️</button>`
+      : '';
+    const modBtns = (dmBtn || gearBtn)
+      ? `<div class="user-admin-actions">${dmBtn}${gearBtn}</div>`
+      : '';
     return `
       <div class="user-item${onlineClass}" data-user-id="${u.id}">
         ${avatarHtml}
@@ -4243,28 +4299,107 @@ class HavenApp {
       return;
     }
     el.innerHTML = users.map(u => {
-      const savedVol = this._getVoiceVolume(u.id);
       const isSelf = u.id === this.user.id;
       const talking = this.voice && ((isSelf && this.voice.talkingState.get('self')) || this.voice.talkingState.get(u.id));
       return `
         <div class="user-item voice-user-item${talking ? ' talking' : ''}" data-user-id="${u.id}">
           <span class="user-dot voice"></span>
           <span class="user-item-name">${this._escapeHtml(u.username)}</span>
-          ${!isSelf ? `<input type="range" class="volume-slider" min="0" max="200" value="${savedVol}" data-user-id="${u.id}" title="Volume: ${savedVol}%">` : '<span class="you-tag">you</span>'}
+          ${isSelf ? '<span class="you-tag">you</span>' : `<button class="voice-user-menu-btn" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}" title="User options">⋯</button>`}
         </div>
       `;
     }).join('');
 
-    // Bind volume sliders
-    el.querySelectorAll('.volume-slider').forEach(slider => {
-      slider.addEventListener('input', () => {
-        const userId = parseInt(slider.dataset.userId);
-        const vol = parseInt(slider.value);
-        slider.title = `Volume: ${vol}%`;
-        this._setVoiceVolume(userId, vol);
-        if (this.voice) this.voice.setVolume(userId, vol / 100);
+    // Bind "..." buttons to open per-user voice submenu
+    el.querySelectorAll('.voice-user-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const userId = parseInt(btn.dataset.userId);
+        const username = btn.dataset.username;
+        this._showVoiceUserMenu(btn, userId, username);
       });
     });
+  }
+
+  _showVoiceUserMenu(anchorEl, userId, username) {
+    this._closeVoiceUserMenu();
+
+    const savedVol = this._getVoiceVolume(userId);
+    const menu = document.createElement('div');
+    menu.className = 'voice-user-menu';
+    menu.innerHTML = `
+      <div class="voice-user-menu-header">${this._escapeHtml(username)}</div>
+      <div class="voice-user-menu-row">
+        <span class="voice-user-menu-label">🔊 Volume</span>
+        <input type="range" class="volume-slider voice-user-vol-slider" min="0" max="200" value="${savedVol}" title="Volume: ${savedVol}%">
+        <span class="voice-user-vol-value">${savedVol}%</span>
+      </div>
+      <div class="voice-user-menu-actions">
+        <button class="voice-user-menu-action" data-action="mute-user">🔇 Mute</button>
+        <button class="voice-user-menu-action" data-action="deafen-user">🔈 Deafen</button>
+      </div>
+    `;
+    document.body.appendChild(menu);
+
+    // Position
+    const rect = anchorEl.getBoundingClientRect();
+    menu.style.top = `${rect.bottom + 4}px`;
+    menu.style.left = `${rect.left - 140}px`;
+    requestAnimationFrame(() => {
+      const mr = menu.getBoundingClientRect();
+      if (mr.right > window.innerWidth - 8) menu.style.left = `${window.innerWidth - mr.width - 8}px`;
+      if (mr.bottom > window.innerHeight - 8) menu.style.top = `${rect.top - mr.height - 4}px`;
+      if (mr.left < 8) menu.style.left = '8px';
+    });
+
+    // Bind volume slider
+    const slider = menu.querySelector('.voice-user-vol-slider');
+    const volLabel = menu.querySelector('.voice-user-vol-value');
+    slider.addEventListener('input', () => {
+      const vol = parseInt(slider.value);
+      slider.title = `Volume: ${vol}%`;
+      volLabel.textContent = `${vol}%`;
+      this._setVoiceVolume(userId, vol);
+      if (this.voice) this.voice.setVolume(userId, vol / 100);
+    });
+
+    // Bind mute/deafen (set volume to 0 / 100)
+    menu.querySelectorAll('.voice-user-menu-action').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (btn.dataset.action === 'mute-user') {
+          const newVol = parseInt(slider.value) === 0 ? 100 : 0;
+          slider.value = newVol;
+          volLabel.textContent = `${newVol}%`;
+          this._setVoiceVolume(userId, newVol);
+          if (this.voice) this.voice.setVolume(userId, newVol / 100);
+          btn.textContent = newVol === 0 ? '🔊 Unmute' : '🔇 Mute';
+        } else if (btn.dataset.action === 'deafen-user') {
+          // Deafen = set volume to 0 for this user
+          slider.value = 0;
+          volLabel.textContent = '0%';
+          this._setVoiceVolume(userId, 0);
+          if (this.voice) this.voice.setVolume(userId, 0);
+        }
+      });
+    });
+
+    // Close on outside click
+    setTimeout(() => {
+      this._voiceUserMenuHandler = (e) => {
+        if (!menu.contains(e.target)) this._closeVoiceUserMenu();
+      };
+      document.addEventListener('click', this._voiceUserMenuHandler, true);
+    }, 10);
+  }
+
+  _closeVoiceUserMenu() {
+    const existing = document.querySelector('.voice-user-menu');
+    if (existing) existing.remove();
+    if (this._voiceUserMenuHandler) {
+      document.removeEventListener('click', this._voiceUserMenuHandler, true);
+      this._voiceUserMenuHandler = null;
+    }
   }
 
   _getVoiceVolume(userId) {
@@ -4359,10 +4494,11 @@ class HavenApp {
 
   _updateVoiceButtons(inVoice) {
     document.getElementById('voice-join-btn').style.display = inVoice ? 'none' : 'inline-flex';
-    document.getElementById('voice-dropdown-toggle').style.display = inVoice ? 'inline-flex' : 'none';
-    document.getElementById('voice-leave-btn').style.display = inVoice ? 'inline-flex' : 'none';
+    // Show/hide the header voice-active indicator (not a button, just a label)
+    const indicator = document.getElementById('voice-active-indicator');
+    if (indicator) indicator.style.display = inVoice ? 'inline-flex' : 'none';
 
-    // Show/hide the sidebar voice controls panel
+    // Show/hide the sidebar voice controls panel (pinned at bottom)
     const voicePanel = document.getElementById('voice-panel');
     if (voicePanel) voicePanel.style.display = inVoice ? 'flex' : 'none';
 
@@ -6230,20 +6366,71 @@ class HavenApp {
   }
 
   _confirmTransferAdmin(userId, username) {
-    const confirmed = confirm(
-      `⚠️ Transfer Admin to ${username}?\n\nThis will:\n• Make ${username} the new server Admin\n• Demote you to "Former Admin" (Lv.99)\n\nThis action cannot be undone by you.`
-    );
-    if (!confirmed) return;
-    // Double confirmation
-    const doubleConfirm = confirm(`Are you absolutely sure? Type-level confirmation:\nYou are about to give FULL admin control to ${username}.`);
-    if (!doubleConfirm) return;
+    // Build a custom modal for transfer admin with password verification
+    this._closeUserGearMenu();
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay transfer-admin-overlay';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `
+      <div class="modal transfer-admin-modal" style="max-width:400px">
+        <div class="modal-header">
+          <h4>🔑 Transfer Admin</h4>
+          <button class="modal-close-btn transfer-admin-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom:12px;color:var(--text-secondary);font-size:13px;">
+            ⚠️ This will make <strong>${this._escapeHtml(username)}</strong> the new server Admin and demote you to "Former Admin" (Lv.99).
+            <br><br><strong>This action cannot be undone by you.</strong>
+          </p>
+          <div class="form-group compact">
+            <label class="form-label">Enter your password to confirm</label>
+            <input type="password" id="transfer-admin-pw" class="form-input" placeholder="Your password" autocomplete="current-password">
+          </div>
+          <p id="transfer-admin-error" style="color:var(--danger);font-size:12px;display:none;margin-top:6px;"></p>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn-secondary transfer-admin-cancel">Cancel</button>
+          <button class="btn-danger-fill transfer-admin-confirm">Transfer Admin</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
 
-    this.socket.emit('transfer-admin', { userId }, (res) => {
-      if (res && res.error) {
-        this._showToast(res.error, 'error');
-      } else if (res && res.success) {
-        this._showToast(res.message || 'Admin transferred', 'info');
+    const pwInput = overlay.querySelector('#transfer-admin-pw');
+    const errorEl = overlay.querySelector('#transfer-admin-error');
+    const confirmBtn = overlay.querySelector('.transfer-admin-confirm');
+    const close = () => overlay.remove();
+
+    overlay.querySelector('.transfer-admin-close').addEventListener('click', close);
+    overlay.querySelector('.transfer-admin-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    pwInput.focus();
+    pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmBtn.click(); });
+
+    confirmBtn.addEventListener('click', () => {
+      const password = pwInput.value.trim();
+      if (!password) {
+        errorEl.textContent = 'Password is required.';
+        errorEl.style.display = '';
+        pwInput.focus();
+        return;
       }
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Transferring…';
+      this.socket.emit('transfer-admin', { userId, password }, (res) => {
+        if (res && res.error) {
+          errorEl.textContent = res.error;
+          errorEl.style.display = '';
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Transfer Admin';
+          pwInput.value = '';
+          pwInput.focus();
+        } else if (res && res.success) {
+          close();
+          this._showToast(res.message || 'Admin transferred', 'info');
+        }
+      });
     });
   }
 

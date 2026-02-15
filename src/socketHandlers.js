@@ -1,5 +1,6 @@
 const { verifyToken, generateChannelCode, generateToken } = require('./auth');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const webpush = require('web-push');
 const HAVEN_VERSION = require('../package.json').version;
 
@@ -3234,11 +3235,26 @@ function setupSocketHandlers(io, db) {
     // The replacement becomes level (admin_level - 1). Each successive transfer
     // reduces by 1, but this is tracked by actually setting the new user as is_admin
     // and renaming the env-admin concept.
-    socket.on('transfer-admin', (data, callback) => {
+    socket.on('transfer-admin', async (data, callback) => {
       if (!data || typeof data !== 'object') return;
       const cb = typeof callback === 'function' ? callback : () => {};
 
       if (!socket.user.isAdmin) return cb({ error: 'Only admins can transfer admin' });
+
+      // Password verification required
+      const password = typeof data.password === 'string' ? data.password : '';
+      if (!password) return cb({ error: 'Password is required for this action' });
+
+      const adminUser = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(socket.user.id);
+      if (!adminUser) return cb({ error: 'Admin user not found' });
+
+      try {
+        const validPw = await bcrypt.compare(password, adminUser.password_hash);
+        if (!validPw) return cb({ error: 'Incorrect password' });
+      } catch (err) {
+        console.error('Password verification error:', err);
+        return cb({ error: 'Password verification failed' });
+      }
 
       const userId = isInt(data.userId) ? data.userId : null;
       if (!userId) return cb({ error: 'Invalid user' });
