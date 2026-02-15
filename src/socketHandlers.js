@@ -106,6 +106,20 @@ function setupSocketHandlers(io, db) {
 
   // ── Permission system helpers ───────────────────────────
   // Role hierarchy: Admin (100) > Server Mod (50) > Channel Mod (25) > User (0)
+  // ── Role inheritance: get the channel hierarchy chain for role cascading ──
+  // Server roles → apply everywhere (channel_id IS NULL)
+  // Channel role  → applies to that channel + all its sub-channels
+  // Sub-channel role → only that sub-channel
+  // This returns an array of channel IDs to check (the target + its parent if it's a sub)
+  function getChannelRoleChain(channelId) {
+    if (!channelId) return [];
+    const ch = db.prepare('SELECT id, parent_channel_id FROM channels WHERE id = ?').get(channelId);
+    if (!ch) return [channelId];
+    // If it's a sub-channel, include the parent channel too
+    if (ch.parent_channel_id) return [channelId, ch.parent_channel_id];
+    return [channelId];
+  }
+
   function getUserEffectiveLevel(userId, channelId = null) {
     // Admin is always level 100
     const user = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(userId);
@@ -119,15 +133,19 @@ function setupSocketHandlers(io, db) {
     `).get(userId);
     let level = (serverRole && serverRole.maxLevel) || 0;
 
-    // If channel specified, also check channel-scoped roles
+    // If channel specified, check roles for the channel + parent (inheritance)
     if (channelId) {
-      const channelRole = db.prepare(`
-        SELECT MAX(r.level) as maxLevel FROM roles r
-        JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = ? AND ur.channel_id = ?
-      `).get(userId, channelId);
-      if (channelRole && channelRole.maxLevel && channelRole.maxLevel > level) {
-        level = channelRole.maxLevel;
+      const chain = getChannelRoleChain(channelId);
+      if (chain.length > 0) {
+        const placeholders = chain.map(() => '?').join(',');
+        const channelRole = db.prepare(`
+          SELECT MAX(r.level) as maxLevel FROM roles r
+          JOIN user_roles ur ON r.id = ur.role_id
+          WHERE ur.user_id = ? AND ur.channel_id IN (${placeholders})
+        `).get(userId, ...chain);
+        if (channelRole && channelRole.maxLevel && channelRole.maxLevel > level) {
+          level = channelRole.maxLevel;
+        }
       }
     }
     return level;
@@ -162,16 +180,20 @@ function setupSocketHandlers(io, db) {
     `).get(userId, permission);
     if (serverPerm) return true;
 
-    // Check channel-scoped roles
+    // Check channel-scoped roles (with inheritance: parent channel roles cascade to subs)
     if (channelId) {
-      const channelPerm = db.prepare(`
-        SELECT rp.allowed FROM role_permissions rp
-        JOIN roles r ON rp.role_id = r.id
-        JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = ? AND rp.permission = ? AND ur.channel_id = ? AND rp.allowed = 1
-        LIMIT 1
-      `).get(userId, permission, channelId);
-      if (channelPerm) return true;
+      const chain = getChannelRoleChain(channelId);
+      if (chain.length > 0) {
+        const placeholders = chain.map(() => '?').join(',');
+        const channelPerm = db.prepare(`
+          SELECT rp.allowed FROM role_permissions rp
+          JOIN roles r ON rp.role_id = r.id
+          JOIN user_roles ur ON r.id = ur.role_id
+          WHERE ur.user_id = ? AND rp.permission = ? AND ur.channel_id IN (${placeholders}) AND rp.allowed = 1
+          LIMIT 1
+        `).get(userId, permission, ...chain);
+        if (channelPerm) return true;
+      }
     }
     return false;
   }
@@ -218,13 +240,17 @@ function setupSocketHandlers(io, db) {
     `).get(userId);
 
     if (channelId) {
-      const chRole = db.prepare(`
-        SELECT r.name, r.level, r.color FROM roles r
-        JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = ? AND ur.channel_id = ?
-        ORDER BY r.level DESC LIMIT 1
-      `).get(userId, channelId);
-      if (chRole && (!role || chRole.level > role.level)) role = chRole;
+      const chain = getChannelRoleChain(channelId);
+      if (chain.length > 0) {
+        const placeholders = chain.map(() => '?').join(',');
+        const chRole = db.prepare(`
+          SELECT r.name, r.level, r.color FROM roles r
+          JOIN user_roles ur ON r.id = ur.role_id
+          WHERE ur.user_id = ? AND ur.channel_id IN (${placeholders})
+          ORDER BY r.level DESC LIMIT 1
+        `).get(userId, ...chain);
+        if (chRole && (!role || chRole.level > role.level)) role = chRole;
+      }
     }
     return role || null;
   }
@@ -1433,7 +1459,10 @@ function setupSocketHandlers(io, db) {
       if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
       const room = voiceUsers.get(code);
       const users = room
-        ? Array.from(room.values()).map(u => ({ id: u.id, username: u.username }))
+        ? Array.from(room.values()).map(u => {
+            const role = getUserHighestRole(u.id);
+            return { id: u.id, username: u.username, roleColor: role ? role.color : null };
+          })
         : [];
       socket.emit('voice-users-update', { channelCode: code, users });
     });
@@ -2779,7 +2808,10 @@ function setupSocketHandlers(io, db) {
     function broadcastVoiceUsers(code) {
       const room = voiceUsers.get(code);
       const users = room
-        ? Array.from(room.values()).map(u => ({ id: u.id, username: u.username }))
+        ? Array.from(room.values()).map(u => {
+            const role = getUserHighestRole(u.id);
+            return { id: u.id, username: u.username, roleColor: role ? role.color : null };
+          })
         : [];
       // Emit to voice participants (may have switched text channels) AND text viewers
       io.to(`voice:${code}`).to(`channel:${code}`).emit('voice-users-update', {

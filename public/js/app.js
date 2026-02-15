@@ -4301,9 +4301,11 @@ class HavenApp {
     el.innerHTML = users.map(u => {
       const isSelf = u.id === this.user.id;
       const talking = this.voice && ((isSelf && this.voice.talkingState.get('self')) || this.voice.talkingState.get(u.id));
+      const dotColor = u.roleColor || '';
+      const dotStyle = dotColor ? ` style="background:${dotColor};--voice-dot-color:${dotColor}"` : '';
       return `
-        <div class="user-item voice-user-item${talking ? ' talking' : ''}" data-user-id="${u.id}">
-          <span class="user-dot voice"></span>
+        <div class="user-item voice-user-item${talking ? ' talking' : ''}" data-user-id="${u.id}"${dotColor ? ` style="--voice-dot-color:${dotColor}"` : ''}>
+          <span class="user-dot voice"${dotStyle}></span>
           <span class="user-item-name">${this._escapeHtml(u.username)}</span>
           ${isSelf ? '<span class="you-tag">you</span>' : `<button class="voice-user-menu-btn" data-user-id="${u.id}" data-username="${this._escapeHtml(u.username)}" title="User options">⋯</button>`}
         </div>
@@ -6372,23 +6374,26 @@ class HavenApp {
     overlay.className = 'modal-overlay transfer-admin-overlay';
     overlay.style.display = 'flex';
     overlay.innerHTML = `
-      <div class="modal transfer-admin-modal" style="max-width:400px">
+      <div class="modal transfer-admin-modal">
         <div class="modal-header">
           <h4>🔑 Transfer Admin</h4>
           <button class="modal-close-btn transfer-admin-close">&times;</button>
         </div>
         <div class="modal-body">
-          <p style="margin-bottom:12px;color:var(--text-secondary);font-size:13px;">
-            ⚠️ This will make <strong>${this._escapeHtml(username)}</strong> the new server Admin and demote you to "Former Admin" (Lv.99).
-            <br><br><strong>This action cannot be undone by you.</strong>
-          </p>
-          <div class="form-group compact">
+          <div class="transfer-admin-warning">
+            <div class="transfer-admin-warning-icon">⚠️</div>
+            <div class="transfer-admin-warning-text">
+              This will make <strong>${this._escapeHtml(username)}</strong> the new server Admin and demote you to <strong>Former Admin</strong> (Lv.99).
+            </div>
+          </div>
+          <p class="transfer-admin-note">This action cannot be undone by you.</p>
+          <div class="form-group">
             <label class="form-label">Enter your password to confirm</label>
             <input type="password" id="transfer-admin-pw" class="form-input" placeholder="Your password" autocomplete="current-password">
           </div>
-          <p id="transfer-admin-error" style="color:var(--danger);font-size:12px;display:none;margin-top:6px;"></p>
+          <p id="transfer-admin-error" class="transfer-admin-error"></p>
         </div>
-        <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+        <div class="modal-footer">
           <button class="btn-secondary transfer-admin-cancel">Cancel</button>
           <button class="btn-danger-fill transfer-admin-confirm">Transfer Admin</button>
         </div>
