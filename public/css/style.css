@@ -5125,9 +5125,12 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
    RESPONSIVE — Tablet (≤ 900px)
    ═══════════════════════════════════════════════════════════ */
 
+.mobile-settings-btn { display: none; }
 @media (max-width: 900px) {
   .right-sidebar { display: none; }
   .mobile-users-btn { display: flex; }
+  .mobile-settings-btn { display: flex; }
+  .sidebar-settings-panel { display: none !important; }
 }
 
 

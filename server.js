@@ -47,8 +47,7 @@ if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
   process.env.VAPID_PRIVATE_KEY = vapidKeys.privateKey;
   console.log('🔔 Auto-generated VAPID keys for push notifications (saved to .env)');
 }
-// Configure web-push with contact email (admin can override via VAPID_EMAIL in .env)
-const vapidEmail = process.env.VAPID_EMAIL || 'mailto:admin@haven.local';
+const vapidEmail = process.env.VAPID_EMAIL || 'https://github.com/ancsemi/Haven';
 webpush.setVapidDetails(vapidEmail, process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
 
 const { initDatabase } = require('./src/database');

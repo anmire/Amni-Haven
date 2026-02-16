@@ -233,20 +233,21 @@ class HavenApp {
       this._setLed('status-server-led', 'on');
       document.getElementById('status-server-text').textContent = 'Connected';
       this._startPingMonitor();
-      // Re-join channel after reconnect (server lost our room membership)
+      this.socket.emit('visibility-change', { visible: !document.hidden });
       this.socket.emit('get-channels');
       this.socket.emit('get-server-settings');
       if (this.currentChannel) {
         this.socket.emit('enter-channel', { code: this.currentChannel });
         this.socket.emit('get-messages', { code: this.currentChannel });
         this.socket.emit('get-channel-members', { code: this.currentChannel });
-        // Request fresh voice list for this channel
         this.socket.emit('request-voice-users', { code: this.currentChannel });
       }
-      // Re-join voice if we were in voice before reconnect
       if (this.voice && this.voice.inVoice && this.voice.currentChannel) {
         this.socket.emit('voice-rejoin', { code: this.voice.currentChannel });
       }
+    });
+    document.addEventListener('visibilitychange', () => {
+      this.socket?.emit('visibility-change', { visible: !document.hidden });
     });
 
     this.socket.on('disconnect', () => {
@@ -1326,6 +1327,11 @@ class HavenApp {
     // ── Settings popout modal ────────────────────────────
     document.getElementById('open-settings-btn').addEventListener('click', () => {
       document.getElementById('settings-modal').style.display = 'flex';
+    });
+    document.getElementById('mobile-settings-btn')?.addEventListener('click', () => {
+      document.getElementById('settings-modal').style.display = 'flex';
+      document.getElementById('app-body')?.classList.remove('mobile-sidebar-open');
+      document.getElementById('mobile-overlay')?.classList.remove('active');
     });
     document.getElementById('close-settings-btn').addEventListener('click', () => {
       document.getElementById('settings-modal').style.display = 'none';

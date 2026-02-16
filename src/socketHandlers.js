@@ -286,18 +286,12 @@ function setupSocketHandlers(io, db) {
   // Active screen sharers per voice room:  code → Set<userId>
   const activeScreenSharers = new Map();
 
-  // ── Push notification helper ──────────────────────────────
-  // Sends push notifications for a new message to all channel members
-  // who are NOT currently connected via Socket.IO.
   function sendPushNotifications(channelId, channelCode, channelName, senderUserId, senderUsername, messageContent) {
     try {
-      // Get all connected user IDs
-      const connectedUserIds = new Set();
+      const activeUserIds = new Set();
       for (const [, s] of io.sockets.sockets) {
-        if (s.user) connectedUserIds.add(s.user.id);
+        if (s.user && s.hasFocus !== false) activeUserIds.add(s.user.id);
       }
-
-      // Get push subscriptions for channel members who are offline
       const subs = db.prepare(`
         SELECT ps.endpoint, ps.p256dh, ps.auth, ps.user_id
         FROM push_subscriptions ps
@@ -305,14 +299,8 @@ function setupSocketHandlers(io, db) {
         WHERE cm.channel_id = ?
           AND ps.user_id != ?
       `).all(channelId, senderUserId);
-
       if (!subs.length) return;
-
-      // Truncate message for notification body
-      const body = messageContent.length > 120
-        ? messageContent.slice(0, 117) + '...'
-        : messageContent;
-
+      const body = messageContent.length > 120 ? messageContent.slice(0, 117) + '...' : messageContent;
       const payload = JSON.stringify({
         title: `${senderUsername} in #${channelName}`,
         body,
@@ -320,22 +308,12 @@ function setupSocketHandlers(io, db) {
         tag: `haven-${channelCode}`,
         url: '/app'
       });
-
       for (const sub of subs) {
-        // Skip users who are currently connected (they get real-time events)
-        if (connectedUserIds.has(sub.user_id)) continue;
-
-        const pushSub = {
-          endpoint: sub.endpoint,
-          keys: { p256dh: sub.p256dh, auth: sub.auth }
-        };
-
+        if (activeUserIds.has(sub.user_id)) continue;
+        const pushSub = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
         webpush.sendNotification(pushSub, payload).catch((err) => {
           if (err.statusCode === 410 || err.statusCode === 404) {
-            // Subscription expired or invalid — remove it
-            try {
-              db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(sub.endpoint);
-            } catch { /* non-critical */ }
+            try { db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(sub.endpoint); } catch {}
           }
         });
       }
@@ -413,6 +391,10 @@ function setupSocketHandlers(io, db) {
 
     console.log(`✅ ${socket.user.username} connected`);
     socket.currentChannel = null;
+    socket.hasFocus = true;
+    socket.on('visibility-change', (data) => {
+      if (data && typeof data.visible === 'boolean') socket.hasFocus = data.visible;
+    });
 
     // Push authoritative user info to the client on every connect/reconnect
     // so stale localStorage is always corrected
