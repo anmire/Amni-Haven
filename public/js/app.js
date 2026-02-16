@@ -3038,41 +3038,69 @@ class HavenApp {
   /** Sync tunnel enabled/provider state to server */
   async _syncTunnelState() {
     const enabled = document.getElementById('tunnel-enabled')?.checked || false;
-    const provider = document.getElementById('tunnel-provider')?.value || 'localtunnel';
+    const provider = document.getElementById('tunnel-provider-select')?.value || 'localtunnel';
+    const statusEl = document.getElementById('tunnel-status-display');
+    if (statusEl) statusEl.textContent = enabled ? 'Starting…' : 'Stopping…';
     try {
       const res = await fetch('/api/tunnel/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        },
         body: JSON.stringify({ enabled, provider })
       });
-      if (!res.ok) console.error('Tunnel sync failed:', res.status);
-      // Refresh status after a short delay to let the tunnel start/stop
-      setTimeout(() => this._refreshTunnelStatus(), 3000);
+      if (!res.ok) {
+        console.error('Tunnel sync failed:', res.status);
+        if (statusEl) statusEl.textContent = 'Sync failed';
+        return;
+      }
+      // Update status from the response directly (no delay needed)
+      const data = await res.json();
+      this._updateTunnelStatusUI(data);
     } catch (err) {
       console.error('Tunnel sync error:', err);
+      if (statusEl) statusEl.textContent = 'Error';
     }
   }
 
   /** Fetch current tunnel status from server and update UI */
   async _refreshTunnelStatus() {
-    const statusEl = document.getElementById('tunnel-status');
     try {
-      const res = await fetch('/api/tunnel/status');
+      const res = await fetch('/api/tunnel/status', {
+        headers: { 'Authorization': `Bearer ${this.token}` }
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (statusEl) {
-        if (data.running && data.url) {
-          statusEl.textContent = data.url;
-          statusEl.title = 'Tunnel is active';
-        } else if (data.running) {
-          statusEl.textContent = 'Starting…';
-        } else {
-          statusEl.textContent = data.error || 'Not running';
-        }
-      }
+      this._updateTunnelStatusUI(data);
     } catch (err) {
+      const statusEl = document.getElementById('tunnel-status-display');
       if (statusEl) statusEl.textContent = 'Error checking status';
       console.error('Tunnel status error:', err);
+    }
+  }
+
+  /** Update the tunnel status display from a status object */
+  _updateTunnelStatusUI(data) {
+    const statusEl = document.getElementById('tunnel-status-display');
+    if (!statusEl) return;
+    if (data.active && data.url) {
+      statusEl.textContent = data.url;
+      statusEl.title = 'Tunnel is active — click to copy';
+      statusEl.style.cursor = 'pointer';
+      statusEl.onclick = () => {
+        navigator.clipboard.writeText(data.url);
+        statusEl.textContent = 'Copied!';
+        setTimeout(() => { statusEl.textContent = data.url; }, 1500);
+      };
+    } else if (data.starting) {
+      statusEl.textContent = 'Starting…';
+      statusEl.style.cursor = '';
+      statusEl.onclick = null;
+    } else {
+      statusEl.textContent = data.error || 'Inactive';
+      statusEl.style.cursor = '';
+      statusEl.onclick = null;
     }
   }
 
@@ -6961,7 +6989,7 @@ class HavenApp {
       if (tunnelToggle) {
         tunnelToggle.checked = this.serverSettings.tunnel_enabled === 'true';
       }
-      const tunnelProvider = document.getElementById('tunnel-provider');
+      const tunnelProvider = document.getElementById('tunnel-provider-select');
       if (tunnelProvider && this.serverSettings.tunnel_provider) {
         tunnelProvider.value = this.serverSettings.tunnel_provider;
       }

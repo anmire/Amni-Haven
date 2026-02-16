@@ -283,10 +283,9 @@ app.post('/api/tunnel/sync', express.json(), async (req, res) => {
   const user = token ? verifyToken(token) : null;
   if (!user || !user.isAdmin) return res.status(403).json({ error: 'Admin only' });
   try {
-    const { getDb } = require('./src/database');
-    const db = getDb();
-    const enabled = db.prepare("SELECT value FROM server_settings WHERE key = 'tunnel_enabled'").get()?.value === 'true';
-    const provider = db.prepare("SELECT value FROM server_settings WHERE key = 'tunnel_provider'").get()?.value || 'localtunnel';
+    // Use values from the request body directly (DB may not have saved yet)
+    const enabled = req.body.enabled === true;
+    const provider = req.body.provider || 'localtunnel';
     if (!enabled) await stopTunnel();
     else await startTunnel(PORT, provider);
     res.json(getTunnelStatus());
