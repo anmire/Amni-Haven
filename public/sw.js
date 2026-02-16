@@ -16,8 +16,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'Haven';
   const options = {
     body: payload.body || '',
-    icon: payload.icon || '/favicon.ico',
-    badge: '/favicon.ico',
+    icon: payload.icon || '/icon-192.svg',
+    badge: '/icon-192.svg',
     tag: payload.tag || 'haven-message',       // collapse similar notifications
     renotify: true,                            // alert even if same tag
     data: {
@@ -35,13 +35,13 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const targetUrl = event.notification.data?.url || '/app.html';
+  const targetUrl = event.notification.data?.url || '/app';
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       // If Haven is already open, focus it and navigate
       for (const client of windowClients) {
-        if (client.url.includes('/app.html')) {
+        if (client.url.includes('/app')) {
           client.focus();
           // Post the channel code so the app can switch channels
           if (event.notification.data?.channelCode) {

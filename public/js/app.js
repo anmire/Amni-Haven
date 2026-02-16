@@ -131,6 +131,8 @@ class HavenApp {
     this._initServerBranding();
     this._initPermThresholds();
     this._setupResizableSidebars();
+    this.modMode = typeof ModMode === 'function' ? new ModMode() : null;
+    this.modMode?.init();
     this._setupDensityPicker();
     this._setupOnlineOverlay();
     this._checkForUpdates();
@@ -162,6 +164,8 @@ class HavenApp {
       document.getElementById('admin-controls').style.display = 'block';
       document.getElementById('admin-mod-panel').style.display = 'block';
     }
+
+    document.getElementById('mod-mode-settings-toggle')?.addEventListener('click', () => this.modMode?.toggle());
   }
 
   // ── Socket Event Listeners ────────────────────────────
@@ -244,6 +248,7 @@ class HavenApp {
       document.getElementById('status-server-text').textContent = 'Connected';
       this._startPingMonitor();
       // Re-join channel after reconnect (server lost our room membership)
+      this.socket.emit('visibility-change', { visible: !document.hidden });
       this.socket.emit('get-channels');
       this.socket.emit('get-server-settings');
       if (this.currentChannel) {
@@ -257,6 +262,9 @@ class HavenApp {
       if (this.voice && this.voice.inVoice && this.voice.currentChannel) {
         this.socket.emit('voice-rejoin', { code: this.voice.currentChannel });
       }
+    });
+    document.addEventListener('visibilitychange', () => {
+      this.socket?.emit('visibility-change', { visible: !document.hidden });
     });
 
     this.socket.on('disconnect', () => {
@@ -1452,6 +1460,12 @@ class HavenApp {
       this._snapshotAdminSettings();
       document.getElementById('settings-modal').style.display = 'flex';
     });
+    document.getElementById('mobile-settings-btn')?.addEventListener('click', () => {
+      this._snapshotAdminSettings();
+      document.getElementById('settings-modal').style.display = 'flex';
+      document.getElementById('app-body')?.classList.remove('mobile-sidebar-open');
+      document.getElementById('mobile-overlay')?.classList.remove('active');
+    });
     document.getElementById('close-settings-btn').addEventListener('click', () => {
       this._cancelAdminSettings();
     });
@@ -1563,6 +1577,29 @@ class HavenApp {
     this.socket.on('whitelist-list', (list) => {
       this._renderWhitelist(list);
     });
+
+    // ── Tunnel settings (immediate — not part of Save flow) ──
+    const tunnelEnabledEl = document.getElementById('tunnel-enabled');
+    if (tunnelEnabledEl) {
+      tunnelEnabledEl.addEventListener('change', () => {
+        this.socket.emit('update-server-setting', {
+          key: 'tunnel_enabled',
+          value: tunnelEnabledEl.checked ? 'true' : 'false'
+        });
+        this._syncTunnelState();
+      });
+    }
+
+    const tunnelProvEl = document.getElementById('tunnel-provider-select');
+    if (tunnelProvEl) {
+      tunnelProvEl.addEventListener('change', () => {
+        this.socket.emit('update-server-setting', {
+          key: 'tunnel_provider',
+          value: tunnelProvEl.value
+        });
+        this._syncTunnelState();
+      });
+    }
   }
 
   // ═══════════════════════════════════════════════════════
@@ -2736,30 +2773,34 @@ class HavenApp {
       localStorage.setItem('haven_push_error_dismissed', 'true');
     });
 
-    // Detect browser
+    // Detect browser and platform
     const isBrave = navigator.brave && (await navigator.brave.isBrave?.()) || false;
     const ua = navigator.userAgent;
     const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+    // Secure context required (covers HTTPS, localhost, etc.)
+    if (!window.isSecureContext) {
+      if (toggle) toggle.disabled = true;
+      if (statusEl) statusEl.textContent = 'Requires HTTPS';
+      this._pushErrorReason = 'Push notifications require a secure (HTTPS) connection. Check the Haven setup guide for SSL configuration.';
+      if (!localStorage.getItem('haven_push_error_dismissed')) this._showPushError(this._pushErrorReason);
+      return;
+    }
 
     // Check browser support
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       if (toggle) toggle.disabled = true;
       let reason = 'Your browser does not support push notifications.';
-      if (isIOS) reason = 'Push notifications are not supported on iOS Safari or iOS browsers.';
+      if (isIOS && !isStandalone) {
+        reason = 'On iOS, push notifications only work when Haven is installed as an app. ' +
+          'Tap the Share button → "Add to Home Screen", then open Haven from your home screen.';
+      } else if (isIOS) {
+        reason = 'Push notifications are not supported on this iOS browser version. Update to iOS 16.4 or later.';
+      }
       if (statusEl) statusEl.textContent = 'Not supported';
-      // Show once on page load if not dismissed, always show on toggle attempt
       this._pushErrorReason = reason;
       if (!localStorage.getItem('haven_push_error_dismissed')) this._showPushError(reason);
-      return;
-    }
-
-    // Service workers require HTTPS (or localhost)
-    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-    if (!isSecure) {
-      if (toggle) toggle.disabled = true;
-      if (statusEl) statusEl.textContent = 'Requires HTTPS';
-      this._pushErrorReason = 'Push notifications require a secure (HTTPS) connection. Check the Haven setup guide for SSL configuration.';
-      if (!localStorage.getItem('haven_push_error_dismissed')) this._showPushError(this._pushErrorReason);
       return;
     }
 
@@ -2812,6 +2853,24 @@ class HavenApp {
     if (toggle) toggle.checked = !!existingSub;
     if (statusEl) statusEl.textContent = existingSub ? 'Enabled' : 'Disabled';
 
+    // Re-register existing subscription with server on every load
+    // (handles server DB resets, reconnects, and subscription refresh)
+    if (existingSub) {
+      const subJson = existingSub.toJSON();
+      this.socket.emit('push-subscribe', {
+        endpoint: subJson.endpoint,
+        keys: { p256dh: subJson.keys.p256dh, auth: subJson.keys.auth }
+      });
+    }
+
+    // If permission was previously denied, show early warning
+    if (Notification.permission === 'denied') {
+      if (toggle) toggle.disabled = true;
+      if (statusEl) statusEl.textContent = 'Blocked';
+      this._pushErrorReason = 'Notification permission was denied. Check your browser\'s site settings and allow notifications for this site, then reload.';
+      return;
+    }
+
     // Listen for server confirmation
     this.socket.on('push-subscribed', () => {
       if (statusEl) statusEl.textContent = 'Enabled';
@@ -2841,10 +2900,50 @@ class HavenApp {
   _showPushError(reason) {
     const modal = document.getElementById('push-error-modal');
     const reasonEl = document.getElementById('push-error-reason');
-    if (modal && reasonEl) {
-      reasonEl.textContent = reason;
-      modal.style.display = 'flex';
+    if (!modal || !reasonEl) return;
+
+    // Build structured content with browser-specific action buttons
+    let html = this._escapeHtml(reason);
+
+    // Detect Brave-specific advice and add a copy button for the settings URL
+    if (reason.includes('brave://settings')) {
+      const settingsUrl = 'brave://settings/privacy';
+      html += `<div style="margin-top:12px;padding:10px;background:var(--bg-secondary);border-radius:6px;font-family:monospace;font-size:13px;display:flex;align-items:center;gap:8px;justify-content:center;">
+        <span style="user-select:all;">${settingsUrl}</span>
+        <button class="btn-accent" onclick="navigator.clipboard.writeText('${settingsUrl}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)"
+          style="padding:4px 10px;font-size:12px;min-width:52px;">Copy</button>
+      </div>
+      <p style="color:var(--text-muted);font-size:11px;margin:8px 0 0;">Paste this into your Brave address bar, then enable "Use Google Services for Push Messaging" and restart Brave.</p>`;
     }
+
+    // Detect permission denied and provide Chrome/Edge settings hints
+    if (reason.includes('Permission denied') || reason.includes('permission was denied')) {
+      html += `<div style="margin-top:12px;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+        <strong>How to fix:</strong><br>
+        \u2022 Click the lock/info icon in your address bar → Site settings → Notifications → Allow<br>
+        \u2022 Or go to browser settings → Privacy → Site Settings → Notifications
+      </div>`;
+    }
+
+    // iOS standalone hint
+    if (reason.includes('Add to Home Screen')) {
+      html += `<div style="margin-top:12px;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+        <strong>Steps:</strong><br>
+        1. Tap the <strong>Share</strong> button (box with arrow) in Safari<br>
+        2. Scroll down and tap <strong>"Add to Home Screen"</strong><br>
+        3. Open Haven from your home screen icon
+      </div>`;
+    }
+
+    reasonEl.innerHTML = html;
+    modal.style.display = 'flex';
+  }
+
+  /** Escape HTML entities for safe innerHTML insertion */
+  _escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 
   async _subscribePush() {
@@ -2931,6 +3030,49 @@ class HavenApp {
     } catch (err) {
       console.error('Push unsubscribe error:', err);
       if (statusEl) statusEl.textContent = 'Error';
+    }
+  }
+
+  // ── Tunnel Management ─────────────────────────────────
+
+  /** Sync tunnel enabled/provider state to server */
+  async _syncTunnelState() {
+    const enabled = document.getElementById('tunnel-enabled')?.checked || false;
+    const provider = document.getElementById('tunnel-provider')?.value || 'localtunnel';
+    try {
+      const res = await fetch('/api/tunnel/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, provider })
+      });
+      if (!res.ok) console.error('Tunnel sync failed:', res.status);
+      // Refresh status after a short delay to let the tunnel start/stop
+      setTimeout(() => this._refreshTunnelStatus(), 3000);
+    } catch (err) {
+      console.error('Tunnel sync error:', err);
+    }
+  }
+
+  /** Fetch current tunnel status from server and update UI */
+  async _refreshTunnelStatus() {
+    const statusEl = document.getElementById('tunnel-status');
+    try {
+      const res = await fetch('/api/tunnel/status');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (statusEl) {
+        if (data.running && data.url) {
+          statusEl.textContent = data.url;
+          statusEl.title = 'Tunnel is active';
+        } else if (data.running) {
+          statusEl.textContent = 'Starting…';
+        } else {
+          statusEl.textContent = data.error || 'Not running';
+        }
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = 'Error checking status';
+      console.error('Tunnel status error:', err);
     }
   }
 
@@ -6813,6 +6955,18 @@ class HavenApp {
       if (whitelistToggle) {
         whitelistToggle.checked = this.serverSettings.whitelist_enabled === 'true';
       }
+
+      // Tunnel settings (live state, not part of Save/Cancel flow)
+      const tunnelToggle = document.getElementById('tunnel-enabled');
+      if (tunnelToggle) {
+        tunnelToggle.checked = this.serverSettings.tunnel_enabled === 'true';
+      }
+      const tunnelProvider = document.getElementById('tunnel-provider');
+      if (tunnelProvider && this.serverSettings.tunnel_provider) {
+        tunnelProvider.value = this.serverSettings.tunnel_provider;
+      }
+      this._refreshTunnelStatus();
+
       this._renderPermThresholds();
     }
 
@@ -7496,27 +7650,28 @@ class HavenApp {
   // ── Resizable Sidebars ─────────────────────────────────
 
   _setupResizableSidebars() {
-    // Left sidebar resize
+    // Left sidebar resize (delta-based so it works with mod-mode panel repositioning)
     const sidebar = document.querySelector('.sidebar');
     const leftHandle = document.getElementById('sidebar-resize-handle');
     if (sidebar && leftHandle) {
       const savedLeft = localStorage.getItem('haven_sidebar_width');
       if (savedLeft) sidebar.style.width = savedLeft + 'px';
 
-      let dragging = false;
+      let dragging = false, startX = 0, startW = 0;
       leftHandle.addEventListener('mousedown', (e) => {
         e.preventDefault();
         dragging = true;
+        startX = e.clientX;
+        startW = sidebar.getBoundingClientRect().width;
         leftHandle.classList.add('dragging');
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
       });
       document.addEventListener('mousemove', (e) => {
         if (!dragging) return;
-        // Account for the server bar width (~52px)
-        const serverBar = document.querySelector('.server-bar');
-        const offset = serverBar ? serverBar.offsetWidth : 52;
-        let w = e.clientX - offset;
+        // Flip direction when mod mode has moved this sidebar to the right
+        const factor = sidebar.dataset.panelPos === 'right' ? -1 : 1;
+        let w = startW + (e.clientX - startX) * factor;
         w = Math.max(200, Math.min(400, w));
         sidebar.style.width = w + 'px';
       });
@@ -7530,24 +7685,28 @@ class HavenApp {
       });
     }
 
-    // Right sidebar resize
+    // Right sidebar resize (delta-based)
     const rightSidebar = document.getElementById('right-sidebar');
     const rightHandle = document.getElementById('right-sidebar-resize-handle');
     if (rightSidebar && rightHandle) {
       const savedRight = localStorage.getItem('haven_right_sidebar_width');
       if (savedRight) rightSidebar.style.width = savedRight + 'px';
 
-      let dragging = false;
+      let dragging = false, startX = 0, startW = 0;
       rightHandle.addEventListener('mousedown', (e) => {
         e.preventDefault();
         dragging = true;
+        startX = e.clientX;
+        startW = rightSidebar.getBoundingClientRect().width;
         rightHandle.classList.add('dragging');
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
       });
       document.addEventListener('mousemove', (e) => {
         if (!dragging) return;
-        let w = window.innerWidth - e.clientX;
+        // Default right-side: shrinks when moving right; flip if mod moved it left
+        const factor = rightSidebar.dataset.panelPos === 'left' ? 1 : -1;
+        let w = startW + (e.clientX - startX) * factor;
         w = Math.max(200, Math.min(400, w));
         rightSidebar.style.width = w + 'px';
       });
