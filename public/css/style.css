@@ -1293,6 +1293,80 @@
   accent-color: #000080;
 }
 
+/* Win95 settings modal — full blue title bar like real Win95 */
+[data-theme="win95"] .settings-header {
+  background: linear-gradient(90deg, #000080, #1084d0);
+  padding: 4px 8px;
+  border-bottom: none;
+  min-height: 24px;
+}
+[data-theme="win95"] .settings-header h3 {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Arial, sans-serif;
+}
+[data-theme="win95"] .settings-close-btn {
+  width: 18px; height: 18px;
+  background: #bfbfbf;
+  border: 2px outset #fff;
+  color: #000;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0;
+  line-height: 1;
+}
+[data-theme="win95"] .settings-close-btn:hover { background: #dfdfdf; }
+
+/* Win95 admin save bar — beveled gray box with black text */
+[data-theme="win95"] .admin-save-bar {
+  background: #bfbfbf;
+  border-top: 3px outset #fff;
+}
+[data-theme="win95"] .btn-admin-save {
+  background: #bfbfbf !important;
+  color: #000 !important;
+  border: 3px outset #fff;
+  font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Arial, sans-serif;
+  font-size: 12px;
+}
+[data-theme="win95"] .btn-admin-save:hover { background: #dfdfdf !important; }
+[data-theme="win95"] .btn-admin-save:active { border: 3px inset #808080; }
+
+/* Win95 number inputs — boxy inset, no rounded corners */
+[data-theme="win95"] .settings-number-input,
+[data-theme="win95"] input[type="number"] {
+  background: #fff;
+  border: 2px inset #808080 !important;
+  border-radius: 0 !important;
+  color: #000;
+  font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Arial, sans-serif;
+}
+
+/* Win95 text inputs in settings */
+[data-theme="win95"] .settings-text-input {
+  background: #fff;
+  border: 2px inset #808080 !important;
+  border-radius: 0 !important;
+  color: #000;
+}
+
+/* Win95 select dropdowns */
+[data-theme="win95"] select {
+  background: #fff;
+  border: 2px inset #808080 !important;
+  border-radius: 0 !important;
+  color: #000;
+  font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Arial, sans-serif;
+}
+
+/* Win95 settings section titles — black text */
+[data-theme="win95"] .settings-section-title,
+[data-theme="win95"] .settings-section-subtitle {
+  color: #000;
+}
+[data-theme="win95"] .settings-hint { color: #444; }
+
 
 /* ═══════════════════════════════════════════════════════════
    RESET

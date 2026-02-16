@@ -2879,10 +2879,14 @@ class HavenApp {
           '• Or install a real SSL certificate (e.g. from Let\'s Encrypt)';
       }
       if (isBrave) {
-        reason = 'Brave Browser blocks push notification services by default as part of its privacy protections. ' +
-          'Try: Settings → Privacy → Use Google Services for Push → Enable. If that doesn\'t work, use Chrome or Edge instead.';
+        reason = 'Brave blocks push notifications by default.\n\n' +
+          'To fix this:\n' +
+          '1. Open brave://settings/privacy in your address bar\n' +
+          '2. Enable "Use Google Services for Push Messaging"\n' +
+          '3. Restart Brave and reload Haven\n\n' +
+          'If that doesn\'t work, try Chrome or Edge instead.';
       }
-      if (statusEl) statusEl.textContent = 'Registration failed';
+      if (statusEl) statusEl.textContent = isBrave ? 'Blocked by Brave' : 'Registration failed';
       this._pushErrorReason = reason;
       if (!localStorage.getItem('haven_push_error_dismissed')) this._showPushError(reason);
       return;
@@ -2905,9 +2909,12 @@ class HavenApp {
         if (toggle) toggle.disabled = true;
         if (statusEl) statusEl.textContent = 'Blocked by Brave';
         this._pushErrorReason =
-          'Brave Browser\'s privacy shields are blocking push notifications. ' +
-          'Try: brave://settings/privacy → "Use Google Services for Push Messaging" → enable and restart Brave. ' +
-          'If that does not work, use Google Chrome or Microsoft Edge for push notification support.';
+          'Brave\'s privacy shields are blocking push notifications.\n\n' +
+          'To fix this:\n' +
+          '1. Open brave://settings/privacy in your address bar\n' +
+          '2. Enable "Use Google Services for Push Messaging"\n' +
+          '3. Restart Brave and reload Haven\n\n' +
+          'If that does not work, use Google Chrome or Microsoft Edge instead.';
         if (!localStorage.getItem('haven_push_error_dismissed')) this._showPushError(this._pushErrorReason);
         return;
       }
@@ -3066,9 +3073,12 @@ class HavenApp {
       const isBrave = navigator.brave && (await navigator.brave.isBrave?.()) || false;
       let reason = `Push subscription failed: ${err.message}`;
       if (isBrave) {
-        reason = 'Brave Browser blocked the push subscription. Go to brave://settings/privacy, ' +
-          'enable "Use Google Services for Push Messaging", and restart Brave. ' +
-          'Alternatively, use Chrome or Edge which support push notifications natively.';
+        reason = 'Brave blocked the push subscription.\n\n' +
+          'To fix this:\n' +
+          '1. Open brave://settings/privacy in your address bar\n' +
+          '2. Enable "Use Google Services for Push Messaging"\n' +
+          '3. Restart Brave and reload Haven\n\n' +
+          'Alternatively, use Chrome or Edge which support push natively.';
       } else if (err.message?.includes('push service')) {
         reason = 'The browser\'s push service returned an error. This is usually a browser-level restriction. ' +
           'Try Google Chrome or Microsoft Edge if this persists.';
