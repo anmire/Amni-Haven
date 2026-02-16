@@ -412,6 +412,18 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_webhooks_channel ON webhooks(channel_id);
   `);
 
+  // ── Migration: mobile FCM push tokens ───────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fcm_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, token)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fcm_tokens_user ON fcm_tokens(user_id);
+  `);
+
   // ── Migration: channel feature toggles & QoL ────────────
   const channelQolCols = [
     { name: 'streams_enabled',    sql: "ALTER TABLE channels ADD COLUMN streams_enabled INTEGER DEFAULT 1" },

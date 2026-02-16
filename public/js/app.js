@@ -120,6 +120,7 @@ class HavenApp {
     this._setupGifPicker();
     this._startStatusBar();
     this._setupMobile();
+    this._setupMobileBridge();
     this._setupStatusPicker();
     this._setupFileUpload();
     this._setupIdleDetection();
@@ -1948,6 +1949,175 @@ class HavenApp {
     const overlay = document.getElementById('mobile-overlay');
     appBody.classList.remove('mobile-sidebar-open', 'mobile-right-open');
     overlay.classList.remove('active');
+  }
+
+  /* ── Mobile App Bridge (Capacitor shell ↔ Haven) ───── */
+
+  _setupMobileBridge() {
+    // Only activate when running inside the mobile app's iframe
+    this._isMobileApp = (window !== window.top);
+    if (!this._isMobileApp) return;
+
+    // Add a body class so CSS can adapt for mobile-app context
+    document.body.classList.add('haven-mobile-app');
+
+    // Listen for messages from the Capacitor shell
+    window.addEventListener('message', (e) => {
+      const data = e.data;
+      if (!data || typeof data.type !== 'string') return;
+
+      switch (data.type) {
+        case 'haven:back':
+          this._handleMobileBack();
+          break;
+
+        case 'haven:fcm-token':
+          // Receive FCM token from native layer → send to server
+          if (data.token && this.socket?.connected) {
+            this.socket.emit('register-fcm-token', { token: data.token });
+          }
+          this._fcmToken = data.token;
+          break;
+
+        case 'haven:mobile-init':
+          // Shell confirms we're in mobile app
+          this._mobilePlatform = data.platform || 'unknown';
+          break;
+
+        case 'haven:push-received':
+          // In-app push notification received while app is open
+          if (data.notification) {
+            const n = data.notification;
+            const title = n.title || 'Haven';
+            const body = n.body || '';
+            this._showToast(`${title}: ${body}`, 'info');
+          }
+          break;
+
+        case 'haven:push-action':
+          // User tapped a push notification → switch to that channel
+          if (data.data?.channelCode) {
+            this.switchChannel(data.data.channelCode);
+          }
+          break;
+
+        case 'haven:resume':
+          // App returned to foreground — reconnect socket if needed
+          if (this.socket && !this.socket.connected) {
+            this.socket.connect();
+          }
+          break;
+
+        case 'haven:keyboard':
+          // Keyboard visibility changed
+          if (data.visible) {
+            document.body.classList.add('native-keyboard-open');
+          } else {
+            document.body.classList.remove('native-keyboard-open');
+          }
+          break;
+      }
+    });
+
+    // Notify the shell that Haven is loaded and ready
+    this._postToShell({ type: 'haven:ready' });
+
+    // If user logs out, tell the shell
+    const origLogout = this._logout?.bind(this);
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', () => {
+        this._postToShell({ type: 'haven:disconnect' });
+      }, { capture: true });
+    }
+
+    // Send theme color to shell so status bar can match
+    this._reportThemeColor();
+
+    // Watch for theme changes and re-report
+    const themeObs = new MutationObserver(() => {
+      setTimeout(() => this._reportThemeColor(), 100);
+    });
+    themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+
+  _postToShell(msg) {
+    if (!this._isMobileApp) return;
+    try { window.parent.postMessage(msg, '*'); } catch (_) {}
+  }
+
+  _handleMobileBack() {
+    // Priority order: close the most "on-top" UI element first
+
+    // 1. Any open modal overlays
+    const openModals = document.querySelectorAll('.modal-overlay');
+    for (const m of openModals) {
+      if (m.style.display && m.style.display !== 'none') {
+        m.style.display = 'none';
+        return;
+      }
+    }
+
+    // 2. Search container / results
+    const search = document.getElementById('search-container');
+    if (search && search.style.display !== 'none' && search.style.display !== '') {
+      search.style.display = 'none';
+      document.getElementById('search-results-panel').style.display = 'none';
+      return;
+    }
+
+    // 3. Theme popup
+    const themePopup = document.getElementById('theme-popup');
+    if (themePopup && themePopup.style.display !== 'none' && themePopup.style.display !== '') {
+      themePopup.style.display = 'none';
+      return;
+    }
+
+    // 4. Voice settings panel
+    const voicePanel = document.getElementById('voice-settings-panel');
+    if (voicePanel && voicePanel.classList.contains('open')) {
+      voicePanel.classList.remove('open');
+      return;
+    }
+
+    // 5. Mobile sidebars (left or right)
+    const appBody = document.getElementById('app-body');
+    if (appBody.classList.contains('mobile-sidebar-open') || appBody.classList.contains('mobile-right-open')) {
+      this._closeMobilePanels();
+      return;
+    }
+
+    // 6. GIF picker
+    const gifPanel = document.getElementById('gif-panel');
+    if (gifPanel && gifPanel.style.display !== 'none' && gifPanel.style.display !== '') {
+      gifPanel.style.display = 'none';
+      return;
+    }
+
+    // 7. Emoji picker
+    const emojiPicker = document.querySelector('emoji-picker');
+    if (emojiPicker && emojiPicker.style.display !== 'none' && emojiPicker.style.display !== '') {
+      emojiPicker.style.display = 'none';
+      return;
+    }
+
+    // Nothing to close — tell shell
+    this._postToShell({ type: 'haven:back-exhausted' });
+  }
+
+  _reportThemeColor() {
+    if (!this._isMobileApp) return;
+    // Read the computed background of the top bar or body
+    const topBar = document.querySelector('.top-bar') || document.querySelector('.sidebar');
+    if (topBar) {
+      const bg = getComputedStyle(topBar).backgroundColor;
+      // Convert rgb(r,g,b) → hex
+      const match = bg.match(/(\d+)/g);
+      if (match && match.length >= 3) {
+        const hex = '#' + match.slice(0, 3).map(n => parseInt(n).toString(16).padStart(2, '0')).join('');
+        this._postToShell({ type: 'haven:theme-color', color: hex });
+      }
+    }
   }
 
   _saveRename() {

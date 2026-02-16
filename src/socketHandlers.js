@@ -2504,6 +2504,31 @@ function setupSocketHandlers(io, db) {
       }
     });
 
+    // ═══════════════ MOBILE FCM TOKENS ═════════════════════
+
+    socket.on('register-fcm-token', (data) => {
+      if (!data || typeof data.token !== 'string' || !data.token.trim()) return;
+      try {
+        db.prepare(`
+          INSERT INTO fcm_tokens (user_id, token)
+          VALUES (?, ?)
+          ON CONFLICT(user_id, token) DO NOTHING
+        `).run(socket.user.id, data.token.trim());
+      } catch (err) {
+        console.error('FCM token register error:', err);
+      }
+    });
+
+    socket.on('unregister-fcm-token', (data) => {
+      if (!data || typeof data.token !== 'string') return;
+      try {
+        db.prepare('DELETE FROM fcm_tokens WHERE user_id = ? AND token = ?')
+          .run(socket.user.id, data.token.trim());
+      } catch (err) {
+        console.error('FCM token unregister error:', err);
+      }
+    });
+
     // ═══════════════ CHANNEL TOPICS ════════════════════════
 
     socket.on('set-channel-topic', (data) => {
