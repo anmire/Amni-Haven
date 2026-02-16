@@ -156,7 +156,7 @@ const ALLOWED_FILE_TYPES = new Set([
 
 const fileUpload = multer({
   storage: uploadStorage,
-  limits: { fileSize: 100 * 1024 * 1024 },  // hard cap 100 MB; DB-configurable limit enforced per-request
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 },  // hard cap 2 GB; DB-configurable limit enforced per-request
   fileFilter: (req, file, cb) => {
     if (ALLOWED_FILE_TYPES.has(file.mimetype)) cb(null, true);
     else cb(new Error('File type not allowed'));
@@ -768,10 +768,25 @@ app.get('/api/link-preview', previewLimiter, async (req, res) => {
   }
 });
 
+// ── Games list endpoint — discover available games ──
+app.get('/api/games', (req, res) => {
+  const gamesDir = path.join(__dirname, 'public', 'games');
+  const fs2 = require('fs');
+  try {
+    const entries = fs2.readdirSync(gamesDir, { withFileTypes: true });
+    const games = entries
+      .filter(e => e.isFile() && e.name.endsWith('.html'))
+      .map(e => e.name.replace('.html', ''));
+    res.json({ games });
+  } catch {
+    res.json({ games: [] });
+  }
+});
+
 // ── High-scores REST API (mobile-safe fallback for postMessage) ──
 app.get('/api/high-scores/:game', (req, res) => {
   const game = req.params.game;
-  if (!['flappy'].includes(game)) return res.status(400).json({ error: 'Unknown game' });
+  if (!/^[a-z0-9_-]{1,32}$/.test(game)) return res.status(400).json({ error: 'Invalid game id' });
   const { getDb } = require('./src/database');
   const leaderboard = getDb().prepare(`
     SELECT hs.user_id, COALESCE(u.display_name, u.username) as username, hs.score
@@ -789,7 +804,7 @@ app.post('/api/high-scores', express.json(), (req, res) => {
 
   const game = typeof req.body.game === 'string' ? req.body.game.trim() : '';
   const score = Number(req.body.score);
-  if (!game || !['flappy'].includes(game)) return res.status(400).json({ error: 'Unknown game' });
+  if (!game || !/^[a-z0-9_-]{1,32}$/.test(game)) return res.status(400).json({ error: 'Invalid game id' });
   if (!Number.isInteger(score) || score < 0) return res.status(400).json({ error: 'Invalid score' });
 
   const { getDb } = require('./src/database');
