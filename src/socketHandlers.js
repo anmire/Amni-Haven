@@ -364,17 +364,17 @@ function setupSocketHandlers(io, db) {
   }, 5 * 60 * 1000);
 
   // ── Push notification helper ──────────────────────────────
-  // Sends push notifications for a new message to all channel members
-  // who are NOT currently connected via Socket.IO.
+  // Sends push notifications for a new message to channel members
+  // who don't have the Haven tab in focus (visibility-based targeting).
   function sendPushNotifications(channelId, channelCode, channelName, senderUserId, senderUsername, messageContent) {
     try {
-      // Get all connected user IDs
-      const connectedUserIds = new Set();
+      // Get user IDs whose tabs are currently in focus
+      const activeUserIds = new Set();
       for (const [, s] of io.sockets.sockets) {
-        if (s.user) connectedUserIds.add(s.user.id);
+        if (s.user && s.hasFocus !== false) activeUserIds.add(s.user.id);
       }
 
-      // Get push subscriptions for channel members who are offline
+      // Get push subscriptions for channel members (excluding sender)
       const subs = db.prepare(`
         SELECT ps.endpoint, ps.p256dh, ps.auth, ps.user_id
         FROM push_subscriptions ps
@@ -395,12 +395,12 @@ function setupSocketHandlers(io, db) {
         body,
         channelCode,
         tag: `haven-${channelCode}`,
-        url: '/app.html'
+        url: '/app'
       });
 
       for (const sub of subs) {
-        // Skip users who are currently connected (they get real-time events)
-        if (connectedUserIds.has(sub.user_id)) continue;
+        // Skip users whose tab is in focus (they see real-time events)
+        if (activeUserIds.has(sub.user_id)) continue;
 
         const pushSub = {
           endpoint: sub.endpoint,
@@ -490,6 +490,10 @@ function setupSocketHandlers(io, db) {
 
     console.log(`✅ ${socket.user.username} connected`);
     socket.currentChannel = null;
+    socket.hasFocus = true;
+    socket.on('visibility-change', (data) => {
+      if (data && typeof data.visible === 'boolean') socket.hasFocus = data.visible;
+    });
 
     // Push authoritative user info to the client on every connect/reconnect
     // so stale localStorage is always corrected
@@ -2265,7 +2269,7 @@ function setupSocketHandlers(io, db) {
       const key = typeof data.key === 'string' ? data.key.trim() : '';
       const value = typeof data.value === 'string' ? data.value.trim() : '';
 
-      const allowedKeys = ['member_visibility', 'cleanup_enabled', 'cleanup_max_age_days', 'cleanup_max_size_mb', 'giphy_api_key', 'server_name', 'server_icon', 'permission_thresholds'];
+      const allowedKeys = ['member_visibility', 'cleanup_enabled', 'cleanup_max_age_days', 'cleanup_max_size_mb', 'giphy_api_key', 'server_name', 'server_icon', 'permission_thresholds', 'tunnel_enabled', 'tunnel_provider'];
       if (!allowedKeys.includes(key)) return;
 
       if (key === 'member_visibility' && !['all', 'online', 'none'].includes(value)) return;
@@ -2288,6 +2292,8 @@ function setupSocketHandlers(io, db) {
       if (key === 'server_icon') {
         if (value && !value.startsWith('/uploads/')) return;
       }
+      if (key === 'tunnel_enabled' && !['true', 'false'].includes(value)) return;
+      if (key === 'tunnel_provider' && !['localtunnel', 'cloudflared'].includes(value)) return;
       if (key === 'permission_thresholds') {
         // Validate JSON: must be object with permission → integer level
         try {
