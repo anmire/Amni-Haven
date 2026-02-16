@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <title>Haven</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cG9seWdvbiBwb2ludHM9IjUwLDMgOTMsMjggOTMsNzIgNTAsOTcgNyw3MiA3LDI4IiBmaWxsPSJub25lIiBzdHJva2U9IiM2YjRmZGIiIHN0cm9rZS13aWR0aD0iOCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjx0ZXh0IHg9IjUwIiB5PSI2MyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIzOCIgZmlsbD0iIzZiNGZkYiIgb3BhY2l0eT0iMC45NSI+SDwvdGV4dD48L3N2Zz4=">
-  <link rel="stylesheet" href="/css/style.css?v=1.8.0">
+  <link rel="stylesheet" href="/css/style.css?v=1.9.0">
   <script src="/js/theme-init.js"></script>
 </head>
 <body>
@@ -282,6 +282,9 @@
               </div>
               <div class="music-panel-controls">
                 <button id="music-play-pause-btn" class="icon-btn small" title="Play/Pause">⏸</button>
+                <span id="music-time-current" class="music-time">0:00</span>
+                <input type="range" id="music-seek-slider" class="music-seek-slider" min="0" max="100" value="0" step="0.1" title="Seek">
+                <span id="music-time-duration" class="music-time">0:00</span>
                 <button id="music-mute-btn" class="icon-btn small" title="Mute music">🔊</button>
                 <input type="range" id="music-volume-slider" class="stream-vol-slider" min="0" max="100" value="80" title="Music volume">
                 <button id="music-close-btn" class="icon-btn small" title="Minimize">─</button>
@@ -789,7 +792,15 @@
           <button class="btn-sm btn-full" id="run-cleanup-now-btn" style="margin-top:4px;">🧹 Run Cleanup Now</button>
         </div>
         <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-          <h5 class="settings-section-subtitle">🔊 Custom Sounds</h5>
+          <h5 class="settings-section-subtitle">� File Uploads</h5>
+          <label class="select-row">
+            <span>Max Upload Size (MB)</span>
+            <input type="number" id="max-upload-mb" min="1" max="500" value="25" class="settings-number-input">
+          </label>
+          <small class="settings-hint">Maximum file size users can upload (1–500 MB, default 25)</small>
+        </div>
+        <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+          <h5 class="settings-section-subtitle">�🔊 Custom Sounds</h5>
           <small class="settings-hint">Upload audio files for custom notification sounds (max 1 MB each)</small>
           <div style="margin-top:8px;">
             <div class="whitelist-add-row">
@@ -1096,12 +1107,12 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/theme.js?v=1.8.0"></script>
-  <script src="/js/notifications.js?v=1.8.0"></script>
-  <script src="/js/servers.js?v=1.8.0"></script>
-  <script src="/js/voice.js?v=1.8.0"></script>
-  <script src="/js/modmode.js?v=1.8.0"></script>
-  <script src="/js/e2e.js?v=1.8.0"></script>
-  <script src="/js/app.js?v=1.8.0"></script>
+  <script src="/js/theme.js?v=1.9.0"></script>
+  <script src="/js/notifications.js?v=1.9.0"></script>
+  <script src="/js/servers.js?v=1.9.0"></script>
+  <script src="/js/voice.js?v=1.9.0"></script>
+  <script src="/js/modmode.js?v=1.9.0"></script>
+  <script src="/js/e2e.js?v=1.9.0"></script>
+  <script src="/js/app.js?v=1.9.0"></script>
 </body>
 </html>

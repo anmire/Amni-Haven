@@ -1241,6 +1241,53 @@
 [data-theme="win95"] .status-bar .status-item { border: 1px inset #808080; border-radius: 0; }
 [data-theme="win95"] * { border-radius: 0 !important; }
 
+/* Win95 sliders — rectangular gray boxes, period-correct look */
+[data-theme="win95"] input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  height: 20px; background: transparent;
+}
+[data-theme="win95"] input[type="range"]::-webkit-slider-runnable-track {
+  background: #c0c0c0 !important; height: 4px !important;
+  border: 1px inset #808080 !important; border-radius: 0 !important;
+}
+[data-theme="win95"] input[type="range"]::-moz-range-track {
+  background: #c0c0c0 !important; height: 4px !important;
+  border: 1px inset #808080 !important; border-radius: 0 !important;
+}
+[data-theme="win95"] input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 10px; height: 20px; margin-top: -9px;
+  background: #c0c0c0; border: 2px outset #fff;
+  border-radius: 0 !important; cursor: pointer;
+}
+[data-theme="win95"] input[type="range"]::-moz-range-thumb {
+  width: 10px; height: 20px;
+  background: #c0c0c0; border: 2px outset #fff;
+  border-radius: 0 !important; cursor: pointer;
+}
+
+/* Win95 text color — white text on navy backgrounds (hover/active/selected states) */
+[data-theme="win95"] .channel-item:hover *,
+[data-theme="win95"] .channel-item.active *,
+[data-theme="win95"] .user-item:hover .user-item-name,
+[data-theme="win95"] .user-item:hover .user-item-status,
+[data-theme="win95"] select option:checked,
+[data-theme="win95"] .dropdown-menu .dropdown-item:hover,
+[data-theme="win95"] .autocomplete-item:hover,
+[data-theme="win95"] .autocomplete-item.selected,
+[data-theme="win95"] .modal-overlay .btn-accent,
+[data-theme="win95"] .organize-item.dragging { color: #fff !important; }
+
+/* Win95 toggle-row / select-row items that sit on navy hover */
+[data-theme="win95"] .settings-section .toggle-row:hover,
+[data-theme="win95"] .settings-section .select-row:hover { background: transparent; }
+
+/* Win95 checkboxes — square, period-correct */
+[data-theme="win95"] input[type="checkbox"] {
+  -webkit-appearance: auto; appearance: auto;
+  accent-color: #000080;
+}
+
 
 /* ═══════════════════════════════════════════════════════════
    RESET
@@ -4184,6 +4231,31 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   font-size: 13px;
 }
 
+/* /gif slash command inline picker */
+.gif-slash-picker {
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: 8px; margin: 0 8px 4px; max-height: 240px;
+  overflow-y: auto; box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
+}
+.gif-slash-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; font-size: 12px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border); position: sticky; top: 0;
+  background: var(--bg-secondary); z-index: 1;
+}
+.gif-slash-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 4px; padding: 6px;
+}
+.gif-slash-grid img {
+  width: 100%; height: 80px; object-fit: cover;
+  border-radius: 4px; cursor: pointer; transition: transform 0.1s;
+}
+.gif-slash-grid img:hover { transform: scale(1.05); }
+.gif-slash-loading {
+  padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px;
+}
+
 /* GIF setup guide (shown when GIPHY key not configured) */
 .gif-setup-guide {
   grid-column: 1 / -1;
@@ -6400,6 +6472,17 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   gap: 6px;
 }
 .music-panel-controls .stream-vol-slider { width: 80px; }
+
+/* Seek slider + time labels */
+.music-seek-slider {
+  flex: 1; min-width: 60px; max-width: 200px;
+  accent-color: var(--accent, #5865f2);
+}
+.music-time {
+  font-size: 10px; color: var(--text-muted, #888);
+  font-variant-numeric: tabular-nums; min-width: 32px; text-align: center;
+  user-select: none;
+}
 .music-embed-container {
   min-height: 80px;
   max-height: 260px;

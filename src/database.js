@@ -10,6 +10,10 @@ function initDatabase() {
   // Performance settings
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('synchronous = NORMAL');       // safe with WAL, 2-3x faster writes
+  db.pragma('cache_size = -64000');         // 64 MB page cache (default ~2 MB)
+  db.pragma('busy_timeout = 5000');         // wait up to 5 s on lock contention
+  db.pragma('temp_store = MEMORY');         // keep temp tables in RAM
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -158,6 +162,7 @@ function initDatabase() {
   insertSetting.run('server_icon', '');                // path to uploaded server icon image
   insertSetting.run('permission_thresholds', '{}');    // JSON: { permission: minLevel } — auto-grant perms at level
   insertSetting.run('server_code', '');                // server-wide invite code (joins all channels)
+  insertSetting.run('max_upload_mb', '25');             // max file upload size in MB
 
   // ── Migration: pinned_messages table ──────────────────
   db.exec(`

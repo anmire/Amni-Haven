@@ -156,7 +156,7 @@ const ALLOWED_FILE_TYPES = new Set([
 
 const fileUpload = multer({
   storage: uploadStorage,
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },  // hard cap 100 MB; DB-configurable limit enforced per-request
   fileFilter: (req, file, cb) => {
     if (ALLOWED_FILE_TYPES.has(file.mimetype)) cb(null, true);
     else cb(new Error('File type not allowed'));
@@ -406,6 +406,14 @@ app.post('/api/upload-file', uploadLimiter, (req, res) => {
   fileUpload.single('file')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    // Enforce DB-configurable max upload size
+    const maxMbRow = getDb().prepare("SELECT value FROM server_settings WHERE key = 'max_upload_mb'").get();
+    const maxBytes = (parseInt(maxMbRow?.value) || 25) * 1024 * 1024;
+    if (req.file.size > maxBytes) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: `File too large (max ${maxMbRow?.value || 25} MB)` });
+    }
 
     const isImage = /^image\//.test(req.file.mimetype);
     const originalName = req.file.originalname || 'file';

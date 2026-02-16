@@ -57,6 +57,7 @@ class HavenApp {
       { cmd: 'hug',        args: '<@user>',  desc: 'Send a hug to someone' },
       { cmd: 'wave',       args: '[text]',   desc: 'Wave at the chat 👋' },
       { cmd: 'play',       args: '<name or url>',    desc: 'Search & play music (e.g. /play Cut Your Teeth Kygo)' },
+      { cmd: 'gif',        args: '<query>',  desc: 'Search & send a GIF inline (e.g. /gif thumbs up)' },
     ];
 
     // Emoji palette organized by category
@@ -1138,6 +1139,14 @@ class HavenApp {
     document.getElementById('music-mute-btn').addEventListener('click', () => this._toggleMusicMute());
     document.getElementById('music-volume-slider').addEventListener('input', (e) => {
       this._setMusicVolume(parseInt(e.target.value));
+    });
+    // Seek slider — user drags to scrub position
+    const seekSlider = document.getElementById('music-seek-slider');
+    seekSlider.addEventListener('input', () => { this._musicSeeking = true; });
+    seekSlider.addEventListener('change', (e) => {
+      this._musicSeeking = false;
+      const pct = parseFloat(e.target.value);
+      this._seekMusic(pct);
     });
     document.getElementById('music-link-input').addEventListener('input', (e) => {
       this._previewMusicLink(e.target.value.trim());
@@ -2860,8 +2869,14 @@ class HavenApp {
       console.error('SW registration failed:', err);
       if (toggle) toggle.disabled = true;
       let reason = `Service worker registration failed: ${err.message}`;
-      if (err.name === 'SecurityError' || (err.message && err.message.includes('SSL'))) {
-        reason = 'Push notifications require a valid SSL certificate. Self-signed certificates are not supported by browsers for push.';
+      const host = location.hostname;
+      const isSelfSigned = location.protocol === 'https:' && host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.trycloudflare.com');
+      if (err.name === 'SecurityError' || (err.message && err.message.includes('SSL')) || isSelfSigned) {
+        reason = 'Push notifications require a trusted SSL certificate.\n\n' +
+          'Self-signed certificates (used by default) do not support push. To fix this:\n' +
+          '• Use a Cloudflare Tunnel (Settings → Admin → Tunnel) which provides a trusted cert automatically\n' +
+          '• Or access Haven via localhost (push works on localhost even with self-signed certs)\n' +
+          '• Or install a real SSL certificate (e.g. from Let\'s Encrypt)';
       }
       if (isBrave) {
         reason = 'Brave Browser blocks push notification services by default as part of its privacy protections. ' +
@@ -4006,6 +4021,15 @@ class HavenApp {
             this.socket.emit('music-search', { query: arg, offset: 0 });
             this._showToast('Searching…', 'info');
           }
+          input.value = '';
+          input.style.height = 'auto';
+          this._hideMentionDropdown();
+          this._hideSlashDropdown();
+          return;
+        }
+        if (cmd === 'gif') {
+          if (!arg) { this._showToast('Usage: /gif <search query>', 'error'); }
+          else { this._showGifSlashResults(arg); }
           input.value = '';
           input.style.height = 'auto';
           this._hideMentionDropdown();
@@ -5839,10 +5863,11 @@ class HavenApp {
     const isSpotify = data.url.includes('spotify.com');
     const isYouTube = data.url.includes('youtube.com') || data.url.includes('youtu.be') || data.url.includes('music.youtube.com');
     const needsOverlay = !isSpotify && !isYouTube; // only SoundCloud gets the click-blocker now
-    // referrerpolicy="no-referrer" prevents the browser from sending localhost/private-IP Referer
-    // headers that cause YouTube to show "Video unavailable" for self-hosted instances.
-    const refPolicy = isYouTube ? ' referrerpolicy="no-referrer"' : '';
-    container.innerHTML = `<div class="music-embed-wrapper"><iframe id="music-iframe" src="${embedUrl}" width="100%" height="${iframeH}" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"${refPolicy}></iframe>${needsOverlay ? '<div class="music-embed-overlay"></div>' : ''}</div>`;
+    // YouTube embeds: origin param tells Google which page hosts the iframe.
+    // We skip referrerpolicy=no-referrer so the IFrame API (enablejsapi) can
+    // communicate with the parent window; the origin= param already handles
+    // the "Video unavailable" issue that self-hosted instances used to trigger.
+    container.innerHTML = `<div class="music-embed-wrapper"><iframe id="music-iframe" src="${embedUrl}" width="100%" height="${iframeH}" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>${needsOverlay ? '<div class="music-embed-overlay"></div>' : ''}</div>`;
     if (data.resolvedFrom === 'spotify') {
       label.textContent = `🎵 🟢 Spotify (via YouTube) — shared by ${data.username || 'someone'}`;
     } else {
@@ -5856,6 +5881,15 @@ class HavenApp {
       ppBtn.textContent = isSpotify ? '' : '⏸';
       ppBtn.style.display = isSpotify ? 'none' : '';
     }
+
+    // Seek bar — hide for Spotify (no external API for position tracking)
+    const seekSlider = document.getElementById('music-seek-slider');
+    const timeCur = document.getElementById('music-time-current');
+    const timeDur = document.getElementById('music-time-duration');
+    const hideSeek = isSpotify;
+    if (seekSlider) seekSlider.style.display = hideSeek ? 'none' : '';
+    if (timeCur) timeCur.style.display = hideSeek ? 'none' : '';
+    if (timeDur) timeDur.style.display = hideSeek ? 'none' : '';
 
     // Apply saved volume
     const savedVol = parseInt(localStorage.getItem('haven_music_volume') ?? '80');
@@ -5916,6 +5950,7 @@ class HavenApp {
         events: {
           onReady: (e) => {
             e.target.setVolume(volume);
+            this._startMusicTimeTracking();
           },
           onStateChange: (e) => {
             // Sync Haven's play/pause state when user interacts with YT's native controls
@@ -5962,11 +5997,13 @@ class HavenApp {
       this._musicSCWidget = SC.Widget(iframe);
       this._musicSCWidget.bind(SC.Widget.Events.READY, () => {
         this._musicSCWidget.setVolume(volume);
+        this._startMusicTimeTracking();
       });
     } catch { /* iframe may already be destroyed */ }
   }
 
   _handleMusicStopped(data) {
+    this._stopMusicTimeTracking();
     this._musicYTPlayer = null;
     this._musicSCWidget = null;
     this._musicPlatform = null;
@@ -6043,6 +6080,7 @@ class HavenApp {
   }
 
   _hideMusicPanel() {
+    this._stopMusicTimeTracking();
     // Clean up PiP overlay if active
     if (this._musicPip) {
       this._musicPip.remove();
@@ -6279,14 +6317,68 @@ class HavenApp {
     this._setMusicVolume(parseInt(slider.value));
   }
 
+  // ── Seek bar & time tracking ──────────────────────────
+  _seekMusic(pct) {
+    try {
+      if (this._musicYTPlayer && this._musicYTPlayer.getDuration) {
+        const dur = this._musicYTPlayer.getDuration();
+        if (dur > 0) this._musicYTPlayer.seekTo(dur * pct / 100, true);
+      } else if (this._musicSCWidget) {
+        this._musicSCWidget.getDuration((dur) => {
+          if (dur > 0) this._musicSCWidget.seekTo(dur * pct / 100);
+        });
+      }
+    } catch { /* player may be gone */ }
+  }
+
+  _startMusicTimeTracking() {
+    this._stopMusicTimeTracking();
+    const seekSlider = document.getElementById('music-seek-slider');
+    const curEl = document.getElementById('music-time-current');
+    const durEl = document.getElementById('music-time-duration');
+    const fmt = (s) => { const m = Math.floor(s / 60); return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`; };
+
+    this._musicTimeInterval = setInterval(() => {
+      try {
+        if (this._musicYTPlayer && this._musicYTPlayer.getCurrentTime && this._musicYTPlayer.getDuration) {
+          const cur = this._musicYTPlayer.getCurrentTime() || 0;
+          const dur = this._musicYTPlayer.getDuration() || 0;
+          if (curEl) curEl.textContent = fmt(cur);
+          if (durEl) durEl.textContent = fmt(dur);
+          if (seekSlider && !this._musicSeeking && dur > 0) seekSlider.value = (cur / dur * 100).toFixed(1);
+        } else if (this._musicSCWidget) {
+          this._musicSCWidget.getPosition((pos) => {
+            this._musicSCWidget.getDuration((dur) => {
+              const curS = (pos || 0) / 1000;
+              const durS = (dur || 0) / 1000;
+              if (curEl) curEl.textContent = fmt(curS);
+              if (durEl) durEl.textContent = fmt(durS);
+              if (seekSlider && !this._musicSeeking && durS > 0) seekSlider.value = (curS / durS * 100).toFixed(1);
+            });
+          });
+        }
+      } catch { /* player gone */ }
+    }, 500);
+  }
+
+  _stopMusicTimeTracking() {
+    if (this._musicTimeInterval) { clearInterval(this._musicTimeInterval); this._musicTimeInterval = null; }
+    const seekSlider = document.getElementById('music-seek-slider');
+    const curEl = document.getElementById('music-time-current');
+    const durEl = document.getElementById('music-time-duration');
+    if (seekSlider) seekSlider.value = 0;
+    if (curEl) curEl.textContent = '0:00';
+    if (durEl) durEl.textContent = '0:00';
+  }
+
   _getMusicEmbed(url) {
     if (!url) return null;
     const spotifyMatch = url.match(/open\.spotify\.com\/(track|album|playlist|episode|show)\/([a-zA-Z0-9]+)/);
     if (spotifyMatch) return `https://open.spotify.com/embed/${spotifyMatch[1]}/${spotifyMatch[2]}?theme=0&utm_source=generator&autoplay=1`;
     const ytMusicMatch = url.match(/music\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/);
-    if (ytMusicMatch) return `https://www.youtube-nocookie.com/embed/${ytMusicMatch[1]}?autoplay=1&enablejsapi=1`;
+    if (ytMusicMatch) return `https://www.youtube.com/embed/${ytMusicMatch[1]}?autoplay=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}&rel=0`;
     const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
-    if (ytMatch) return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1`;
+    if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}&rel=0`;
     if (url.includes('soundcloud.com/')) {
       return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=true&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=false`;
     }
@@ -6755,6 +6847,70 @@ class HavenApp {
     this.socket.emit('send-message', payload);
   }
 
+  // /gif slash command — inline GIF search results above the input
+  _showGifSlashResults(query) {
+    // Remove any existing picker
+    document.getElementById('gif-slash-picker')?.remove();
+
+    const picker = document.createElement('div');
+    picker.id = 'gif-slash-picker';
+    picker.className = 'gif-slash-picker';
+    picker.innerHTML = '<div class="gif-slash-loading">Searching GIFs...</div>';
+
+    // Position above the message input
+    const inputArea = document.querySelector('.message-input-area');
+    inputArea.parentElement.insertBefore(picker, inputArea);
+
+    // Close on click outside
+    const closeOnClick = (e) => {
+      if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', closeOnClick); }
+    };
+    setTimeout(() => document.addEventListener('click', closeOnClick), 100);
+
+    // Close on Escape
+    const closeOnEsc = (e) => {
+      if (e.key === 'Escape') { picker.remove(); document.removeEventListener('keydown', closeOnEsc); }
+    };
+    document.addEventListener('keydown', closeOnEsc);
+
+    fetch(`/api/gif/search?q=${encodeURIComponent(query)}&limit=12`, {
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error === 'gif_not_configured') {
+          picker.innerHTML = '<div class="gif-slash-loading">GIF search not configured — an admin needs to set up the GIPHY API key (use the GIF button 🎞️)</div>';
+          return;
+        }
+        if (data.error) { picker.innerHTML = `<div class="gif-slash-loading">${data.error}</div>`; return; }
+        const results = data.results || [];
+        if (results.length === 0) { picker.innerHTML = '<div class="gif-slash-loading">No GIFs found</div>'; return; }
+
+        picker.innerHTML = `<div class="gif-slash-header"><span>/gif ${this._escapeHtml(query)}</span><button class="icon-btn small gif-slash-close">&times;</button></div><div class="gif-slash-grid"></div>`;
+        const grid = picker.querySelector('.gif-slash-grid');
+        picker.querySelector('.gif-slash-close').addEventListener('click', () => picker.remove());
+
+        results.forEach(gif => {
+          if (!gif.tiny) return;
+          const img = document.createElement('img');
+          img.src = gif.tiny;
+          img.alt = gif.title || 'GIF';
+          img.loading = 'lazy';
+          img.dataset.full = gif.full || gif.tiny;
+          img.addEventListener('click', () => {
+            this._sendGifMessage(img.dataset.full);
+            picker.remove();
+            document.removeEventListener('click', closeOnClick);
+            document.removeEventListener('keydown', closeOnEsc);
+          });
+          grid.appendChild(img);
+        });
+      })
+      .catch(() => {
+        picker.innerHTML = '<div class="gif-slash-loading">GIF search failed</div>';
+      });
+  }
+
   // ═══════════════════════════════════════════════════════
   // REACTIONS
   // ═══════════════════════════════════════════════════════
@@ -7088,6 +7244,10 @@ class HavenApp {
       if (cleanupSize && this.serverSettings.cleanup_max_size_mb) {
         cleanupSize.value = this.serverSettings.cleanup_max_size_mb;
       }
+      const maxUpload = document.getElementById('max-upload-mb');
+      if (maxUpload) {
+        maxUpload.value = this.serverSettings.max_upload_mb || '25';
+      }
       const whitelistToggle = document.getElementById('whitelist-enabled');
       if (whitelistToggle) {
         whitelistToggle.checked = this.serverSettings.whitelist_enabled === 'true';
@@ -7132,7 +7292,8 @@ class HavenApp {
       cleanup_enabled: this.serverSettings.cleanup_enabled || 'false',
       cleanup_max_age_days: this.serverSettings.cleanup_max_age_days || '0',
       cleanup_max_size_mb: this.serverSettings.cleanup_max_size_mb || '0',
-      whitelist_enabled: this.serverSettings.whitelist_enabled || 'false'
+      whitelist_enabled: this.serverSettings.whitelist_enabled || 'false',
+      max_upload_mb: this.serverSettings.max_upload_mb || '25'
     };
   }
 
@@ -7181,6 +7342,12 @@ class HavenApp {
       changed = true;
     }
 
+    const maxUpload = String(Math.max(1, Math.min(500, parseInt(document.getElementById('max-upload-mb')?.value) || 25)));
+    if (maxUpload !== (snap.max_upload_mb || '25')) {
+      this.socket.emit('update-server-setting', { key: 'max_upload_mb', value: maxUpload });
+      changed = true;
+    }
+
     if (changed) {
       this._showToast('Settings saved', 'success');
     } else {
@@ -7204,6 +7371,8 @@ class HavenApp {
       if (cs) cs.value = snap.cleanup_max_size_mb;
       const wl = document.getElementById('whitelist-enabled');
       if (wl) wl.checked = snap.whitelist_enabled === 'true';
+      const mu = document.getElementById('max-upload-mb');
+      if (mu) mu.value = snap.max_upload_mb || '25';
     }
     document.getElementById('settings-modal').style.display = 'none';
   }
