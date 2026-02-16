@@ -2246,7 +2246,7 @@ function setupSocketHandlers(io, db) {
       if (!data || typeof data !== 'object') return;
       const game = typeof data.game === 'string' ? data.game.trim() : '';
       const score = isInt(data.score) && data.score >= 0 ? data.score : 0;
-      if (!game || !['flappy'].includes(game)) return;
+      if (!game || !/^[a-z0-9_-]{1,32}$/.test(game)) return;
 
       const current = db.prepare(
         'SELECT score FROM high_scores WHERE user_id = ? AND game = ?'
@@ -2314,7 +2314,7 @@ function setupSocketHandlers(io, db) {
       }
       if (key === 'max_upload_mb') {
         const n = parseInt(value);
-        if (isNaN(n) || n < 1 || n > 500) return;
+        if (isNaN(n) || n < 1 || n > 2048) return;
       }
       if (key === 'giphy_api_key') {
         // Allow empty value to clear the key, otherwise validate format
@@ -2400,6 +2400,91 @@ function setupSocketHandlers(io, db) {
       } else {
         socket.emit('error-msg', 'Cleanup function not available');
       }
+    });
+
+    // ═══════════════ WEBHOOKS / BOT INTEGRATIONS ════════════
+
+    socket.on('create-webhook', (data) => {
+      if (!socket.user.isAdmin) {
+        return socket.emit('error-msg', 'Only admins can manage webhooks');
+      }
+      if (!data || typeof data !== 'object') return;
+      const name = typeof data.name === 'string' ? data.name.trim().slice(0, 32) : '';
+      const channelId = parseInt(data.channel_id);
+      const avatarUrl = typeof data.avatar_url === 'string' ? data.avatar_url.trim().slice(0, 512) : null;
+      if (!name || isNaN(channelId)) return socket.emit('error-msg', 'Name and channel required');
+
+      // Verify the channel exists
+      const channel = db.prepare('SELECT id, name FROM channels WHERE id = ?').get(channelId);
+      if (!channel) return socket.emit('error-msg', 'Channel not found');
+
+      // Generate a secure 64-char token
+      const crypto = require('crypto');
+      const token = crypto.randomBytes(32).toString('hex');
+
+      db.prepare(
+        'INSERT INTO webhooks (channel_id, name, token, avatar_url, created_by) VALUES (?, ?, ?, ?, ?)'
+      ).run(channelId, name, token, avatarUrl, socket.user.id);
+
+      // Return the full list
+      const webhooks = db.prepare(`
+        SELECT w.id, w.channel_id, w.name, w.token, w.avatar_url, w.is_active, w.created_at,
+               c.name as channel_name, c.code as channel_code
+        FROM webhooks w JOIN channels c ON w.channel_id = c.id
+        ORDER BY w.created_at DESC
+      `).all();
+      socket.emit('webhooks-list', { webhooks });
+      socket.emit('error-msg', `Webhook "${name}" created for #${channel.name}`);
+    });
+
+    socket.on('get-webhooks', () => {
+      if (!socket.user.isAdmin) return;
+      const webhooks = db.prepare(`
+        SELECT w.id, w.channel_id, w.name, w.token, w.avatar_url, w.is_active, w.created_at,
+               c.name as channel_name, c.code as channel_code
+        FROM webhooks w JOIN channels c ON w.channel_id = c.id
+        ORDER BY w.created_at DESC
+      `).all();
+      socket.emit('webhooks-list', { webhooks });
+    });
+
+    socket.on('delete-webhook', (data) => {
+      if (!socket.user.isAdmin) {
+        return socket.emit('error-msg', 'Only admins can manage webhooks');
+      }
+      if (!data || typeof data !== 'object') return;
+      const webhookId = parseInt(data.id);
+      if (isNaN(webhookId)) return;
+
+      db.prepare('DELETE FROM webhooks WHERE id = ?').run(webhookId);
+
+      const webhooks = db.prepare(`
+        SELECT w.id, w.channel_id, w.name, w.token, w.avatar_url, w.is_active, w.created_at,
+               c.name as channel_name, c.code as channel_code
+        FROM webhooks w JOIN channels c ON w.channel_id = c.id
+        ORDER BY w.created_at DESC
+      `).all();
+      socket.emit('webhooks-list', { webhooks });
+      socket.emit('error-msg', 'Webhook deleted');
+    });
+
+    socket.on('toggle-webhook', (data) => {
+      if (!socket.user.isAdmin) return;
+      if (!data || typeof data !== 'object') return;
+      const webhookId = parseInt(data.id);
+      if (isNaN(webhookId)) return;
+
+      const wh = db.prepare('SELECT is_active FROM webhooks WHERE id = ?').get(webhookId);
+      if (!wh) return;
+      db.prepare('UPDATE webhooks SET is_active = ? WHERE id = ?').run(wh.is_active ? 0 : 1, webhookId);
+
+      const webhooks = db.prepare(`
+        SELECT w.id, w.channel_id, w.name, w.token, w.avatar_url, w.is_active, w.created_at,
+               c.name as channel_name, c.code as channel_code
+        FROM webhooks w JOIN channels c ON w.channel_id = c.id
+        ORDER BY w.created_at DESC
+      `).all();
+      socket.emit('webhooks-list', { webhooks });
     });
 
     // ═══════════════ USER STATUS ════════════════════════════

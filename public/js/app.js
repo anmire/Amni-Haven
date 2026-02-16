@@ -130,6 +130,7 @@ class HavenApp {
     this._setupIdleDetection();
     // this._setupAvatarUpload(); // Moved to top of _init
     this._setupSoundManagement();
+    this._setupWebhookManagement();
     this._initRoleManagement();
     this._initServerBranding();
     this._initPermThresholds();
@@ -726,6 +727,11 @@ class HavenApp {
       this._applyServerSettings();
     });
 
+    // ── Webhooks list ──────────────────────────────────
+    this.socket.on('webhooks-list', (data) => {
+      this._renderWebhooksList(data.webhooks || []);
+    });
+
     // ── User preferences (persistent theme etc.) ───────
     this.socket.on('preferences', (prefs) => {
       if (prefs.theme) {
@@ -771,12 +777,14 @@ class HavenApp {
       if (this._lastOnlineUsers) {
         this._renderOnlineUsers(this._lastOnlineUsers);
       }
-      // Relay to game window if open
+      // Relay to game window or iframe if open
       try { if (this._gameWindow && !this._gameWindow.closed) this._gameWindow.postMessage({ type: 'leaderboard-data', leaderboard: data.leaderboard }, window.location.origin); } catch {}
+      try { if (this._gameIframe) this._gameIframe.contentWindow?.postMessage({ type: 'leaderboard-data', leaderboard: data.leaderboard }, window.location.origin); } catch {}
     });
 
     this.socket.on('new-high-score', (data) => {
-      this._showToast(`🏆 ${data.username} set a new Shippy Container record: ${data.score}!`, 'success');
+      const gameName = this._gamesRegistry?.find(g => g.id === data.game)?.name || data.game;
+      this._showToast(`🏆 ${data.username} set a new ${gameName} record: ${data.score}!`, 'success');
     });
   }
 
@@ -1311,24 +1319,51 @@ class HavenApp {
       window.location.href = '/';
     });
 
-    // Flappy Container game (sidebar button) — single delegated listener with origin check
+    // ── Games / Activities system ─────────────────────────────
+    // Registry of available games — add new games here
+    this._gamesRegistry = [
+      { id: 'flappy', name: 'Shippy Container', icon: '🚢', path: '/games/flappy.html', description: 'Dodge containers, chase high scores!' },
+    ];
+
+    // Generic postMessage bridge for any game (scores + leaderboard)
     if (!this._gameScoreListenerAdded) {
       window.addEventListener('message', (e) => {
         if (e.origin !== window.location.origin) return;
-        if (e.data && e.data.type === 'flappy-score' && typeof e.data.score === 'number') {
-          this.socket.emit('submit-high-score', { game: 'flappy', score: e.data.score });
+        // Handle score submissions: { type: '<gameId>-score', score: N } or { type: 'game-score', game: '<id>', score: N }
+        if (e.data && typeof e.data.score === 'number') {
+          let gameId = null;
+          if (e.data.type === 'game-score' && e.data.game) {
+            gameId = e.data.game;
+          } else if (typeof e.data.type === 'string' && e.data.type.endsWith('-score')) {
+            gameId = e.data.type.replace(/-score$/, '');
+          }
+          if (gameId && /^[a-z0-9_-]{1,32}$/.test(gameId)) {
+            this.socket.emit('submit-high-score', { game: gameId, score: e.data.score });
+          }
         }
+        // Handle leaderboard requests from game iframes/windows
         if (e.data && e.data.type === 'get-leaderboard') {
-          const scores = this.highScores?.flappy || [];
-          e.source?.postMessage({ type: 'leaderboard-data', leaderboard: scores }, e.origin);
+          const gid = e.data.game || 'flappy';
+          const scores = this.highScores?.[gid] || [];
+          const target = e.source || (this._gameIframe?.contentWindow);
+          try { target?.postMessage({ type: 'leaderboard-data', leaderboard: scores }, e.origin); } catch {}
         }
       });
       this._gameScoreListenerAdded = true;
     }
-    document.getElementById('play-flappy-btn')?.addEventListener('click', () => {
-      const tok = localStorage.getItem('haven_token') || '';
-      this._gameWindow = window.open('/games/flappy#token=' + encodeURIComponent(tok), '_blank', 'width=740,height=860');
+
+    // Activities button → open launcher modal
+    document.getElementById('activities-btn')?.addEventListener('click', () => this._openActivitiesModal());
+
+    // Close activities modal
+    document.getElementById('close-activities-btn')?.addEventListener('click', () => this._closeActivitiesModal());
+    document.getElementById('activities-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'activities-modal') this._closeActivitiesModal();
     });
+
+    // Game iframe controls
+    document.getElementById('game-iframe-close')?.addEventListener('click', () => this._closeGameIframe());
+    document.getElementById('game-iframe-popout')?.addEventListener('click', () => this._popoutGame());
 
     // Image click + spoiler click delegation (CSP-safe — no inline handlers)
     document.getElementById('messages').addEventListener('click', (e) => {
@@ -2656,6 +2691,29 @@ class HavenApp {
   }
 
   // ═══════════════════════════════════════════════════════
+  // WEBHOOKS / BOT MANAGEMENT
+  // ═══════════════════════════════════════════════════════
+
+  _setupWebhookManagement() {
+    const createBtn = document.getElementById('webhook-create-btn');
+    if (!createBtn) return;
+
+    createBtn.addEventListener('click', () => {
+      const name = document.getElementById('webhook-name-input')?.value.trim();
+      const channelId = document.getElementById('webhook-channel-select')?.value;
+      const avatarUrl = document.getElementById('webhook-avatar-input')?.value.trim() || null;
+      if (!name) return this._showToast('Enter a bot name', 'error');
+      if (!channelId) return this._showToast('Select a channel', 'error');
+
+      this.socket.emit('create-webhook', { name, channel_id: parseInt(channelId), avatar_url: avatarUrl });
+
+      // Clear inputs
+      document.getElementById('webhook-name-input').value = '';
+      document.getElementById('webhook-avatar-input').value = '';
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════
   // LAYOUT DENSITY
   // ═══════════════════════════════════════════════════════
 
@@ -2904,20 +2962,9 @@ class HavenApp {
     try {
       existingSub = await this._swRegistration.pushManager.getSubscription();
     } catch (err) {
-      console.error('Push getSubscription failed:', err);
-      if (isBrave) {
-        if (toggle) toggle.disabled = true;
-        if (statusEl) statusEl.textContent = 'Blocked by Brave';
-        this._pushErrorReason =
-          'Brave\'s privacy shields are blocking push notifications.\n\n' +
-          'To fix this:\n' +
-          '1. Open brave://settings/privacy in your address bar\n' +
-          '2. Enable "Use Google Services for Push Messaging"\n' +
-          '3. Restart Brave and reload Haven\n\n' +
-          'If that does not work, use Google Chrome or Microsoft Edge instead.';
-        if (!localStorage.getItem('haven_push_error_dismissed')) this._showPushError(this._pushErrorReason);
-        return;
-      }
+      console.warn('Push getSubscription failed (non-fatal, will retry on subscribe):', err.message || err);
+      // Don't bail out — let the user attempt to subscribe via the toggle.
+      // The actual subscribe() call in _subscribePush will surface the real error.
     }
 
     this._pushSubscription = existingSub;
@@ -2966,6 +3013,73 @@ class HavenApp {
         }
       });
     }
+  }
+
+  // ── Activities / Games system methods ────────────────────
+  _openActivitiesModal() {
+    const modal = document.getElementById('activities-modal');
+    const grid = document.getElementById('activities-grid');
+    if (!modal || !grid) return;
+
+    grid.innerHTML = '';
+    for (const game of this._gamesRegistry) {
+      const card = document.createElement('div');
+      card.className = 'activity-card';
+      card.dataset.gameId = game.id;
+      card.innerHTML = `
+        <div class="activity-card-icon">${this._escapeHtml(game.icon)}</div>
+        <div class="activity-card-name">${this._escapeHtml(game.name)}</div>
+        <div class="activity-card-desc">${this._escapeHtml(game.description || '')}</div>
+      `;
+      card.addEventListener('click', () => {
+        this._closeActivitiesModal();
+        this._launchGame(game);
+      });
+      grid.appendChild(card);
+    }
+    modal.style.display = 'flex';
+  }
+
+  _closeActivitiesModal() {
+    const modal = document.getElementById('activities-modal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  _launchGame(game) {
+    const overlay = document.getElementById('game-iframe-overlay');
+    const iframe = document.getElementById('game-iframe');
+    const titleEl = document.getElementById('game-iframe-title');
+    if (!overlay || !iframe) return;
+
+    this._currentGame = game;
+    this._gameIframe = iframe;
+    if (titleEl) titleEl.textContent = `${game.icon} ${game.name}`;
+
+    // Build URL with auth token hash (same pattern as before)
+    const tok = localStorage.getItem('haven_token') || '';
+    const url = game.path + '#token=' + encodeURIComponent(tok);
+    iframe.src = url;
+    overlay.style.display = 'flex';
+
+    // Request leaderboard for this game
+    this.socket.emit('get-high-scores', { game: game.id });
+  }
+
+  _closeGameIframe() {
+    const overlay = document.getElementById('game-iframe-overlay');
+    const iframe = document.getElementById('game-iframe');
+    if (overlay) overlay.style.display = 'none';
+    if (iframe) iframe.src = 'about:blank';
+    this._currentGame = null;
+    this._gameIframe = null;
+  }
+
+  _popoutGame() {
+    if (!this._currentGame) return;
+    const tok = localStorage.getItem('haven_token') || '';
+    const url = this._currentGame.path + '#token=' + encodeURIComponent(tok);
+    this._gameWindow = window.open(url, '_blank', 'width=740,height=860');
+    this._closeGameIframe();
   }
 
   _showPushError(reason) {
@@ -3074,11 +3188,12 @@ class HavenApp {
       let reason = `Push subscription failed: ${err.message}`;
       if (isBrave) {
         reason = 'Brave blocked the push subscription.\n\n' +
-          'To fix this:\n' +
-          '1. Open brave://settings/privacy in your address bar\n' +
-          '2. Enable "Use Google Services for Push Messaging"\n' +
-          '3. Restart Brave and reload Haven\n\n' +
-          'Alternatively, use Chrome or Edge which support push natively.';
+          'Troubleshooting steps:\n' +
+          '1. Open brave://settings/privacy and make sure "Use Google Services for Push Messaging" is ON\n' +
+          '2. Click the Brave shields icon (lion) in the address bar for this site and disable shields, then reload\n' +
+          '3. Restart Brave completely (close all windows) and reload Haven\n' +
+          '4. If none of the above work, try clearing site data or using Chrome/Edge instead.\n\n' +
+          'Technical detail: ' + (err.message || 'unknown error');
       } else if (err.message?.includes('push service')) {
         reason = 'The browser\'s push service returned an error. This is usually a browser-level restriction. ' +
           'Try Google Chrome or Microsoft Edge if this persists.';
@@ -7295,6 +7410,78 @@ class HavenApp {
 
   /* ── Admin settings save / cancel ───────────────────── */
 
+  // ── Webhook management methods ─────────────────────────
+  _populateWebhookChannelSelect() {
+    const select = document.getElementById('webhook-channel-select');
+    if (!select) return;
+    select.innerHTML = '';
+    const channels = this.channels || [];
+    for (const ch of channels) {
+      if (ch.is_dm) continue; // skip DM channels
+      const opt = document.createElement('option');
+      opt.value = ch.id;
+      opt.textContent = '#' + ch.name;
+      select.appendChild(opt);
+    }
+  }
+
+  _renderWebhooksList(webhooks) {
+    const container = document.getElementById('webhooks-list');
+    if (!container) return;
+    if (!webhooks.length) {
+      container.innerHTML = '<p class="muted-text">No webhooks configured</p>';
+      return;
+    }
+    container.innerHTML = webhooks.map(wh => {
+      const baseUrl = window.location.origin;
+      const webhookUrl = `${baseUrl}/api/webhooks/${wh.token}`;
+      const statusClass = wh.is_active ? 'status-online' : 'status-offline';
+      const statusText = wh.is_active ? 'Active' : 'Inactive';
+      return `
+        <div class="webhook-item" data-webhook-id="${wh.id}">
+          <div class="webhook-item-header">
+            <span class="webhook-item-name">🤖 ${this._escapeHtml(wh.name)}</span>
+            <span class="webhook-item-channel">#${this._escapeHtml(wh.channel_name)}</span>
+            <span class="webhook-item-status ${statusClass}">${statusText}</span>
+          </div>
+          <div class="webhook-item-url">
+            <code class="webhook-url-text">${this._escapeHtml(webhookUrl)}</code>
+            <button class="btn-xs webhook-copy-btn" title="Copy webhook URL">📋</button>
+          </div>
+          <div class="webhook-item-actions">
+            <button class="btn-xs webhook-toggle-btn">${wh.is_active ? '⏸ Disable' : '▶️ Enable'}</button>
+            <button class="btn-xs btn-danger webhook-delete-btn">🗑 Delete</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Wire up event listeners
+    container.querySelectorAll('.webhook-copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const url = btn.closest('.webhook-item-url').querySelector('.webhook-url-text').textContent;
+        navigator.clipboard.writeText(url).then(() => {
+          btn.textContent = '✅';
+          setTimeout(() => btn.textContent = '📋', 1500);
+        });
+      });
+    });
+    container.querySelectorAll('.webhook-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.closest('.webhook-item').dataset.webhookId);
+        this.socket.emit('toggle-webhook', { id });
+      });
+    });
+    container.querySelectorAll('.webhook-delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.closest('.webhook-item').dataset.webhookId);
+        if (confirm('Delete this webhook? Any bots using it will stop working.')) {
+          this.socket.emit('delete-webhook', { id });
+        }
+      });
+    });
+  }
+
   _snapshotAdminSettings() {
     this._adminSnapshot = {
       server_name: this.serverSettings.server_name || 'HAVEN',
@@ -7305,6 +7492,11 @@ class HavenApp {
       whitelist_enabled: this.serverSettings.whitelist_enabled || 'false',
       max_upload_mb: this.serverSettings.max_upload_mb || '25'
     };
+    // Load webhooks list and populate channel dropdown for admin
+    if (this.user?.isAdmin) {
+      this.socket.emit('get-webhooks');
+      this._populateWebhookChannelSelect();
+    }
   }
 
   _saveAdminSettings() {
@@ -7352,7 +7544,7 @@ class HavenApp {
       changed = true;
     }
 
-    const maxUpload = String(Math.max(1, Math.min(500, parseInt(document.getElementById('max-upload-mb')?.value) || 25)));
+    const maxUpload = String(Math.max(1, Math.min(2048, parseInt(document.getElementById('max-upload-mb')?.value) || 25)));
     if (maxUpload !== (snap.max_upload_mb || '25')) {
       this.socket.emit('update-server-setting', { key: 'max_upload_mb', value: maxUpload });
       changed = true;

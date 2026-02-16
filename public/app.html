@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <title>Haven</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cG9seWdvbiBwb2ludHM9IjUwLDMgOTMsMjggOTMsNzIgNTAsOTcgNyw3MiA3LDI4IiBmaWxsPSJub25lIiBzdHJva2U9IiM2YjRmZGIiIHN0cm9rZS13aWR0aD0iOCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjx0ZXh0IHg9IjUwIiB5PSI2MyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIzOCIgZmlsbD0iIzZiNGZkYiIgb3BhY2l0eT0iMC45NSI+SDwvdGV4dD48L3N2Zz4=">
-  <link rel="stylesheet" href="/css/style.css?v=1.9.0">
+  <link rel="stylesheet" href="/css/style.css?v=1.8.0">
   <script src="/js/theme-init.js"></script>
 </head>
 <body>
@@ -184,7 +184,7 @@
           <!-- Bottom bar -->
           <div class="sidebar-bottom-bar">
             <button id="theme-popup-toggle" class="sidebar-bottom-btn" title="Themes">🎨</button>
-            <button class="sidebar-bottom-btn" id="play-flappy-btn" title="Shippy Container">🚢</button>
+            <button class="sidebar-bottom-btn" id="activities-btn" title="Activities">🎮</button>
             <button id="mobile-settings-btn" class="sidebar-bottom-btn mobile-settings-btn" title="Settings">⚙️</button>
             <div id="voice-bar" class="voice-bar" style="display:none"></div>
             <span style="flex:1"></span>
@@ -796,9 +796,9 @@
           <h5 class="settings-section-subtitle">� File Uploads</h5>
           <label class="select-row">
             <span>Max Upload Size (MB)</span>
-            <input type="number" id="max-upload-mb" min="1" max="500" value="25" class="settings-number-input">
+            <input type="number" id="max-upload-mb" min="1" max="2048" value="25" class="settings-number-input">
           </label>
-          <small class="settings-hint">Maximum file size users can upload (1–500 MB, default 25)</small>
+          <small class="settings-hint">Maximum file size users can upload (1–2048 MB / 2 GB, default 25)</small>
         </div>
         <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
           <h5 class="settings-section-subtitle">�🔊 Custom Sounds</h5>
@@ -846,6 +846,20 @@
             </select>
           </label>
           <div id="tunnel-status-display" class="muted-text" style="margin-top:4px;font-size:11px;">Inactive</div>
+        </div>
+        <!-- Webhooks / Bots (Admin only) -->
+        <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+          <h5 class="settings-section-subtitle">🤖 Webhooks / Bots</h5>
+          <small class="settings-hint">Create webhooks to let external services post messages to channels (like Discord webhooks)</small>
+          <div class="whitelist-add-row" style="margin-top:8px;">
+            <input type="text" id="webhook-name-input" placeholder="Bot name..." maxlength="32" class="settings-text-input">
+            <select id="webhook-channel-select" class="settings-select" style="max-width:130px;"></select>
+            <button class="btn-sm btn-accent" id="webhook-create-btn">Create</button>
+          </div>
+          <input type="text" id="webhook-avatar-input" placeholder="Avatar URL (optional)" class="settings-text-input" style="margin-top:4px;width:100%;max-width:100%;" maxlength="512">
+          <div id="webhooks-list" style="margin-top:8px;">
+            <p class="muted-text">No webhooks configured</p>
+          </div>
         </div>
         <!-- Mod Mode (Admin only) -->
         <div class="admin-settings" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
@@ -1094,6 +1108,31 @@
   <div id="fx-layers"></div>
 
   <!-- Push Notification Error Modal (center-screen, requires acknowledgement) -->
+  <!-- Activities / Games Launcher Modal -->
+  <div class="modal-overlay" id="activities-modal" style="display:none">
+    <div class="modal modal-activities">
+      <div class="activities-header">
+        <h3>🎮 Activities</h3>
+        <button class="settings-close-btn" id="close-activities-btn">&times;</button>
+      </div>
+      <div class="activities-grid" id="activities-grid">
+        <!-- Populated dynamically by JS from GAMES_REGISTRY -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Iframe Game Container (fullscreen overlay) -->
+  <div class="game-iframe-overlay" id="game-iframe-overlay" style="display:none">
+    <div class="game-iframe-header">
+      <span class="game-iframe-title" id="game-iframe-title">Game</span>
+      <div class="game-iframe-actions">
+        <button class="btn-sm" id="game-iframe-popout" title="Open in new window">↗️ Pop Out</button>
+        <button class="btn-sm btn-danger" id="game-iframe-close" title="Close game">&times; Close</button>
+      </div>
+    </div>
+    <iframe id="game-iframe" class="game-iframe" sandbox="allow-scripts allow-same-origin allow-popups" allowfullscreen></iframe>
+  </div>
+
   <div class="modal-overlay" id="push-error-modal" style="display:none">
     <div class="modal" style="max-width:420px;text-align:center;padding:28px 24px;">
       <div style="font-size:48px;margin-bottom:12px;">🔕</div>
@@ -1108,12 +1147,12 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/theme.js?v=1.9.0"></script>
-  <script src="/js/notifications.js?v=1.9.0"></script>
-  <script src="/js/servers.js?v=1.9.0"></script>
-  <script src="/js/voice.js?v=1.9.0"></script>
-  <script src="/js/modmode.js?v=1.9.0"></script>
-  <script src="/js/e2e.js?v=1.9.0"></script>
-  <script src="/js/app.js?v=1.9.0"></script>
+  <script src="/js/theme.js?v=1.8.0"></script>
+  <script src="/js/notifications.js?v=1.8.0"></script>
+  <script src="/js/servers.js?v=1.8.0"></script>
+  <script src="/js/voice.js?v=1.8.0"></script>
+  <script src="/js/modmode.js?v=1.8.0"></script>
+  <script src="/js/e2e.js?v=1.8.0"></script>
+  <script src="/js/app.js?v=1.8.0"></script>
 </body>
 </html>
