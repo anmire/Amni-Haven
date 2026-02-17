@@ -32,10 +32,14 @@ Open `https://localhost:3000` → Register with username `admin` → Create a ch
 
 ## Quick Start — Windows (No Docker)
 
-1. Install **[Node.js](https://nodejs.org/)** (LTS) and restart your PC
-2. Download and unzip this repository
-3. Double-click **`Start Haven.bat`**
-4. Browser opens automatically — register as `admin`
+1. Install **[Node.js](https://nodejs.org/)** (click the big green **LTS** button, next through the installer)
+2. **Restart your PC** (required for Node.js to be usable)
+3. Download and unzip this repository
+4. Double-click **`Start Haven.bat`**
+
+That's it. The batch file automatically installs dependencies, generates SSL certificates, creates your config file, and opens your browser. You'll see the login page — register as `admin` to get started.
+
+> **Node.js is the only thing you install manually.** Everything else is handled for you on first launch.
 
 ## Quick Start — Linux / macOS (No Docker)
 
@@ -145,7 +149,7 @@ Tell them to click **Advanced** → **Proceed** on the certificate warning. It's
 
 ## Configuration
 
-Settings are in the `.env` file, stored in your **data directory** (created automatically on first launch):
+Haven creates a `.env` config file automatically on first launch — you don't need to create or rename anything. It lives in your **data directory**:
 
 | OS | Data Directory |
 |----|---------------|
