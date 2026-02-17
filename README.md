@@ -12,7 +12,7 @@
 
 
 
-<img width="2553" height="1259" alt="Screenshot 2026-02-12 092841" src="https://github.com/user-attachments/assets/4e8bad21-047d-49be-87e0-7ce2ed2cbf5d" />
+<img width="1917" height="948" alt="Screenshot 2026-02-14 102013" src="https://github.com/user-attachments/assets/0c85ca6c-f811-43db-a26b-9b66c418830e" />
 
 
 ---
@@ -56,7 +56,7 @@ You launch it, your friends connect to your IP address, and you have a private g
 | **Security** | Bcrypt passwords, JWT auth, HTTPS/SSL, rate limiting, CSP headers, input validation |
 | **Game** | Shippy Container — Drew's shipment got hung up. Server-wide leaderboard. |
 
-<img width="2557" height="1264" alt="Untitled" src="https://github.com/user-attachments/assets/dc124f44-303f-43b0-807b-489da68a7efa" />
+<img width="1918" height="945" alt="Screenshot 2026-02-13 174344" src="https://github.com/user-attachments/assets/a1925091-46de-4fa6-bb8d-788985c974be" />
 
 ---
 
@@ -115,6 +115,8 @@ Or manually:
 npm install
 node server.js
 ```
+
+<img width="1917" height="911" alt="Screenshot 2026-02-16 013038" src="https://github.com/user-attachments/assets/79b62980-0822-4e9d-b346-c5a93de95862" />
 
 ---
 
@@ -205,7 +207,7 @@ Type `/` in the message box to see the full list. Here are some highlights:
 
 Your theme choice persists across sessions.
 
-<img width="1917" height="947" alt="Screenshot 2026-02-11 004102" src="https://github.com/user-attachments/assets/b47be23a-853c-42f8-94a2-d6adcb206966" />
+<img width="1919" height="908" alt="Screenshot 2026-02-16 013319" src="https://github.com/user-attachments/assets/f061491e-d998-4160-9971-b846cea83cd4" />
 
 ---
 
