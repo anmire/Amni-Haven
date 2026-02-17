@@ -7,174 +7,169 @@ echo       HAVEN - Private Chat Server
 echo  ========================================
 echo.
 
-:: ── Check Node.js ──
-where node >nul 2>&1
-if %ERRORLEVEL% EQU 0 goto :NODE_OK
-
-color 0E
-echo  [!] Node.js is not installed.
-echo.
-echo  Haven requires Node.js (free, ~30 MB download).
-echo.
-set /p "AUTOINSTALL=  Install Node.js automatically now? [Y/N]: "
-if /i "%AUTOINSTALL%" NEQ "Y" goto :NODE_MANUAL
-
-echo.
-echo  [*] Launching Node.js installer...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-node.ps1"
-if %ERRORLEVEL% NEQ 0 goto :NODE_MANUAL
-echo.
-echo  [OK] Node.js installed!
-echo.
-echo  ========================================
-echo   Close this window and double-click
-echo   Start Haven.bat again to continue.
-echo  ========================================
-echo.
-pause
-exit /b 0
-
-:NODE_MANUAL
-echo.
-echo  Install Node.js from https://nodejs.org then run this again.
-echo.
-pause
-exit /b 1
-
-:NODE_OK
-for /f "tokens=*" %%v in ('node -v') do echo  [OK] Node.js %%v detected
-
-:: ── Data directory ──
+:: ── Data directory (%APPDATA%\Haven) ──────────────────────
 set "HAVEN_DATA=%APPDATA%\Haven"
 if not exist "%HAVEN_DATA%" mkdir "%HAVEN_DATA%"
 
-:: ── Kill existing server ──
+:: Kill any existing Haven server on port 3000
 echo  [*] Checking for existing server...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000" ^| findstr "LISTENING"') do (
     echo  [!] Killing existing process on port 3000 (PID: %%a)
     taskkill /PID %%a /F >nul 2>&1
 )
 
-:: ── Install / update dependencies (always runs — fast when up to date) ──
-echo  [*] Installing dependencies...
-cd /d "%~dp0"
-call npm install
-if %ERRORLEVEL% NEQ 0 goto :DEPS_FAIL
-echo  [OK] Dependencies ready
-echo.
-goto :DEPS_DONE
+:: Check Node.js is installed
+where node >nul 2>&1
+if %ERRORLEVEL% EQU 0 goto :NODE_OK
 
-:DEPS_FAIL
-color 0C
+color 0E
 echo.
-echo  [ERROR] npm install failed. Check the output above.
+echo  [!] Node.js is not installed or not in PATH.
+echo.
+echo  You have two options:
+echo.
+echo    1) Press Y below to install it automatically (downloads ~30 MB)
+echo.
+echo    2) Or download it manually from https://nodejs.org
+echo.
+set /p "AUTOINSTALL=  Would you like to install Node.js automatically now? [Y/N]: "
+if /i "%AUTOINSTALL%" NEQ "Y" goto :NODE_SKIP
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-node.ps1"
+if %ERRORLEVEL% NEQ 0 (
+    color 0C
+    echo.
+    echo  [ERROR] Automatic install failed. Please install manually from https://nodejs.org
+    echo.
+    pause
+    exit /b 1
+)
+echo.
+echo  [OK] Node.js installed! Close this window and double-click Start Haven again.
+echo      Node.js needs a fresh terminal to be recognized.
+echo.
+pause
+exit /b 0
+
+:NODE_SKIP
+echo.
+echo  [*] No problem. Install Node.js from https://nodejs.org and try again.
+echo.
 pause
 exit /b 1
 
-:DEPS_DONE
+:NODE_OK
+echo  [OK] Node.js found: & node -v
 
-:: ── SSL certs ──
-if exist "%HAVEN_DATA%\certs\cert.pem" goto :SSL_DONE
-if not exist "%HAVEN_DATA%\certs" mkdir "%HAVEN_DATA%\certs"
-
-where openssl >nul 2>&1
-if errorlevel 1 goto :NO_OPENSSL
-
-echo  [*] Generating self-signed SSL certificate...
-openssl req -x509 -newkey rsa:2048 -keyout "%HAVEN_DATA%\certs\key.pem" -out "%HAVEN_DATA%\certs\cert.pem" -days 3650 -nodes -subj "/CN=Haven" 2>nul
-if exist "%HAVEN_DATA%\certs\cert.pem" goto :SSL_GEN_OK
-echo  [!] SSL generation failed. Haven will run in HTTP mode.
-goto :SSL_DONE
-
-:SSL_GEN_OK
-echo  [OK] SSL certificate generated
-goto :SSL_DONE
-
-:NO_OPENSSL
-echo  [!] OpenSSL not found - skipping SSL. Haven will run in HTTP mode.
-
-:SSL_DONE
-
-:: ── Firewall rule (first run only) ──
-netsh advfirewall firewall show rule name="Haven Chat" >nul 2>&1
-if %ERRORLEVEL% EQU 0 goto :FW_DONE
-
-echo  [*] Adding firewall rule for port 3000 (you may see a UAC prompt)...
-powershell -NoProfile -Command "Start-Process powershell -ArgumentList '-NoProfile -Command \"New-NetFirewallRule -DisplayName ''Haven Chat'' -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow -Description ''Allow Haven private chat server connections''\"' -Verb RunAs -Wait" 2>nul
-
-:FW_DONE
-
+:: Always install/update dependencies (fast when already up-to-date)
+cd /d "%~dp0"
+echo  [*] Checking dependencies...
+call npm install --no-audit --no-fund 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    color 0C
+    echo.
+    echo  [ERROR] npm install failed. Check the errors above.
+    echo.
+    pause
+    exit /b 1
+)
+echo  [OK] Dependencies ready
 echo.
+
+:: Check .env exists in APPDATA data directory
+if not exist "%HAVEN_DATA%\.env" (
+    if exist "%~dp0.env.example" (
+        echo  [*] Creating .env in %HAVEN_DATA% from template...
+        copy "%~dp0.env.example" "%HAVEN_DATA%\.env" >nul
+    )
+    echo  [!] IMPORTANT: Edit %HAVEN_DATA%\.env and change your settings before going live!
+    echo.
+)
+
+:: Generate self-signed SSL certs in data directory if missing
+if not exist "%HAVEN_DATA%\certs\cert.pem" (
+    echo  [*] Generating self-signed SSL certificate...
+    if not exist "%HAVEN_DATA%\certs" mkdir "%HAVEN_DATA%\certs"
+    where openssl >nul 2>&1
+    if errorlevel 1 (
+        echo  [!] OpenSSL not found - skipping cert generation.
+        echo      Haven will run in HTTP mode. See README for details.
+        echo      To enable HTTPS, install OpenSSL or provide certs manually.
+    ) else (
+        openssl req -x509 -newkey rsa:2048 -keyout "%HAVEN_DATA%\certs\key.pem" -out "%HAVEN_DATA%\certs\cert.pem" -days 3650 -nodes -subj "/CN=Haven" 2>nul
+        if exist "%HAVEN_DATA%\certs\cert.pem" (
+            echo  [OK] SSL certificate generated in %HAVEN_DATA%\certs
+        ) else (
+            echo  [!] SSL certificate generation failed.
+            echo      Haven will run in HTTP mode. See README for details.
+        )
+    )
+    echo.
+)
+
 echo  [*] Data directory: %HAVEN_DATA%
 echo  [*] Starting Haven server...
 echo.
 
-:: ── Start server ──
+:: Start server in background
 cd /d "%~dp0"
 start /B node server.js
 
-:: ── Wait for server ──
+:: Wait for server to be ready
 echo  [*] Waiting for server to start...
 set RETRIES=0
-
 :WAIT_LOOP
 timeout /t 1 /nobreak >nul
 set /a RETRIES+=1
 netstat -ano | findstr ":3000" | findstr "LISTENING" >nul 2>&1
-if %ERRORLEVEL% EQU 0 goto :SERVER_READY
-if %RETRIES% GEQ 15 goto :SERVER_FAIL
-goto :WAIT_LOOP
+if %ERRORLEVEL% NEQ 0 (
+    if %RETRIES% GEQ 15 (
+        color 0C
+        echo  [ERROR] Server failed to start after 15 seconds.
+        echo  Check the output above for errors.
+        pause
+        exit /b 1
+    )
+    goto WAIT_LOOP
+)
 
-:SERVER_FAIL
-color 0C
-echo.
-echo  [ERROR] Server failed to start after 15 seconds.
-echo  Check the output above for errors.
-pause
-exit /b 1
-
-:SERVER_READY
-
-:: ── Detect protocol ──
+:: Detect protocol based on whether certs exist and server can use them
 set "HAVEN_PROTO=http"
-if not exist "%HAVEN_DATA%\certs\cert.pem" goto :SHOW_STATUS
-if not exist "%HAVEN_DATA%\certs\key.pem" goto :SHOW_STATUS
-set "HAVEN_PROTO=https"
+if exist "%HAVEN_DATA%\certs\cert.pem" (
+    if exist "%HAVEN_DATA%\certs\key.pem" (
+        set "HAVEN_PROTO=https"
+    )
+)
 
-:SHOW_STATUS
 echo.
-if "%HAVEN_PROTO%"=="https" goto :SHOW_HTTPS
-goto :SHOW_HTTP
+if "%HAVEN_PROTO%"=="https" (
+    echo  ========================================
+    echo    Haven is LIVE on port 3000 ^(HTTPS^)
+    echo  ========================================
+    echo.
+    echo  Local:    https://localhost:3000
+    echo  LAN:      https://YOUR_LOCAL_IP:3000
+    echo  Remote:   https://YOUR_PUBLIC_IP:3000
+    echo.
+    echo  First time? Your browser will show a security
+    echo  warning ^(self-signed cert^). Click "Advanced"
+    echo  then "Proceed" to continue.
+) else (
+    echo  ========================================
+    echo    Haven is LIVE on port 3000 ^(HTTP^)
+    echo  ========================================
+    echo.
+    echo  Local:    http://localhost:3000
+    echo  LAN:      http://YOUR_LOCAL_IP:3000
+    echo  Remote:   http://YOUR_PUBLIC_IP:3000
+    echo.
+    echo  NOTE: Running without SSL. Voice chat and
+    echo  remote connections work best with HTTPS.
+    echo  See README for how to enable HTTPS.
+)
+echo.
 
-:SHOW_HTTPS
-echo  ========================================
-echo    Haven is LIVE on port 3000 (HTTPS)
-echo  ========================================
-echo.
-echo  Local:    https://localhost:3000
-echo  LAN:      https://YOUR_LOCAL_IP:3000
-echo  Remote:   https://YOUR_PUBLIC_IP:3000
-echo.
-echo  First time? Your browser will show a security
-echo  warning (self-signed cert). Click "Advanced"
-echo  then "Proceed" to continue.
-goto :OPEN_BROWSER
-
-:SHOW_HTTP
-echo  ========================================
-echo    Haven is LIVE on port 3000 (HTTP)
-echo  ========================================
-echo.
-echo  Local:    http://localhost:3000
-echo  LAN:      http://YOUR_LOCAL_IP:3000
-echo  Remote:   http://YOUR_PUBLIC_IP:3000
-echo.
-echo  NOTE: Running without SSL. Voice chat and
-echo  remote connections work best with HTTPS.
-echo  See README for how to enable HTTPS.
-
-:OPEN_BROWSER
-echo.
+:: Open browser with correct protocol
 echo  [*] Opening browser...
 start %HAVEN_PROTO%://localhost:3000
 
@@ -188,4 +183,4 @@ echo.
 :: Keep window open so server stays alive
 :KEEPALIVE
 timeout /t 3600 /nobreak >nul
-goto :KEEPALIVE
+goto KEEPALIVE
