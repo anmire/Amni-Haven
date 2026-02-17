@@ -33,12 +33,12 @@ Open `https://localhost:3000` → Register with username `admin` → Create a ch
 ## Quick Start — Windows (No Docker)
 
 1. Download and unzip this repository
-2. Double-click **`Start Haven.bat`**
-3. If Node.js isn't installed, the script will offer to install it for you automatically
+2. **First time?** Double-click **`Install Haven.bat`** — it walks you through everything (Node.js, dependencies, SSL, firewall, desktop shortcut)
+3. **After that**, just double-click **`Start Haven.bat`** (or the desktop shortcut) to launch
 
-That's it. The batch file handles everything — Node.js installation, dependencies, SSL certificates, config — and opens your browser. Register as `admin` to get started.
+That's it. Register as `admin` to get started.
 
-> **Don't have Node.js?** No problem. The launcher detects this and can install it for you with one keypress. Or install it yourself from [nodejs.org](https://nodejs.org/) and restart your PC.
+> **Already have Node.js?** You can skip the installer and go straight to `Start Haven.bat` — it handles dependencies and SSL on first run too.
 
 ## Quick Start — Linux / macOS (No Docker)
 

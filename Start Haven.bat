@@ -59,23 +59,23 @@ pause
 exit /b 1
 
 :NODE_OK
-echo  [OK] Node.js found: & node -v
+for /f "tokens=*" %%v in ('node -v') do echo  [OK] Node.js %%v detected
 
 :: Check if dependencies are installed (check for a known package, not just the folder)
 cd /d "%~dp0"
 if not exist "%~dp0node_modules\dotenv\" (
-    echo  [*] Installing dependencies...
-    npm install
+    echo  [*] First run detected - installing dependencies...
     echo.
-)
-
-:: Check .env exists in APPDATA data directory
-if not exist "%HAVEN_DATA%\.env" (
-    if exist "%~dp0.env.example" (
-        echo  [*] Creating .env in %HAVEN_DATA% from template...
-        copy "%~dp0.env.example" "%HAVEN_DATA%\.env" >nul
+    npm install
+    if %ERRORLEVEL% NEQ 0 (
+        color 0C
+        echo.
+        echo  [ERROR] npm install failed. Check the output above.
+        pause
+        exit /b 1
     )
-    echo  [!] IMPORTANT: Edit %HAVEN_DATA%\.env and change your settings before going live!
+    echo.
+    echo  [OK] Dependencies installed
     echo.
 )
 
@@ -104,7 +104,7 @@ echo  [*] Data directory: %HAVEN_DATA%
 echo  [*] Starting Haven server...
 echo.
 
-:: Start server in background
+:: Start server (stays in foreground so output is visible)
 cd /d "%~dp0"
 start /B node server.js
 
