@@ -26,6 +26,18 @@ echo ""
 echo "  Install location: $INSTALL_DIR"
 echo ""
 
+# ── AppImage hint (Linux only, shown before we start) ────
+if [ "$(uname -s)" = "Linux" ]; then
+    _ARCH=$(uname -m)
+    if [ "$_ARCH" = "x86_64" ] || [ "$_ARCH" = "aarch64" ]; then
+        echo -e "  ${CYAN}Tip:${NC} Prefer a portable, no-root AppImage instead?"
+        echo "  Download one file from the Releases page and run it:"
+        echo "    https://github.com/ancsemi/Haven/releases/latest"
+        echo "  (Works on any Linux distro — no Node.js needed)"
+        echo ""
+    fi
+fi
+
 # ── Step 1: Check / Install Node.js ──────────────────────
 echo "  [1/3] Checking for Node.js..."
 
@@ -36,7 +48,7 @@ if ! command -v node &> /dev/null; then
     echo ""
 
     if command -v apt-get &> /dev/null; then
-        echo "  Detected: Debian / Ubuntu"
+        echo "  Detected: Debian / Ubuntu / Linux Mint / Pop!_OS"
         echo -e "  Installing Node.js 22 LTS (requires ${BOLD}sudo${NC})."
         echo ""
         read -rp "  Proceed? [Y/n]: " CONFIRM
@@ -53,7 +65,7 @@ if ! command -v node &> /dev/null; then
         sudo apt-get install -y -qq nodejs > /dev/null 2>&1
 
     elif command -v dnf &> /dev/null; then
-        echo "  Detected: Fedora / RHEL"
+        echo "  Detected: Fedora / RHEL 8+ / Rocky / AlmaLinux"
         echo -e "  Installing Node.js 22 LTS (requires ${BOLD}sudo${NC})."
         echo ""
         read -rp "  Proceed? [Y/n]: " CONFIRM
@@ -61,13 +73,47 @@ if ! command -v node &> /dev/null; then
         curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash - > /dev/null 2>&1
         sudo dnf install -y nodejs > /dev/null 2>&1
 
+    elif command -v yum &> /dev/null; then
+        echo "  Detected: CentOS / RHEL 7"
+        echo -e "  Installing Node.js 22 LTS (requires ${BOLD}sudo${NC})."
+        echo ""
+        read -rp "  Proceed? [Y/n]: " CONFIRM
+        if [[ "${CONFIRM,,}" == "n" ]]; then exit 0; fi
+        curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash - > /dev/null 2>&1
+        sudo yum install -y nodejs > /dev/null 2>&1
+
     elif command -v pacman &> /dev/null; then
-        echo "  Detected: Arch Linux"
+        echo "  Detected: Arch Linux / Manjaro / EndeavourOS / CachyOS / Garuda"
         echo -e "  Installing Node.js (requires ${BOLD}sudo${NC})."
         echo ""
         read -rp "  Proceed? [Y/n]: " CONFIRM
         if [[ "${CONFIRM,,}" == "n" ]]; then exit 0; fi
         sudo pacman -S --noconfirm nodejs npm > /dev/null 2>&1
+
+    elif command -v zypper &> /dev/null; then
+        echo "  Detected: openSUSE / SUSE Linux Enterprise"
+        echo -e "  Installing Node.js (requires ${BOLD}sudo${NC})."
+        echo ""
+        read -rp "  Proceed? [Y/n]: " CONFIRM
+        if [[ "${CONFIRM,,}" == "n" ]]; then exit 0; fi
+        sudo zypper install -y nodejs22 npm22 > /dev/null 2>&1 || \
+        sudo zypper install -y nodejs npm > /dev/null 2>&1
+
+    elif command -v apk &> /dev/null; then
+        echo "  Detected: Alpine Linux"
+        echo -e "  Installing Node.js (requires ${BOLD}sudo${NC})."
+        echo ""
+        read -rp "  Proceed? [Y/n]: " CONFIRM
+        if [[ "${CONFIRM,,}" == "n" ]]; then exit 0; fi
+        sudo apk add --no-cache nodejs npm > /dev/null 2>&1
+
+    elif command -v eopkg &> /dev/null; then
+        echo "  Detected: Solus"
+        echo -e "  Installing Node.js (requires ${BOLD}sudo${NC})."
+        echo ""
+        read -rp "  Proceed? [Y/n]: " CONFIRM
+        if [[ "${CONFIRM,,}" == "n" ]]; then exit 0; fi
+        sudo eopkg install -y nodejs > /dev/null 2>&1
 
     elif command -v brew &> /dev/null; then
         echo "  Detected: Homebrew (macOS)"
@@ -77,10 +123,28 @@ if ! command -v node &> /dev/null; then
         brew link --overwrite node@22 2>/dev/null || true
 
     else
-        echo -e "  ${RED}Could not detect your package manager.${NC}"
-        echo "  Please install Node.js 22 from https://nodejs.org"
-        echo "  then run this installer again."
-        exit 1
+        # No known package manager — try nvm (no root required, works anywhere)
+        echo -e "  ${YELLOW}No known package manager found.${NC}"
+        echo "  Trying nvm (Node Version Manager) — no root needed."
+        echo ""
+        export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+        if [ ! -f "$NVM_DIR/nvm.sh" ]; then
+            echo "  Installing nvm..."
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash > /dev/null 2>&1
+        fi
+        # shellcheck source=/dev/null
+        if [ -s "$NVM_DIR/nvm.sh" ]; then
+            \. "$NVM_DIR/nvm.sh"
+            nvm install 22 > /dev/null 2>&1
+            nvm use 22 > /dev/null 2>&1
+        else
+            echo -e "  ${RED}Could not install Node.js automatically.${NC}"
+            echo "  Options:"
+            echo "    1. Install Node.js 22 from https://nodejs.org and re-run"
+            echo "    2. Download the Haven AppImage (no Node.js needed):"
+            echo "         https://github.com/ancsemi/Haven/releases/latest"
+            exit 1
+        fi
     fi
 
     echo -e "  ${GREEN}[OK] Node.js installed!${NC}"
