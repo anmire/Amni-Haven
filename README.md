@@ -5,7 +5,7 @@
 
 > **Your server. Your rules. No cloud. No accounts with Big Tech. No one reading your messages.**
 
-![Version](https://img.shields.io/badge/version-1.8.2-blue)
+![Version](https://img.shields.io/badge/version-1.9.0-blue)
 ![License](https://img.shields.io/badge/license-MIT--NC-green)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
@@ -33,10 +33,12 @@ Open `https://localhost:3000` → Register with username `admin` → Create a ch
 ## Quick Start — Windows (No Docker)
 
 1. Download and unzip this repository
-2. Double-click **`Start Haven.bat`** — it handles everything automatically (Node.js install, dependencies, SSL, firewall, browser)
-3. Register as `admin` — you're done
+2. Double-click **`Start Haven.bat`**
+3. If Node.js isn't installed, the script will offer to install it for you automatically
 
-> **No Node.js?** The script detects this and offers to install it for you with one keypress.
+That's it. The batch file handles everything — Node.js installation, dependencies, SSL certificates, config — and opens your browser. Register as `admin` to get started.
+
+> **Don't have Node.js?** No problem. The launcher detects this and can install it for you with one keypress. Or install it yourself from [nodejs.org](https://nodejs.org/) and restart your PC.
 
 ## Quick Start — Linux / macOS (No Docker)
 
