@@ -688,11 +688,11 @@ function setupSocketHandlers(io, db) {
       socket.emit('channels-list', channels);
     });
 
-    // ── Create channel (admin only) ─────────────────────────
+    // ── Create channel (permission-based) ─────────────────
     socket.on('create-channel', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) {
-        return socket.emit('error-msg', 'Only admins can create channels');
+      if (!userHasPermission(socket.user.id, 'create_channel')) {
+        return socket.emit('error-msg', 'You don\'t have permission to create channels');
       }
 
       const name = typeof data.name === 'string' ? data.name.trim() : '';

@@ -168,8 +168,10 @@ class HavenApp {
     const loginEl = document.getElementById('login-name');
     if (loginEl) loginEl.textContent = `@${this.user.username}`;
 
-    if (this.user.isAdmin) {
+    if (this.user.isAdmin || this._hasPerm('create_channel')) {
       document.getElementById('admin-controls').style.display = 'block';
+    }
+    if (this.user.isAdmin) {
       document.getElementById('admin-mod-panel').style.display = 'block';
       const organizeBtn = document.getElementById('organize-channels-btn');
       if (organizeBtn) organizeBtn.style.display = '';
@@ -227,11 +229,11 @@ class HavenApp {
       this._updateAvatarPreview();
       // Show admin/mod controls based on role level
       const canModerate = this.user.isAdmin || this.user.effectiveLevel >= 25;
+      const canCreateChannel = this.user.isAdmin || this._hasPerm('create_channel');
+      document.getElementById('admin-controls').style.display = canCreateChannel ? 'block' : 'none';
       if (this.user.isAdmin) {
-        document.getElementById('admin-controls').style.display = 'block';
         document.getElementById('admin-mod-panel').style.display = 'block';
       } else {
-        document.getElementById('admin-controls').style.display = 'none';
         document.getElementById('admin-mod-panel').style.display = canModerate ? 'block' : 'none';
       }
     });
@@ -244,6 +246,8 @@ class HavenApp {
       localStorage.setItem('haven_user', JSON.stringify(this.user));
       // Refresh UI to reflect new permissions
       const canModerate = this.user.isAdmin || this.user.effectiveLevel >= 25;
+      const canCreateChannel = this.user.isAdmin || this._hasPerm('create_channel');
+      document.getElementById('admin-controls').style.display = canCreateChannel ? 'block' : 'none';
       document.getElementById('admin-mod-panel').style.display = canModerate ? 'block' : 'none';
       this._showToast('Your roles have been updated', 'info');
     });
@@ -641,11 +645,12 @@ class HavenApp {
       if (loginEl) loginEl.textContent = `@${data.user.username}`;
       this._showToast(`Display name changed to "${data.user.displayName || data.user.username}"`, 'success');
       // Refresh admin UI in case admin status changed
+      this.user.permissions = data.user.permissions || this.user.permissions || [];
+      const canCreate = data.user.isAdmin || this._hasPerm('create_channel');
+      document.getElementById('admin-controls').style.display = canCreate ? 'block' : 'none';
       if (data.user.isAdmin) {
-        document.getElementById('admin-controls').style.display = 'block';
         document.getElementById('admin-mod-panel').style.display = 'block';
       } else {
-        document.getElementById('admin-controls').style.display = 'none';
         document.getElementById('admin-mod-panel').style.display = 'none';
       }
     });
@@ -1894,14 +1899,21 @@ class HavenApp {
     });
 
     document.getElementById('add-server-btn').addEventListener('click', () => {
+      this._editingServerUrl = null;
+      document.getElementById('add-server-modal-title').textContent = 'Add a Server';
       document.getElementById('add-server-modal').style.display = 'flex';
       document.getElementById('add-server-name-input').value = '';
       document.getElementById('server-url-input').value = '';
+      document.getElementById('server-url-input').disabled = false;
+      document.getElementById('add-server-icon-input').value = '';
+      document.getElementById('save-server-btn').textContent = 'Add Server';
       document.getElementById('add-server-name-input').focus();
     });
 
     document.getElementById('cancel-server-btn').addEventListener('click', () => {
       document.getElementById('add-server-modal').style.display = 'none';
+      document.getElementById('server-url-input').disabled = false;
+      this._editingServerUrl = null;
     });
 
     document.getElementById('save-server-btn').addEventListener('click', () => this._addServer());
@@ -1985,15 +1997,59 @@ class HavenApp {
   _addServer() {
     const name = document.getElementById('add-server-name-input').value.trim();
     const url = document.getElementById('server-url-input').value.trim();
+    const iconInput = document.getElementById('add-server-icon-input').value.trim();
+    const autoPull = document.getElementById('server-auto-icon').checked;
     if (!name || !url) return this._showToast('Name and address are both required', 'error');
 
-    if (this.serverManager.add(name, url)) {
+    const editUrl = this._editingServerUrl;
+    if (editUrl) {
+      // Editing existing server
+      this.serverManager.update(editUrl, { name, icon: iconInput || null });
+      this._editingServerUrl = null;
       document.getElementById('add-server-modal').style.display = 'none';
       this._renderServerBar();
-      this._showToast(`Added "${name}"`, 'success');
+      this._showToast(`Updated "${name}"`, 'success');
+      // Auto-pull icon if checked
+      if (autoPull) this._autoPullServerIcon(editUrl);
     } else {
-      this._showToast('Server already in your list', 'error');
+      // Adding new server
+      const icon = iconInput || null;
+      if (this.serverManager.add(name, url, icon)) {
+        document.getElementById('add-server-modal').style.display = 'none';
+        this._renderServerBar();
+        this._showToast(`Added "${name}"`, 'success');
+        // Auto-pull icon after health check completes
+        if (autoPull) {
+          const cleanUrl = url.replace(/\/+$/, '');
+          const finalUrl = /^https?:\/\//.test(cleanUrl) ? cleanUrl : 'https://' + cleanUrl;
+          setTimeout(() => this._autoPullServerIcon(finalUrl), 2000);
+        }
+      } else {
+        this._showToast('Server already in your list', 'error');
+      }
     }
+  }
+
+  _autoPullServerIcon(url) {
+    const status = this.serverManager.statusCache.get(url);
+    if (status && status.icon) {
+      this.serverManager.update(url, { icon: status.icon });
+      this._renderServerBar();
+    }
+  }
+
+  _editServer(url) {
+    const server = this.serverManager.servers.find(s => s.url === url);
+    if (!server) return;
+    this._editingServerUrl = url;
+    document.getElementById('add-server-modal-title').textContent = 'Edit Server';
+    document.getElementById('add-server-name-input').value = server.name;
+    document.getElementById('server-url-input').value = server.url;
+    document.getElementById('server-url-input').disabled = true;
+    document.getElementById('add-server-icon-input').value = server.icon || '';
+    document.getElementById('save-server-btn').textContent = 'Save';
+    document.getElementById('add-server-modal').style.display = 'flex';
+    document.getElementById('add-server-name-input').focus();
   }
 
   _renderServerBar() {
@@ -2005,10 +2061,15 @@ class HavenApp {
       const online = s.status.online;
       const statusClass = online === true ? 'online' : online === false ? 'offline' : 'unknown';
       const statusText = online === true ? '● Online' : online === false ? '○ Offline' : '◌ Checking...';
+      // Use custom icon, auto-pulled icon from health check, or letter initial
+      const iconUrl = s.icon || (s.status.icon || null);
+      const iconContent = iconUrl
+        ? `<img src="${this._escapeHtml(iconUrl)}" class="server-icon-img" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><span class="server-icon-text" style="display:none">${initial}</span>`
+        : `<span class="server-icon-text">${initial}</span>`;
       return `
         <div class="server-icon remote" data-url="${this._escapeHtml(s.url)}"
              title="${this._escapeHtml(s.name)} — ${statusText}">
-          <span class="server-icon-text">${initial}</span>
+          ${iconContent}
           <span class="server-status-dot ${statusClass}"></span>
           <button class="server-remove" title="Remove">&times;</button>
         </div>
@@ -2025,6 +2086,11 @@ class HavenApp {
           return;
         }
         window.open(el.dataset.url, '_blank', 'noopener');
+      });
+      // Right-click to edit
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._editServer(el.dataset.url);
       });
     });
   }

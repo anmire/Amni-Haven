@@ -160,7 +160,7 @@ function initDatabase() {
   insertSetting.run('whitelist_enabled', 'false');     // whitelist toggle
   insertSetting.run('server_name', 'HAVEN');           // displayed in sidebar header + server bar
   insertSetting.run('server_icon', '');                // path to uploaded server icon image
-  insertSetting.run('permission_thresholds', '{}');    // JSON: { permission: minLevel } — auto-grant perms at level
+  insertSetting.run('permission_thresholds', '{"create_channel":50}');    // JSON: { permission: minLevel } — auto-grant perms at level
   insertSetting.run('server_code', '');                // server-wide invite code (joins all channels)
   insertSetting.run('max_upload_mb', '25');             // max file upload size in MB
   insertSetting.run('setup_wizard_complete', 'false');   // first-time admin setup wizard
@@ -470,6 +470,18 @@ function initDatabase() {
   } catch {
     db.exec("ALTER TABLE users ADD COLUMN e2e_key_salt TEXT DEFAULT NULL");
   }
+
+  // ── Migration: ensure create_channel default threshold ──
+  try {
+    const row = db.prepare("SELECT value FROM server_settings WHERE key = 'permission_thresholds'").get();
+    if (row) {
+      const thresholds = JSON.parse(row.value);
+      if (!thresholds.create_channel) {
+        thresholds.create_channel = 50;
+        db.prepare("UPDATE server_settings SET value = ? WHERE key = 'permission_thresholds'").run(JSON.stringify(thresholds));
+      }
+    }
+  } catch { /* ignore */ }
 
   return db;
 }
