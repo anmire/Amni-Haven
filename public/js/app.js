@@ -136,12 +136,15 @@ class HavenApp {
     this._setupSoundManagement();
     this._setupEmojiManagement();
     this._setupWebhookManagement();
+    this._setupDiscordImport();
     this._initRoleManagement();
     this._initServerBranding();
     this._setupResizableSidebars();
     this.modMode = typeof ModMode === 'function' ? new ModMode() : null;
     this.modMode?.init();
     this._setupDensityPicker();
+    this._setupImageModePicker();
+    this._setupLightbox();
     this._setupOnlineOverlay();
     this._checkForUpdates();
 
@@ -1587,10 +1590,10 @@ class HavenApp {
       });
     }
 
-    // Image click + spoiler click delegation (CSP-safe — no inline handlers)
+    // Image click — open lightbox overlay (CSP-safe — no inline handlers)
     document.getElementById('messages').addEventListener('click', (e) => {
       if (e.target.classList.contains('chat-image')) {
-        window.open(e.target.src, '_blank');
+        this._openLightbox(e.target.src);
       }
       // Spoiler reveal toggle
       if (e.target.closest('.spoiler')) {
@@ -3428,6 +3431,60 @@ class HavenApp {
     });
   }
 
+  // ── Image Display Mode Picker ──
+
+  _setupImageModePicker() {
+    const picker = document.getElementById('image-mode-picker');
+    if (!picker) return;
+
+    // Restore saved image mode (default: thumbnail)
+    const saved = localStorage.getItem('haven-image-mode') || 'thumbnail';
+    this._applyImageMode(saved);
+    picker.querySelectorAll('[data-image-mode]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.imageMode === saved);
+    });
+
+    picker.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-image-mode]');
+      if (!btn) return;
+      const mode = btn.dataset.imageMode;
+      this._applyImageMode(mode);
+      localStorage.setItem('haven-image-mode', mode);
+      picker.querySelectorAll('[data-image-mode]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  }
+
+  _applyImageMode(mode) {
+    document.body.classList.toggle('image-mode-full', mode === 'full');
+  }
+
+  // ── Image Lightbox ──
+
+  _setupLightbox() {
+    const lb = document.getElementById('image-lightbox');
+    if (!lb) return;
+    lb.addEventListener('click', () => this._closeLightbox());
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lb.style.display !== 'none') this._closeLightbox();
+    });
+  }
+
+  _openLightbox(src) {
+    const lb = document.getElementById('image-lightbox');
+    const img = document.getElementById('lightbox-img');
+    if (!lb || !img) return;
+    img.src = src;
+    lb.style.display = 'flex';
+  }
+
+  _closeLightbox() {
+    const lb = document.getElementById('image-lightbox');
+    if (lb) { lb.style.display = 'none'; }
+    const img = document.getElementById('lightbox-img');
+    if (img) { img.src = ''; }
+  }
+
   // ═══════════════════════════════════════════════════════
   // ONLINE OVERLAY (status bar popup)
   // ═══════════════════════════════════════════════════════
@@ -4171,6 +4228,10 @@ class HavenApp {
     this.socket.emit('get-channel-members', { code });
     this.socket.emit('request-voice-users', { code });
     this._clearReply();
+
+    // Auto-focus the message input for quick typing
+    const msgInput = document.getElementById('message-input');
+    if (msgInput) setTimeout(() => msgInput.focus(), 50);
 
     // Show verify-encryption button only in DM channels
     const verifyBtn = document.getElementById('e2e-verify-btn');
@@ -5418,10 +5479,12 @@ class HavenApp {
       ? `<span class="user-role-badge msg-role-badge" style="color:${onlineUser.role.color || 'var(--text-muted)'}">${this._escapeHtml(onlineUser.role.name)}</span>`
       : '';
 
-    const botBadge = msg.is_webhook ? '<span class="bot-badge">BOT</span>' : '';
+    const botBadge = msg.imported_from === 'discord'
+      ? '<span class="discord-badge">DISCORD</span>'
+      : msg.is_webhook ? '<span class="bot-badge">BOT</span>' : '';
 
     const el = document.createElement('div');
-    el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '') + (msg.is_webhook ? ' webhook-message' : '');
+    el.className = 'message' + (isImage ? ' message-has-image' : '') + (msg.pinned ? ' pinned' : '') + (msg.is_webhook ? ' webhook-message' : '') + (msg.imported_from ? ' imported-message' : '');
     el.dataset.userId = msg.user_id;
     el.dataset.time = msg.created_at;
     el.dataset.msgId = msg.id;
@@ -6103,6 +6166,22 @@ class HavenApp {
         const username = btn.dataset.username;
         this._showVoiceUserMenu(btn, userId, username);
       });
+    });
+
+    // Bind voice user names/items to open profile popup (same as sidebar)
+    el.querySelectorAll('.voice-user-item').forEach(item => {
+      const nameEl = item.querySelector('.user-item-name');
+      if (nameEl) {
+        nameEl.style.cursor = 'pointer';
+        nameEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const userId = parseInt(item.dataset.userId);
+          if (!isNaN(userId)) {
+            this._profilePopupAnchor = nameEl;
+            this.socket.emit('get-user-profile', { userId });
+          }
+        });
+      }
     });
   }
 
@@ -10225,6 +10304,258 @@ class HavenApp {
         const chFlex = parseFloat(channelsPane.style.flex) || 0.6;
         localStorage.setItem('haven_sidebar_split_ratio', chFlex);
       });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // DISCORD IMPORT
+  // ═══════════════════════════════════════════════════════
+
+  _setupDiscordImport() {
+    const modal      = document.getElementById('import-modal');
+    const stepUpload = document.getElementById('import-step-upload');
+    const stepPreview= document.getElementById('import-step-preview');
+    const stepDone   = document.getElementById('import-step-done');
+    const dropzone   = document.getElementById('import-dropzone');
+    const fileInput  = document.getElementById('import-file-input');
+    const browseLink = document.getElementById('import-browse-link');
+    const progressWrap = document.getElementById('import-upload-progress');
+    const progressFill = document.getElementById('import-progress-fill');
+    const statusText   = document.getElementById('import-upload-status');
+    const channelList  = document.getElementById('import-channel-list');
+    const executeBtn   = document.getElementById('import-execute-btn');
+    const backBtn      = document.getElementById('import-back-btn');
+    if (!modal) return;
+
+    let currentImportId = null;
+    let currentPreview  = null;
+
+    const resetModal = () => {
+      stepUpload.style.display  = '';
+      stepPreview.style.display = 'none';
+      stepDone.style.display    = 'none';
+      progressWrap.style.display = 'none';
+      progressFill.style.width  = '0%';
+      statusText.textContent    = 'Uploading...';
+      dropzone.style.display    = '';
+      fileInput.value           = '';
+      channelList.innerHTML     = '';
+      currentImportId           = null;
+      currentPreview            = null;
+    };
+
+    // Open import modal
+    document.getElementById('open-import-btn')?.addEventListener('click', () => {
+      resetModal();
+      modal.style.display = 'flex';
+    });
+
+    // Close
+    document.getElementById('close-import-btn')?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    });
+
+    // Browse link
+    browseLink?.addEventListener('click', (e) => {
+      e.preventDefault();
+      fileInput.click();
+    });
+
+    // File input change
+    fileInput?.addEventListener('change', () => {
+      if (fileInput.files.length) this._importUploadFile(fileInput.files[0]);
+    });
+
+    // Drag & drop
+    dropzone?.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('drag-over');
+    });
+    dropzone?.addEventListener('dragleave', () => {
+      dropzone.classList.remove('drag-over');
+    });
+    dropzone?.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('drag-over');
+      const file = e.dataTransfer?.files?.[0];
+      if (file) this._importUploadFile(file);
+    });
+
+    // Back button
+    backBtn?.addEventListener('click', () => {
+      resetModal();
+    });
+
+    // Execute button
+    executeBtn?.addEventListener('click', () => {
+      if (!currentImportId || !currentPreview) return;
+      const selected = [];
+      channelList.querySelectorAll('.import-channel-row').forEach(row => {
+        const cb = row.querySelector('input[type="checkbox"]');
+        if (!cb?.checked) return;
+        const nameInput = row.querySelector('input[type="text"]');
+        selected.push({
+          discordId: row.dataset.discordId,
+          originalName: row.dataset.originalName,
+          name: nameInput?.value?.trim() || row.dataset.originalName
+        });
+      });
+      if (selected.length === 0) {
+        alert('Select at least one channel to import.');
+        return;
+      }
+      this._importExecute(currentImportId, selected);
+    });
+
+    // Expose state setters for the upload/execute helpers
+    this._importSetState = (importId, preview) => {
+      currentImportId = importId;
+      currentPreview  = preview;
+    };
+  }
+
+  async _importUploadFile(file) {
+    const modal        = document.getElementById('import-modal');
+    const dropzone     = document.getElementById('import-dropzone');
+    const progressWrap = document.getElementById('import-upload-progress');
+    const progressFill = document.getElementById('import-progress-fill');
+    const statusText   = document.getElementById('import-upload-status');
+    const stepUpload   = document.getElementById('import-step-upload');
+    const stepPreview  = document.getElementById('import-step-preview');
+    const channelList  = document.getElementById('import-channel-list');
+
+    // Validate extension
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['json', 'zip'].includes(ext)) {
+      alert('Please upload a .json or .zip file.');
+      return;
+    }
+
+    // Show progress
+    dropzone.style.display     = 'none';
+    progressWrap.style.display = '';
+    progressFill.style.width   = '0%';
+    statusText.textContent     = `Uploading ${file.name}...`;
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/import/discord/upload');
+      xhr.setRequestHeader('Authorization', 'Bearer ' + this.token);
+
+      // Progress tracking
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          progressFill.style.width = pct + '%';
+          statusText.textContent = `Uploading... ${pct}%`;
+        }
+      });
+
+      const result = await new Promise((resolve, reject) => {
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText));
+          } else {
+            try {
+              const err = JSON.parse(xhr.responseText);
+              reject(new Error(err.error || 'Upload failed'));
+            } catch {
+              reject(new Error('Upload failed (status ' + xhr.status + ')'));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.send(formData);
+      });
+
+      // Switch to parsing
+      progressFill.style.width = '100%';
+      statusText.textContent = 'Parsing...';
+      await new Promise(r => setTimeout(r, 300));
+
+      // Show preview
+      this._importSetState(result.importId, result);
+      stepUpload.style.display  = 'none';
+      stepPreview.style.display = '';
+
+      // Format badge
+      const badge = document.getElementById('import-format-badge');
+      badge.textContent = result.format;
+      badge.classList.toggle('official', result.format === 'Discord Data Package');
+
+      document.getElementById('import-server-name').textContent = result.serverName;
+      document.getElementById('import-total-msgs').textContent = `${result.totalMessages.toLocaleString()} messages total`;
+
+      // Build channel list
+      channelList.innerHTML = '';
+      result.channels.forEach(ch => {
+        const row = document.createElement('div');
+        row.className = 'import-channel-row';
+        row.dataset.discordId = ch.discordId || '';
+        row.dataset.originalName = ch.name;
+        row.innerHTML = `
+          <label>
+            <input type="checkbox" checked>
+            <span class="import-ch-name">
+              <input type="text" value="${this._escapeHtml(ch.name)}" title="Rename channel">
+            </span>
+          </label>
+          <span class="import-ch-count">${ch.messageCount.toLocaleString()} msgs</span>
+        `;
+        channelList.appendChild(row);
+      });
+
+    } catch (err) {
+      statusText.textContent = '❌ ' + err.message;
+      progressFill.style.width = '100%';
+      progressFill.style.background = '#ed4245';
+      setTimeout(() => {
+        dropzone.style.display     = '';
+        progressWrap.style.display = 'none';
+        progressFill.style.background = '';
+      }, 3000);
+    }
+  }
+
+  async _importExecute(importId, selectedChannels) {
+    const executeBtn = document.getElementById('import-execute-btn');
+    const stepPreview = document.getElementById('import-step-preview');
+    const stepDone    = document.getElementById('import-step-done');
+    const doneMsg     = document.getElementById('import-done-msg');
+
+    executeBtn.disabled = true;
+    executeBtn.textContent = '⏳ Importing...';
+
+    try {
+      const res = await fetch('/api/import/discord/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + this.token
+        },
+        body: JSON.stringify({ importId, selectedChannels })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Import failed');
+
+      // Show done step
+      stepPreview.style.display = 'none';
+      stepDone.style.display    = '';
+      doneMsg.textContent = `Successfully imported ${data.channelsCreated} channel${data.channelsCreated !== 1 ? 's' : ''} with ${data.messagesImported.toLocaleString()} messages.`;
+
+      // Refresh channel list
+      if (this.socket) this.socket.emit('get-channels');
+    } catch (err) {
+      alert('Import failed: ' + err.message);
+    } finally {
+      executeBtn.disabled = false;
+      executeBtn.textContent = '📦 Import Selected';
     }
   }
 
