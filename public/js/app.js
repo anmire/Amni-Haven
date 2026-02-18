@@ -34,6 +34,7 @@ class HavenApp {
     this.voiceCounts = {};         // { channelCode: count } for sidebar voice indicators
     this.e2e = null;               // HavenE2E instance for DM encryption
     this._dmPublicKeys = {};       // { userId → jwk } cache for DM partner public keys
+    this._e2eListenersAttached = false;
 
     // Slash command definitions for autocomplete
     this.slashCommands = [
@@ -660,10 +661,10 @@ class HavenApp {
               try {
                 const plain = await this.e2e.decrypt(data.content, partner.userId, partner.publicKeyJwk);
                 if (plain !== null) displayContent = plain;
-                else displayContent = '🔒 Unable to decrypt';
-              } catch { displayContent = '🔒 Unable to decrypt'; }
+                else displayContent = '[Encrypted message — unable to decrypt]';
+              } catch { displayContent = '[Encrypted message — unable to decrypt]'; }
             } else {
-              displayContent = '🔒 Unable to decrypt';
+              displayContent = '[Encrypted message — unable to decrypt]';
             }
           }
           contentEl.innerHTML = this._formatContent(displayContent);
@@ -4955,9 +4956,10 @@ class HavenApp {
       el.innerHTML = `
         <span class="compact-time">${new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
         <div class="message-body">
-          <div class="message-content">${e2eTag}${pinnedTag}${this._formatContent(msg.content)}${editedHtml}</div>
+          <div class="message-content">${pinnedTag}${this._formatContent(msg.content)}${editedHtml}</div>
           ${reactionsHtml}
         </div>
+        ${e2eTag}
         ${toolbarHtml}
       `;
       return el;
@@ -10030,34 +10032,94 @@ class HavenApp {
       // Clear password immediately — no longer needed
       sessionStorage.removeItem('haven_e2e_pw');
       if (ok) {
-        // Publish our public key to the server
-        this.socket.emit('publish-public-key', { jwk: this.e2e.publicKeyJwk });
-        // Listen for public key responses
-        this.socket.on('public-key-result', (data) => {
-          if (data.jwk) {
-            const oldKey = this._dmPublicKeys[data.userId];
-            const keyChanged = oldKey && (oldKey.x !== data.jwk.x || oldKey.y !== data.jwk.y);
-            this._dmPublicKeys[data.userId] = data.jwk;
-            if (keyChanged) {
-              // Partner's key changed — invalidate the cached shared secret
-              // so ECDH re-derives with the new public key
-              this.e2e._sharedKeys = Object.fromEntries(
-                Object.entries(this.e2e._sharedKeys).filter(([k]) => !k.startsWith(data.userId + ':'))
-              );
-              console.warn(`[E2E] Partner ${data.userId} key changed — shared secret invalidated`);
-            }
-            // Key arrived or updated — if we're viewing a DM with this user,
-            // re-fetch messages so they decrypt with the current key.
-            this._retryDecryptForUser(data.userId);
-          }
-        });
-        console.log('[E2E] Initialized, public key published');
+        this._e2eSetupListeners();
+      } else if (this.e2e.needsPassword) {
+        // Server has encrypted key but no password available (token auto-login).
+        // Show a non-blocking prompt so user can recover their E2E keys.
+        this._showE2EPasswordRecovery();
       }
     } catch (err) {
       console.warn('[E2E] Init failed:', err);
       this.e2e = null;
       sessionStorage.removeItem('haven_e2e_pw');
     }
+  }
+
+  /** Set up E2E listeners and publish key after successful init */
+  _e2eSetupListeners() {
+    // Publish our public key to the server
+    this.socket.emit('publish-public-key', { jwk: this.e2e.publicKeyJwk });
+    // Listen for public key responses (only attach once)
+    if (!this._e2eListenersAttached) {
+      this._e2eListenersAttached = true;
+      this.socket.on('public-key-result', (data) => {
+        if (data.jwk) {
+          const oldKey = this._dmPublicKeys[data.userId];
+          const keyChanged = oldKey && (oldKey.x !== data.jwk.x || oldKey.y !== data.jwk.y);
+          this._dmPublicKeys[data.userId] = data.jwk;
+          if (keyChanged) {
+            // Partner's key changed — invalidate the cached shared secret
+            // so ECDH re-derives with the new public key
+            this.e2e._sharedKeys = Object.fromEntries(
+              Object.entries(this.e2e._sharedKeys).filter(([k]) => !k.startsWith(data.userId + ':'))
+            );
+            console.warn(`[E2E] Partner ${data.userId} key changed — shared secret invalidated`);
+          }
+          // Key arrived or updated — if we're viewing a DM with this user,
+          // re-fetch messages so they decrypt with the current key.
+          this._retryDecryptForUser(data.userId);
+        }
+      });
+    }
+    console.log('[E2E] Initialized, public key published');
+  }
+
+  /** Show a banner prompting the user to re-enter their password to unlock E2E */
+  _showE2EPasswordRecovery() {
+    // Create a non-blocking banner at the top of the chat area
+    const existing = document.getElementById('e2e-recovery-banner');
+    if (existing) existing.remove();
+    const banner = document.createElement('div');
+    banner.id = 'e2e-recovery-banner';
+    banner.innerHTML = `
+      <div class="e2e-recovery-inner">
+        <span>🔒 Enter your password to unlock end-to-end encryption</span>
+        <input type="password" id="e2e-recovery-pw" placeholder="Password" autocomplete="current-password">
+        <button class="btn-sm btn-accent" id="e2e-recovery-btn">Unlock</button>
+        <button class="btn-sm" id="e2e-recovery-dismiss">✕</button>
+      </div>
+    `;
+    const chatArea = document.getElementById('messages');
+    if (chatArea && chatArea.parentElement) {
+      chatArea.parentElement.insertBefore(banner, chatArea);
+    }
+    banner.querySelector('#e2e-recovery-btn').addEventListener('click', async () => {
+      const pw = banner.querySelector('#e2e-recovery-pw').value;
+      if (!pw) return;
+      const btn = banner.querySelector('#e2e-recovery-btn');
+      btn.textContent = 'Unlocking…';
+      btn.disabled = true;
+      const ok = await this.e2e.recoverWithPassword(this.socket, pw);
+      if (ok) {
+        banner.remove();
+        this._e2eSetupListeners();
+        this._showToast('Encryption keys recovered ✓', 'success');
+        // Re-fetch current DM messages to decrypt them
+        if (this.currentChannel) {
+          this.socket.emit('get-messages', { code: this.currentChannel });
+        }
+      } else {
+        btn.textContent = 'Unlock';
+        btn.disabled = false;
+        this._showToast('Wrong password — try again', 'error');
+      }
+    });
+    banner.querySelector('#e2e-recovery-pw').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') banner.querySelector('#e2e-recovery-btn').click();
+    });
+    banner.querySelector('#e2e-recovery-dismiss').addEventListener('click', () => {
+      banner.remove();
+    });
   }
 
   /**
@@ -10169,7 +10231,7 @@ class HavenApp {
       if (HavenE2E.isEncrypted(msg.content)) {
         if (!partnerJwk) {
           // Key not yet available — show placeholder (will retry when key arrives)
-          msg.content = '🔒 [Encrypted message — waiting for key...]';
+          msg.content = '[Encrypted message — waiting for key...]';
           msg._e2e = true;
           continue;
         }
@@ -10178,7 +10240,7 @@ class HavenApp {
           msg.content = plain;
           msg._e2e = true; // flag for UI indicator
         } else {
-          msg.content = '🔒 [Encrypted message — unable to decrypt]';
+          msg.content = '[Encrypted message — unable to decrypt]';
           msg._e2e = true;
         }
       }

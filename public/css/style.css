@@ -5535,20 +5535,55 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   user-select: none;
   flex-shrink: 0;
 }
-/* In the header row, push the lock to the far right */
+/* In the header row (full messages), push the lock to the far right */
 .message-header .e2e-tag {
   margin-left: auto;
 }
-/* Inside compact message-content, keep it inline before the text */
-.message-content .e2e-tag {
-  margin-left: 0;
-  margin-right: 4px;
-  vertical-align: baseline;
+/* In compact messages, position lock absolutely on the far right */
+.message-compact > .e2e-tag {
+  position: absolute;
+  right: 8px;
+  top: 2px;
 }
 .message-header-spacer {
   flex: 1 1 0;
   min-width: 0;
 }
+
+/* ── E2E Password Recovery Banner ─── */
+#e2e-recovery-banner {
+  background: var(--bg-tertiary);
+  border-bottom: 2px solid var(--accent);
+  padding: 8px 16px;
+  z-index: 50;
+  flex-shrink: 0;
+}
+.e2e-recovery-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+#e2e-recovery-pw {
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  width: 180px;
+}
+#e2e-recovery-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+}
+#e2e-recovery-dismiss:hover { color: var(--text-primary); }
 
 
 /* ═══════════════════════════════════════════════════════════

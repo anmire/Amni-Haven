@@ -16,6 +16,7 @@ class HavenE2E {
     this._sharedKeys = {};    // targetUserId → AES-GCM CryptoKey (cache)
     this._publicKeyJwk = null; // Our exported public key (JWK)
     this._ready = false;
+    this._needsPassword = false; // true when server key exists but can't unwrap (no password / wrong password)
   }
 
   /* ── Lifecycle ──────────────────────────────────────── */
@@ -29,45 +30,62 @@ class HavenE2E {
   async init(socket, password) {
     try {
       await this._openDB();
+      this._needsPassword = false;
 
       // 1. Fast path: try local IndexedDB
       this._keyPair = await this._loadKeyPair();
 
-      if (!this._keyPair && socket && password) {
+      if (!this._keyPair && socket) {
         // 2. Cross-device: check server for password-encrypted key
         const serverData = await this._fetchEncryptedKey(socket);
         if (serverData.encryptedKey && serverData.salt) {
-          try {
-            const privateJwk = await this._unwrapPrivateKey(password, serverData.encryptedKey, serverData.salt);
-            this._keyPair = await this._importKeyPair(privateJwk);
-            await this._storeKeyPair(this._keyPair);
-            console.log('[E2E] Restored key pair from server (cross-device sync)');
-          } catch (err) {
-            console.warn('[E2E] Failed to decrypt server key (password may have changed):', err.message);
+          if (password) {
+            try {
+              const privateJwk = await this._unwrapPrivateKey(password, serverData.encryptedKey, serverData.salt);
+              this._keyPair = await this._importKeyPair(privateJwk);
+              await this._storeKeyPair(this._keyPair);
+              console.log('[E2E] Restored key pair from server (cross-device sync)');
+            } catch (err) {
+              console.warn('[E2E] Failed to decrypt server key (password may have changed):', err.message);
+              // Server has a key but password didn't work — don't generate new keys
+              this._needsPassword = true;
+            }
+          } else {
+            // Server has encrypted key but no password available (auto-login via token).
+            // Do NOT generate new keys — that would overwrite the server's public key
+            // and make all old messages permanently unreadable.
+            console.warn('[E2E] Server has encrypted key but no password — need password to recover');
+            this._needsPassword = true;
           }
         }
       }
 
-      if (!this._keyPair) {
-        // 3. Generate brand-new key pair
+      if (!this._keyPair && !this._needsPassword) {
+        // 3. No key in IndexedDB, no key on server — truly first time for this user
         this._keyPair = await this._generateKeyPair();
         await this._storeKeyPair(this._keyPair);
         console.log('[E2E] Generated new key pair');
       }
 
-      this._publicKeyJwk = await crypto.subtle.exportKey('jwk', this._keyPair.publicKey);
+      if (this._keyPair) {
+        this._publicKeyJwk = await crypto.subtle.exportKey('jwk', this._keyPair.publicKey);
 
-      // Upload encrypted private key to server for cross-device sync
-      if (socket && password) {
-        try {
-          await this._uploadEncryptedKey(socket, password);
-        } catch (err) {
-          console.warn('[E2E] Failed to upload encrypted key:', err.message);
+        // Upload encrypted private key to server for cross-device sync
+        if (socket && password) {
+          try {
+            await this._uploadEncryptedKey(socket, password);
+          } catch (err) {
+            console.warn('[E2E] Failed to upload encrypted key:', err.message);
+          }
         }
-      }
 
-      this._ready = true;
-      console.log('[E2E] Ready — public key loaded');
+        this._ready = true;
+        console.log('[E2E] Ready — public key loaded');
+      } else {
+        // Key recovery needed — E2E not available until password is provided
+        this._ready = false;
+        console.warn('[E2E] Not ready — password required to recover encryption keys');
+      }
     } catch (err) {
       console.error('[E2E] Init failed:', err);
       this._ready = false;
@@ -77,6 +95,32 @@ class HavenE2E {
 
   get ready() { return this._ready; }
   get publicKeyJwk() { return this._publicKeyJwk; }
+  get needsPassword() { return this._needsPassword; }
+
+  /**
+   * Retry key recovery with a password (after auto-login without password).
+   * Called when the user re-enters their password via the recovery prompt.
+   */
+  async recoverWithPassword(socket, password) {
+    if (!password) return false;
+    try {
+      const serverData = await this._fetchEncryptedKey(socket);
+      if (!serverData.encryptedKey || !serverData.salt) return false;
+      const privateJwk = await this._unwrapPrivateKey(password, serverData.encryptedKey, serverData.salt);
+      this._keyPair = await this._importKeyPair(privateJwk);
+      await this._storeKeyPair(this._keyPair);
+      this._publicKeyJwk = await crypto.subtle.exportKey('jwk', this._keyPair.publicKey);
+      // Re-upload (refreshes the wrapping in case password changed)
+      try { await this._uploadEncryptedKey(socket, password); } catch {}
+      this._ready = true;
+      this._needsPassword = false;
+      console.log('[E2E] Key recovered with password');
+      return true;
+    } catch (err) {
+      console.warn('[E2E] Password recovery failed:', err.message);
+      return false;
+    }
+  }
 
   /* ── Encrypt / Decrypt ─────────────────────────────── */
 
