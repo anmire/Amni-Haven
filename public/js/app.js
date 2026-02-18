@@ -35,6 +35,7 @@ class HavenApp {
     this.e2e = null;               // HavenE2E instance for DM encryption
     this._dmPublicKeys = {};       // { userId → jwk } cache for DM partner public keys
     this._e2eListenersAttached = false;
+    this._e2eInitDone = false;
 
     // Slash command definitions for autocomplete
     this.slashCommands = [
@@ -160,8 +161,8 @@ class HavenApp {
     this.socket.emit('get-preferences');
     this.socket.emit('get-high-scores', { game: 'flappy' });
 
-    // Init E2E encryption for DMs
-    this._initE2E();
+    // E2E init is deferred to 'session-info' handler to ensure
+    // the socket is fully connected and server-side handlers are registered.
 
     document.getElementById('current-user').textContent = this.user.displayName || this.user.username;
     const loginEl = document.getElementById('login-name');
@@ -208,6 +209,11 @@ class HavenApp {
         }
       }
       localStorage.setItem('haven_user', JSON.stringify(this.user));
+      // Init E2E encryption AFTER socket is fully connected & server handlers registered
+      if (!this._e2eInitDone) {
+        this._e2eInitDone = true;
+        this._initE2E();
+      }
       // Show server version in status bar
       if (data.version) {
         const vEl = document.getElementById('status-version');
@@ -4743,7 +4749,10 @@ class HavenApp {
         if (!indicator) {
           indicator = document.createElement('span');
           indicator.className = 'channel-voice-indicator';
-          el.appendChild(indicator);
+          // Insert before the ⋯ button so they don't overlap
+          const moreBtn = el.querySelector('.channel-more-btn');
+          if (moreBtn) el.insertBefore(indicator, moreBtn);
+          else el.appendChild(indicator);
         }
         indicator.innerHTML = `<span class="voice-icon">🔊</span>${count}`;
       } else if (indicator) {

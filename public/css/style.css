@@ -2839,7 +2839,6 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   gap: 3px;
   font-size: 11px;
   color: var(--success);
-  margin-left: auto;
   flex-shrink: 0;
 }
 .channel-voice-indicator .voice-icon { font-size: 12px; }
@@ -2941,10 +2940,6 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 /* Channel context menu (sidebar "..." hover button) */
 .channel-item { position: relative; }
 .channel-more-btn {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
   background: none;
   border: none;
   color: var(--text-secondary);
@@ -2956,6 +2951,12 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   pointer-events: none;
   transition: opacity .15s;
   line-height: 1;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+/* When voice indicator is present, don't double-auto-margin */
+.channel-voice-indicator ~ .channel-more-btn {
+  margin-left: 2px;
 }
 .channel-item:hover .channel-more-btn,
 .channel-item .channel-more-btn:focus {
