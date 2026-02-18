@@ -10,6 +10,12 @@
   // ── Theme switching ───────────────────────────────────
   initThemeSwitcher('auth-theme-bar');
 
+  // ── Fetch and display server version ──────────────────
+  fetch('/api/version').then(r => r.json()).then(d => {
+    const el = document.getElementById('auth-version');
+    if (el && d.version) el.textContent = 'v' + d.version;
+  }).catch(() => {});
+
   // ── EULA ─────────────────────────────────────────────
   const ageCheckbox  = document.getElementById('age-checkbox');
   const eulaCheckbox = document.getElementById('eula-checkbox');

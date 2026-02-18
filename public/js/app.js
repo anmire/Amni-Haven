@@ -34,6 +34,8 @@ class HavenApp {
     this.voiceCounts = {};         // { channelCode: count } for sidebar voice indicators
     this.e2e = null;               // HavenE2E instance for DM encryption
     this._dmPublicKeys = {};       // { userId → jwk } cache for DM partner public keys
+    this._e2eListenersAttached = false;
+    this._e2eInitDone = false;
 
     // Slash command definitions for autocomplete
     this.slashCommands = [
@@ -159,15 +161,17 @@ class HavenApp {
     this.socket.emit('get-preferences');
     this.socket.emit('get-high-scores', { game: 'flappy' });
 
-    // Init E2E encryption for DMs
-    this._initE2E();
+    // E2E init is deferred to 'session-info' handler to ensure
+    // the socket is fully connected and server-side handlers are registered.
 
     document.getElementById('current-user').textContent = this.user.displayName || this.user.username;
     const loginEl = document.getElementById('login-name');
     if (loginEl) loginEl.textContent = `@${this.user.username}`;
 
-    if (this.user.isAdmin) {
+    if (this.user.isAdmin || this._hasPerm('create_channel')) {
       document.getElementById('admin-controls').style.display = 'block';
+    }
+    if (this.user.isAdmin) {
       document.getElementById('admin-mod-panel').style.display = 'block';
       const organizeBtn = document.getElementById('organize-channels-btn');
       if (organizeBtn) organizeBtn.style.display = '';
@@ -207,6 +211,11 @@ class HavenApp {
         }
       }
       localStorage.setItem('haven_user', JSON.stringify(this.user));
+      // Init E2E encryption AFTER socket is fully connected & server handlers registered
+      if (!this._e2eInitDone) {
+        this._e2eInitDone = true;
+        this._initE2E();
+      }
       // Show server version in status bar
       if (data.version) {
         const vEl = document.getElementById('status-version');
@@ -220,11 +229,11 @@ class HavenApp {
       this._updateAvatarPreview();
       // Show admin/mod controls based on role level
       const canModerate = this.user.isAdmin || this.user.effectiveLevel >= 25;
+      const canCreateChannel = this.user.isAdmin || this._hasPerm('create_channel');
+      document.getElementById('admin-controls').style.display = canCreateChannel ? 'block' : 'none';
       if (this.user.isAdmin) {
-        document.getElementById('admin-controls').style.display = 'block';
         document.getElementById('admin-mod-panel').style.display = 'block';
       } else {
-        document.getElementById('admin-controls').style.display = 'none';
         document.getElementById('admin-mod-panel').style.display = canModerate ? 'block' : 'none';
       }
     });
@@ -237,6 +246,8 @@ class HavenApp {
       localStorage.setItem('haven_user', JSON.stringify(this.user));
       // Refresh UI to reflect new permissions
       const canModerate = this.user.isAdmin || this.user.effectiveLevel >= 25;
+      const canCreateChannel = this.user.isAdmin || this._hasPerm('create_channel');
+      document.getElementById('admin-controls').style.display = canCreateChannel ? 'block' : 'none';
       document.getElementById('admin-mod-panel').style.display = canModerate ? 'block' : 'none';
       this._showToast('Your roles have been updated', 'info');
     });
@@ -309,6 +320,9 @@ class HavenApp {
     this.socket.on('channels-list', (channels) => {
       this.channels = channels;
       this._renderChannels();
+      // Request fresh voice counts so sidebar indicators are always correct
+      // (covers cases where initial push arrived before DOM was ready)
+      this.socket.emit('get-voice-counts');
     });
 
     // Channel renamed — update header if we're in that channel
@@ -493,8 +507,9 @@ class HavenApp {
     this.socket.on('stream-viewers-update', (data) => {
       this._streamInfo = data.streams || [];
       this._updateStreamViewerBadges();
-      // Re-render voice users to show streaming/watching indicators
-      if (data.channelCode === this.currentChannel && this._lastVoiceUsers) {
+      // Always re-render voice users so the LIVE viewer count updates
+      // regardless of which text channel the user is viewing
+      if (this._lastVoiceUsers) {
         this._renderVoiceUsers(this._lastVoiceUsers);
       }
     });
@@ -630,11 +645,12 @@ class HavenApp {
       if (loginEl) loginEl.textContent = `@${data.user.username}`;
       this._showToast(`Display name changed to "${data.user.displayName || data.user.username}"`, 'success');
       // Refresh admin UI in case admin status changed
+      this.user.permissions = data.user.permissions || this.user.permissions || [];
+      const canCreate = data.user.isAdmin || this._hasPerm('create_channel');
+      document.getElementById('admin-controls').style.display = canCreate ? 'block' : 'none';
       if (data.user.isAdmin) {
-        document.getElementById('admin-controls').style.display = 'block';
         document.getElementById('admin-mod-panel').style.display = 'block';
       } else {
-        document.getElementById('admin-controls').style.display = 'none';
         document.getElementById('admin-mod-panel').style.display = 'none';
       }
     });
@@ -660,10 +676,10 @@ class HavenApp {
               try {
                 const plain = await this.e2e.decrypt(data.content, partner.userId, partner.publicKeyJwk);
                 if (plain !== null) displayContent = plain;
-                else displayContent = '🔒 Unable to decrypt';
-              } catch { displayContent = '🔒 Unable to decrypt'; }
+                else displayContent = '[Encrypted message — unable to decrypt]';
+              } catch { displayContent = '[Encrypted message — unable to decrypt]'; }
             } else {
-              displayContent = '🔒 Unable to decrypt';
+              displayContent = '[Encrypted message — unable to decrypt]';
             }
           }
           contentEl.innerHTML = this._formatContent(displayContent);
@@ -1883,14 +1899,21 @@ class HavenApp {
     });
 
     document.getElementById('add-server-btn').addEventListener('click', () => {
+      this._editingServerUrl = null;
+      document.getElementById('add-server-modal-title').textContent = 'Add a Server';
       document.getElementById('add-server-modal').style.display = 'flex';
       document.getElementById('add-server-name-input').value = '';
       document.getElementById('server-url-input').value = '';
+      document.getElementById('server-url-input').disabled = false;
+      document.getElementById('add-server-icon-input').value = '';
+      document.getElementById('save-server-btn').textContent = 'Add Server';
       document.getElementById('add-server-name-input').focus();
     });
 
     document.getElementById('cancel-server-btn').addEventListener('click', () => {
       document.getElementById('add-server-modal').style.display = 'none';
+      document.getElementById('server-url-input').disabled = false;
+      this._editingServerUrl = null;
     });
 
     document.getElementById('save-server-btn').addEventListener('click', () => this._addServer());
@@ -1974,15 +1997,59 @@ class HavenApp {
   _addServer() {
     const name = document.getElementById('add-server-name-input').value.trim();
     const url = document.getElementById('server-url-input').value.trim();
+    const iconInput = document.getElementById('add-server-icon-input').value.trim();
+    const autoPull = document.getElementById('server-auto-icon').checked;
     if (!name || !url) return this._showToast('Name and address are both required', 'error');
 
-    if (this.serverManager.add(name, url)) {
+    const editUrl = this._editingServerUrl;
+    if (editUrl) {
+      // Editing existing server
+      this.serverManager.update(editUrl, { name, icon: iconInput || null });
+      this._editingServerUrl = null;
       document.getElementById('add-server-modal').style.display = 'none';
       this._renderServerBar();
-      this._showToast(`Added "${name}"`, 'success');
+      this._showToast(`Updated "${name}"`, 'success');
+      // Auto-pull icon if checked
+      if (autoPull) this._autoPullServerIcon(editUrl);
     } else {
-      this._showToast('Server already in your list', 'error');
+      // Adding new server
+      const icon = iconInput || null;
+      if (this.serverManager.add(name, url, icon)) {
+        document.getElementById('add-server-modal').style.display = 'none';
+        this._renderServerBar();
+        this._showToast(`Added "${name}"`, 'success');
+        // Auto-pull icon after health check completes
+        if (autoPull) {
+          const cleanUrl = url.replace(/\/+$/, '');
+          const finalUrl = /^https?:\/\//.test(cleanUrl) ? cleanUrl : 'https://' + cleanUrl;
+          setTimeout(() => this._autoPullServerIcon(finalUrl), 2000);
+        }
+      } else {
+        this._showToast('Server already in your list', 'error');
+      }
     }
+  }
+
+  _autoPullServerIcon(url) {
+    const status = this.serverManager.statusCache.get(url);
+    if (status && status.icon) {
+      this.serverManager.update(url, { icon: status.icon });
+      this._renderServerBar();
+    }
+  }
+
+  _editServer(url) {
+    const server = this.serverManager.servers.find(s => s.url === url);
+    if (!server) return;
+    this._editingServerUrl = url;
+    document.getElementById('add-server-modal-title').textContent = 'Edit Server';
+    document.getElementById('add-server-name-input').value = server.name;
+    document.getElementById('server-url-input').value = server.url;
+    document.getElementById('server-url-input').disabled = true;
+    document.getElementById('add-server-icon-input').value = server.icon || '';
+    document.getElementById('save-server-btn').textContent = 'Save';
+    document.getElementById('add-server-modal').style.display = 'flex';
+    document.getElementById('add-server-name-input').focus();
   }
 
   _renderServerBar() {
@@ -1994,10 +2061,15 @@ class HavenApp {
       const online = s.status.online;
       const statusClass = online === true ? 'online' : online === false ? 'offline' : 'unknown';
       const statusText = online === true ? '● Online' : online === false ? '○ Offline' : '◌ Checking...';
+      // Use custom icon, auto-pulled icon from health check, or letter initial
+      const iconUrl = s.icon || (s.status.icon || null);
+      const iconContent = iconUrl
+        ? `<img src="${this._escapeHtml(iconUrl)}" class="server-icon-img" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><span class="server-icon-text" style="display:none">${initial}</span>`
+        : `<span class="server-icon-text">${initial}</span>`;
       return `
         <div class="server-icon remote" data-url="${this._escapeHtml(s.url)}"
              title="${this._escapeHtml(s.name)} — ${statusText}">
-          <span class="server-icon-text">${initial}</span>
+          ${iconContent}
           <span class="server-status-dot ${statusClass}"></span>
           <button class="server-remove" title="Remove">&times;</button>
         </div>
@@ -2014,6 +2086,11 @@ class HavenApp {
           return;
         }
         window.open(el.dataset.url, '_blank', 'noopener');
+      });
+      // Right-click to edit
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._editServer(el.dataset.url);
       });
     });
   }
@@ -4742,7 +4819,10 @@ class HavenApp {
         if (!indicator) {
           indicator = document.createElement('span');
           indicator.className = 'channel-voice-indicator';
-          el.appendChild(indicator);
+          // Insert before the ⋯ button so they don't overlap
+          const moreBtn = el.querySelector('.channel-more-btn');
+          if (moreBtn) el.insertBefore(indicator, moreBtn);
+          else el.appendChild(indicator);
         }
         indicator.innerHTML = `<span class="voice-icon">🔊</span>${count}`;
       } else if (indicator) {
@@ -4954,9 +5034,12 @@ class HavenApp {
       if (msg._e2e) el.dataset.e2e = '1';
       el.innerHTML = `
         <span class="compact-time">${new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
-        <div class="message-content">${e2eTag}${pinnedTag}${this._formatContent(msg.content)}${editedHtml}</div>
+        <div class="message-body">
+          <div class="message-content">${pinnedTag}${this._formatContent(msg.content)}${editedHtml}</div>
+          ${reactionsHtml}
+        </div>
+        ${e2eTag}
         ${toolbarHtml}
-        ${reactionsHtml}
       `;
       return el;
     }
@@ -5024,7 +5107,7 @@ class HavenApp {
     const contentHtml = contentEl ? contentEl.innerHTML : '';
     const toolbarEl = compactEl.querySelector('.msg-toolbar');
     const toolbarHtml = toolbarEl ? toolbarEl.outerHTML : '';
-    const reactionsEl = compactEl.querySelector('.reactions');
+    const reactionsEl = compactEl.querySelector('.reactions-row');
     const reactionsHtml = reactionsEl ? reactionsEl.outerHTML : '';
     const pinnedTag = isPinned ? '<span class="pinned-tag" title="Pinned message">📌</span>' : '';
     const e2eTag = compactEl.dataset.e2e === '1' ? '<span class="e2e-tag" title="End-to-end encrypted">🔒</span>' : '';
@@ -8030,6 +8113,7 @@ class HavenApp {
   _showReactionPicker(msgEl, msgId) {
     // Remove any existing reaction picker
     document.querySelectorAll('.reaction-picker').forEach(el => el.remove());
+    document.querySelectorAll('.reaction-full-picker').forEach(el => el.remove());
 
     const picker = document.createElement('div');
     picker.className = 'reaction-picker';
@@ -8045,16 +8129,99 @@ class HavenApp {
       picker.appendChild(btn);
     });
 
+    // "..." button opens the full emoji picker for reactions
+    const moreBtn = document.createElement('button');
+    moreBtn.className = 'reaction-pick-btn reaction-more-btn';
+    moreBtn.textContent = '⋯';
+    moreBtn.title = 'All emojis';
+    moreBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._showFullReactionPicker(msgEl, msgId, picker);
+    });
+    picker.appendChild(moreBtn);
+
     msgEl.appendChild(picker);
 
     // Close on click outside
     const close = (e) => {
-      if (!picker.contains(e.target)) {
+      if (!picker.contains(e.target) && !e.target.closest('.reaction-full-picker')) {
         picker.remove();
+        document.querySelectorAll('.reaction-full-picker').forEach(el => el.remove());
         document.removeEventListener('click', close);
       }
     };
     setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
+  _showFullReactionPicker(msgEl, msgId, quickPicker) {
+    // Remove any existing full picker
+    document.querySelectorAll('.reaction-full-picker').forEach(el => el.remove());
+
+    const panel = document.createElement('div');
+    panel.className = 'reaction-full-picker';
+
+    // Search bar
+    const searchRow = document.createElement('div');
+    searchRow.className = 'reaction-full-search';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search emojis...';
+    searchInput.className = 'reaction-full-search-input';
+    searchRow.appendChild(searchInput);
+    panel.appendChild(searchRow);
+
+    // Scrollable emoji grid
+    const grid = document.createElement('div');
+    grid.className = 'reaction-full-grid';
+
+    const renderAll = (filter) => {
+      grid.innerHTML = '';
+      const lowerFilter = filter ? filter.toLowerCase() : '';
+      for (const [category, emojis] of Object.entries(this.emojiCategories)) {
+        const matching = lowerFilter
+          ? emojis.filter(e => {
+              const names = this.emojiNames[e] || '';
+              return e.includes(lowerFilter) || names.toLowerCase().includes(lowerFilter) || category.toLowerCase().includes(lowerFilter);
+            })
+          : emojis;
+        if (matching.length === 0) continue;
+
+        const label = document.createElement('div');
+        label.className = 'reaction-full-category';
+        label.textContent = category;
+        grid.appendChild(label);
+
+        const row = document.createElement('div');
+        row.className = 'reaction-full-row';
+        matching.forEach(emoji => {
+          const btn = document.createElement('button');
+          btn.className = 'reaction-full-btn';
+          btn.textContent = emoji;
+          btn.title = this.emojiNames[emoji] || '';
+          btn.addEventListener('click', () => {
+            this.socket.emit('add-reaction', { messageId: msgId, emoji });
+            panel.remove();
+            quickPicker.remove();
+          });
+          row.appendChild(btn);
+        });
+        grid.appendChild(row);
+      }
+    };
+
+    renderAll('');
+    panel.appendChild(grid);
+
+    // Debounced search
+    let searchTimer;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => renderAll(searchInput.value.trim()), 150);
+    });
+
+    // Position the panel near the quick picker
+    msgEl.appendChild(panel);
+    searchInput.focus();
   }
 
   // ═══════════════════════════════════════════════════════
@@ -9944,34 +10111,118 @@ class HavenApp {
       // Clear password immediately — no longer needed
       sessionStorage.removeItem('haven_e2e_pw');
       if (ok) {
-        // Publish our public key to the server
-        this.socket.emit('publish-public-key', { jwk: this.e2e.publicKeyJwk });
-        // Listen for public key responses
-        this.socket.on('public-key-result', (data) => {
-          if (data.jwk) {
-            const oldKey = this._dmPublicKeys[data.userId];
-            const keyChanged = oldKey && (oldKey.x !== data.jwk.x || oldKey.y !== data.jwk.y);
-            this._dmPublicKeys[data.userId] = data.jwk;
-            if (keyChanged) {
-              // Partner's key changed — invalidate the cached shared secret
-              // so ECDH re-derives with the new public key
-              this.e2e._sharedKeys = Object.fromEntries(
-                Object.entries(this.e2e._sharedKeys).filter(([k]) => !k.startsWith(data.userId + ':'))
-              );
-              console.warn(`[E2E] Partner ${data.userId} key changed — shared secret invalidated`);
-            }
-            // Key arrived or updated — if we're viewing a DM with this user,
-            // re-fetch messages so they decrypt with the current key.
-            this._retryDecryptForUser(data.userId);
-          }
-        });
-        console.log('[E2E] Initialized, public key published');
+        this._e2eSetupListeners();
+      } else if (this.e2e.needsPassword) {
+        // Server has encrypted key but no password available (token auto-login).
+        // Show a non-blocking prompt so user can recover their E2E keys.
+        this._showE2EPasswordRecovery();
       }
     } catch (err) {
       console.warn('[E2E] Init failed:', err);
       this.e2e = null;
       sessionStorage.removeItem('haven_e2e_pw');
     }
+  }
+
+  /** Set up E2E listeners and publish key after successful init */
+  _e2eSetupListeners() {
+    // Publish our public key to the server
+    const publishData = { jwk: this.e2e.publicKeyJwk };
+    // Check both app-level flag and e2e-level flag (set by resetKeys auto-reset)
+    if (this._e2eForcePublish || (this.e2e && this.e2e._forcePublish)) {
+      publishData.force = true;
+      this._e2eForcePublish = false;
+      if (this.e2e) this.e2e._forcePublish = false;
+    }
+    this.socket.emit('publish-public-key', publishData);
+    // Listen for public key responses (only attach once)
+    if (!this._e2eListenersAttached) {
+      this._e2eListenersAttached = true;
+      this.socket.on('public-key-result', (data) => {
+        if (data.jwk) {
+          const oldKey = this._dmPublicKeys[data.userId];
+          const keyChanged = oldKey && (oldKey.x !== data.jwk.x || oldKey.y !== data.jwk.y);
+          this._dmPublicKeys[data.userId] = data.jwk;
+          if (keyChanged) {
+            // Partner's key changed — invalidate the cached shared secret
+            // so ECDH re-derives with the new public key
+            this.e2e._sharedKeys = Object.fromEntries(
+              Object.entries(this.e2e._sharedKeys).filter(([k]) => !k.startsWith(data.userId + ':'))
+            );
+            console.warn(`[E2E] Partner ${data.userId} key changed — shared secret invalidated`);
+          }
+          // Key arrived or updated — if we're viewing a DM with this user,
+          // re-fetch messages so they decrypt with the current key.
+          this._retryDecryptForUser(data.userId);
+        }
+      });
+      // Handle public key conflict — our IndexedDB key doesn't match server's
+      // Force-publish since we actually have the private key (server's is stale)
+      this.socket.on('public-key-conflict', () => {
+        console.warn('[E2E] Public key conflict — force-publishing our key');
+        this.socket.emit('publish-public-key', { jwk: this.e2e.publicKeyJwk, force: true });
+      });
+    }
+    console.log('[E2E] Initialized, public key published');
+  }
+
+  /** Show a banner prompting the user to re-enter their password to unlock E2E */
+  _showE2EPasswordRecovery() {
+    const existing = document.getElementById('e2e-recovery-banner');
+    if (existing) existing.remove();
+
+    const isLost = this.e2e && this.e2e.keyBackupLost;
+    const message = isLost
+      ? '🔒 Encryption backup was lost. Enter your password to generate new keys (old encrypted messages will be unreadable).'
+      : '🔒 Enter your password to unlock end-to-end encryption';
+    const buttonText = isLost ? 'Reset Keys' : 'Unlock';
+
+    const banner = document.createElement('div');
+    banner.id = 'e2e-recovery-banner';
+    banner.innerHTML = `
+      <div class="e2e-recovery-inner">
+        <span>${message}</span>
+        <input type="password" id="e2e-recovery-pw" placeholder="Password" autocomplete="current-password">
+        <button class="btn-sm btn-accent" id="e2e-recovery-btn">${buttonText}</button>
+        <button class="btn-sm" id="e2e-recovery-dismiss">✕</button>
+      </div>
+    `;
+    const chatArea = document.getElementById('messages');
+    if (chatArea && chatArea.parentElement) {
+      chatArea.parentElement.insertBefore(banner, chatArea);
+    }
+    banner.querySelector('#e2e-recovery-btn').addEventListener('click', async () => {
+      const pw = banner.querySelector('#e2e-recovery-pw').value;
+      if (!pw) return;
+      const btn = banner.querySelector('#e2e-recovery-btn');
+      btn.textContent = isLost ? 'Resetting…' : 'Unlocking…';
+      btn.disabled = true;
+      const ok = await this.e2e.recoverWithPassword(this.socket, pw);
+      if (ok) {
+        banner.remove();
+        // If keys were reset, force-publish the new public key
+        if (this.e2e._forcePublish) {
+          this._e2eForcePublish = true;
+          this.e2e._forcePublish = false;
+        }
+        this._e2eSetupListeners();
+        this._showToast(isLost ? 'Encryption keys reset ✓' : 'Encryption keys recovered ✓', 'success');
+        // Re-fetch current DM messages to decrypt them
+        if (this.currentChannel) {
+          this.socket.emit('get-messages', { code: this.currentChannel });
+        }
+      } else {
+        btn.textContent = buttonText;
+        btn.disabled = false;
+        this._showToast('Wrong password — try again', 'error');
+      }
+    });
+    banner.querySelector('#e2e-recovery-pw').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') banner.querySelector('#e2e-recovery-btn').click();
+    });
+    banner.querySelector('#e2e-recovery-dismiss').addEventListener('click', () => {
+      banner.remove();
+    });
   }
 
   /**
@@ -10083,7 +10334,7 @@ class HavenApp {
       if (HavenE2E.isEncrypted(msg.content)) {
         if (!partnerJwk) {
           // Key not yet available — show placeholder (will retry when key arrives)
-          msg.content = '🔒 [Encrypted message — waiting for key...]';
+          msg.content = '[Encrypted message — waiting for key...]';
           msg._e2e = true;
           continue;
         }
@@ -10092,7 +10343,7 @@ class HavenApp {
           msg.content = plain;
           msg._e2e = true; // flag for UI indicator
         } else {
-          msg.content = '🔒 [Encrypted message — unable to decrypt]';
+          msg.content = '[Encrypted message — unable to decrypt]';
           msg._e2e = true;
         }
       }

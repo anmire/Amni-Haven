@@ -1562,6 +1562,63 @@
 }
 [data-theme="win95"] .settings-hint { color: #444; }
 
+/* Win95 context menus — beveled 3D edges like real Win95 menus */
+[data-theme="win95"] .channel-ctx-menu {
+  background: #bfbfbf;
+  border: 3px outset #fff;
+  border-radius: 0;
+  box-shadow: 2px 2px 0 #000;
+  padding: 2px;
+}
+[data-theme="win95"] .channel-ctx-item {
+  color: #000;
+  border-radius: 0;
+  padding: 4px 12px;
+  font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Arial, sans-serif;
+  font-size: 12px;
+}
+[data-theme="win95"] .channel-ctx-item:hover {
+  background: #000080;
+  color: #fff !important;
+}
+[data-theme="win95"] .channel-ctx-item.danger { color: #cc0000; }
+[data-theme="win95"] .channel-ctx-item.danger:hover {
+  background: #000080;
+  color: #fff !important;
+}
+[data-theme="win95"] .channel-ctx-sep {
+  border-top: 1px solid #808080;
+  border-bottom: 1px solid #fff;
+  margin: 2px 0;
+}
+
+/* Win95 emoji picker — beveled box */
+[data-theme="win95"] .emoji-picker {
+  background: #bfbfbf;
+  border: 3px outset #fff;
+  border-radius: 0;
+  box-shadow: 2px 2px 0 #000;
+}
+
+/* Win95 message toolbar — beveled */
+[data-theme="win95"] .msg-toolbar {
+  background: #bfbfbf;
+  border: 2px outset #fff;
+  border-radius: 0;
+  box-shadow: 1px 1px 0 #000;
+}
+
+/* Win95 toasts — beveled */
+[data-theme="win95"] .toast {
+  background: #bfbfbf;
+  border: 3px outset #fff;
+  border-radius: 0;
+  box-shadow: 2px 2px 0 #000;
+  color: #000;
+}
+[data-theme="win95"] .toast.error { background: #bfbfbf; border-color: #fff; color: #cc0000; }
+[data-theme="win95"] .toast.success { background: #bfbfbf; border-color: #fff; color: #008000; }
+
 
 /* ═══════════════════════════════════════════════════════════
    RESET
@@ -2607,6 +2664,15 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   flex-shrink: 0;
 }
 
+.auth-version {
+  text-align: center;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  opacity: 0.7;
+}
+
 
 /* ═══════════════════════════════════════════════════════════
    APP LAYOUT
@@ -2839,7 +2905,6 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   gap: 3px;
   font-size: 11px;
   color: var(--success);
-  margin-left: auto;
   flex-shrink: 0;
 }
 .channel-voice-indicator .voice-icon { font-size: 12px; }
@@ -2941,10 +3006,6 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 /* Channel context menu (sidebar "..." hover button) */
 .channel-item { position: relative; }
 .channel-more-btn {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
   background: none;
   border: none;
   color: var(--text-secondary);
@@ -2956,6 +3017,12 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   pointer-events: none;
   transition: opacity .15s;
   line-height: 1;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+/* When voice indicator is present, don't double-auto-margin */
+.channel-voice-indicator ~ .channel-more-btn {
+  margin-left: 2px;
 }
 .channel-item:hover .channel-more-btn,
 .channel-item .channel-more-btn:focus {
@@ -3972,6 +4039,14 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   color: var(--text-primary);
   pointer-events: none;
   font-weight: 700;
+}
+
+.server-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 .server-icon.add-server {
@@ -4998,6 +5073,90 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   transform: scale(1.15);
 }
 
+.reaction-more-btn {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+/* ── Full Reaction Emoji Picker (opened via "...") ── */
+.reaction-full-picker {
+  position: absolute;
+  bottom: 100%;
+  right: 8px;
+  width: 320px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  z-index: 101;
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+
+.reaction-full-search {
+  padding: 8px 10px 4px;
+  flex-shrink: 0;
+}
+
+.reaction-full-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+.reaction-full-search-input:focus {
+  border-color: var(--accent);
+}
+
+.reaction-full-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 10px 8px;
+}
+
+.reaction-full-category {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 0 2px;
+}
+
+.reaction-full-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.reaction-full-btn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: none;
+  border: none;
+  transition: background 0.12s, transform 0.1s;
+}
+
+.reaction-full-btn:hover {
+  background: var(--bg-tertiary);
+  transform: scale(1.15);
+}
+
 
 /* ═══════════════════════════════════════════════════════════
    MESSAGE HOVER TOOLBAR
@@ -5451,20 +5610,55 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   user-select: none;
   flex-shrink: 0;
 }
-/* In the header row, push the lock to the far right */
+/* In the header row (full messages), push the lock to the far right */
 .message-header .e2e-tag {
   margin-left: auto;
 }
-/* Inside compact message-content, keep it inline before the text */
-.message-content .e2e-tag {
-  margin-left: 0;
-  margin-right: 4px;
-  vertical-align: baseline;
+/* In compact messages, position lock absolutely on the far right */
+.message-compact > .e2e-tag {
+  position: absolute;
+  right: 8px;
+  top: 2px;
 }
 .message-header-spacer {
   flex: 1 1 0;
   min-width: 0;
 }
+
+/* ── E2E Password Recovery Banner ─── */
+#e2e-recovery-banner {
+  background: var(--bg-tertiary);
+  border-bottom: 2px solid var(--accent);
+  padding: 8px 16px;
+  z-index: 50;
+  flex-shrink: 0;
+}
+.e2e-recovery-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+#e2e-recovery-pw {
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  width: 180px;
+}
+#e2e-recovery-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+}
+#e2e-recovery-dismiss:hover { color: var(--text-primary); }
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -6495,6 +6689,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   .reaction-badge { padding: 4px 10px; font-size: 14px; }
   .reaction-picker { gap: 4px; padding: 6px 8px; }
   .reaction-pick-btn { width: 38px; height: 38px; font-size: 20px; }
+  .reaction-full-picker { width: calc(100vw - 32px); max-width: 320px; right: 0; }
 
   /* Message toolbar — hidden until message is tapped */
   .msg-toolbar {
@@ -9197,6 +9392,19 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 .mod-snap-zone.right { right: 0; top: 0; width: 80px; height: 100vh; }
 .mod-snap-zone.top { left: 0; top: 0; width: 100vw; height: 56px; }
 .mod-snap-zone.bottom { left: 0; bottom: 0; width: 100vw; height: 56px; }
+.mod-snap-zone.center {
+  left: 50%; top: 50%; width: 160px; height: 80px;
+  transform: translate(-50%, -50%);
+  border-radius: 12px;
+}
+.mod-snap-zone.right-sidebar {
+  right: 0; top: 30%; width: 80px; height: 40vh;
+  border-radius: 8px 0 0 8px;
+}
+.mod-snap-zone.left-sidebar {
+  left: 0; top: 30%; width: 80px; height: 40vh;
+  border-radius: 0 8px 8px 0;
+}
 
 #app[data-status-pos="top"] #status-bar {
   order: -1;
@@ -9226,6 +9434,65 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 #app-body .sidebar[data-panel-pos="left"] { order: 1; }
 #app-body .main { order: 2; }
 #app-body .right-sidebar { order: 3; }
+
+/* Right sidebar — snapped left */
+#app-body .right-sidebar[data-panel-pos="left"] {
+  order: 1;
+  border-left: none;
+  border-right: 1px solid var(--border);
+}
+#app-body .right-sidebar[data-panel-pos="left"] .right-sidebar-resize-handle {
+  left: auto; right: -3px;
+  cursor: col-resize;
+}
+#app-body .right-sidebar[data-panel-pos="right"] { order: 3; }
+
+/* Floating panel (center) — any panel */
+.mod-float {
+  position: fixed !important;
+  z-index: 500;
+  border-radius: 10px;
+  border: 1px solid var(--border-light) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
+  resize: both;
+  overflow: auto;
+}
+.right-sidebar.mod-float {
+  top: 80px; right: 24px;
+  width: 280px; height: 420px;
+  max-width: 50vw; max-height: 70vh;
+}
+
+/* Voice panel — floating */
+#voice-panel.mod-float {
+  position: fixed !important;
+  bottom: 80px; right: 24px;
+  width: 220px;
+  z-index: 600;
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  background: var(--bg-secondary);
+}
+
+/* Voice panel — docked to bottom of screen */
+#voice-panel.mod-voice-bottom {
+  position: fixed !important;
+  bottom: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 400px; max-width: 90vw;
+  z-index: 600;
+  border-radius: 12px 12px 0 0;
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.3);
+  background: var(--bg-secondary);
+}
+
+/* Voice panel — moved to left sidebar */
+#voice-panel.mod-voice-left {
+  border-top: 1px solid var(--border);
+}
 
 .mod-toast {
   position: fixed;

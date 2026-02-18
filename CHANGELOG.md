@@ -11,6 +11,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [1.9.0] — 2026-02-17
+
+### Added
+- **First-time admin setup wizard** — 4-step guided setup on first launch: server name/description, create a channel, port reachability check, and summary with invite code.
+- **Port reachability check** (`/api/port-check`) — tests if the server is accessible from the internet using external services (ipify + portchecker.io with self-connect fallback).
+- **One-click Windows launcher** — `Start Haven.bat` handles everything: detects Node.js, offers automatic install (downloads Node 22 LTS MSI via PowerShell), installs npm dependencies, generates SSL certs, starts the server, and opens the browser.
+- **Node.js auto-installer** (`install-node.ps1`) — PowerShell script that downloads and installs Node.js 22 LTS directly from nodejs.org. Pinned to v22 for native module compatibility.
+- **Full emoji reaction picker** — the quick-react bar now has a `⋯` button that opens a scrollable, searchable panel with all emoji categories (not just 8 quick emojis).
+- **Unified file upload button** — merged the image upload (landscape SVG) and file upload (paperclip) into one button. Images get queued with preview; other files upload immediately. Win95 theme shows 📎 instead of the SVG icon.
+- **Input actions toolbar** — upload, emoji, and GIF buttons are now wrapped in a bordered backdrop box with vertical dividers (matching the channel header actions style).
+- **Node.js version guard** — batch launcher and `package.json` engines field block Node ≥ 24 (where `better-sqlite3` prebuilt binaries don't exist yet).
+
+### Fixed
+- **E2E encryption: permanent decrypt failure** — partner public keys were cached forever and never re-fetched if the partner regenerated keys. Now always re-fetches, detects key changes, and invalidates the stale ECDH shared secret cache. Also fixed a race condition where messages were fetched before the partner key was available.
+- **DM messages pushed to right side** — the E2E lock icon (🔒) in compact messages had `margin-left: auto` as a direct flex child, shoving the entire message content to the far right edge. Moved the lock inside `.message-content`.
+- **Reactions appeared inconsistently** — in compact (grouped) messages, reactions were a flex sibling appearing to the right of the text instead of below. Now both compact and full messages use the same `.message-body` wrapper.
+- **Reactions lost on message promotion** — `_promoteCompactToFull` used the wrong selector (`.reactions` → `.reactions-row`), silently dropping reactions when a group's root message was deleted.
+- **`npm install` killed the batch launcher** — `npm` on Windows is `npm.cmd`; running it from a `.bat` without `call` transfers control permanently and the window vanishes. Added `call` keyword.
+- **Node v24 build failures** — the auto-installer grabbed the latest LTS (v24), but `better-sqlite3` had no prebuilt binaries for it, causing a `node-gyp` compile attempt that fails without Python + C++ build tools. Pinned installer to Node 22 LTS.
+- **`dotenv` MODULE_NOT_FOUND on fresh install** — an empty `node_modules` folder from a failed prior run caused the existence check to pass, skipping `npm install`. Changed to always run `call npm install` (fast no-op when deps exist).
+
+### Changed
+- **README restructured** — Docker-first install flow, "Who Is This For?" and "Why Not Discord?" sections added for non-technical audiences.
+- **Website comparison table** — added Fluxer column and updated the screenshot.
+
+---
+
 ## [1.8.2] — 2026-02-17
 
 ### Fixed

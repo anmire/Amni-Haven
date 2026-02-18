@@ -20,14 +20,23 @@ class ServerManager {
     localStorage.setItem('haven_servers', JSON.stringify(this.servers));
   }
 
-  add(name, url) {
+  add(name, url, icon = null) {
     url = url.replace(/\/+$/, '');
     if (!/^https?:\/\//.test(url)) url = 'https://' + url;
     if (this.servers.find(s => s.url === url)) return false;
 
-    this.servers.push({ name, url, addedAt: Date.now() });
+    this.servers.push({ name, url, icon, addedAt: Date.now() });
     this._save();
     this.checkServer(url);
+    return true;
+  }
+
+  update(url, updates) {
+    const server = this.servers.find(s => s.url === url);
+    if (!server) return false;
+    if (updates.name !== undefined) server.name = updates.name;
+    if (updates.icon !== undefined) server.icon = updates.icon;
+    this._save();
     return true;
   }
 
@@ -60,6 +69,7 @@ class ServerManager {
         this.statusCache.set(url, {
           online: true,
           name: data.name || url,
+          icon: data.icon ? `${url}${data.icon}` : null,
           version: data.version,
           checkedAt: Date.now()
         });

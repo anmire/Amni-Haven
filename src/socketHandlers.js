@@ -568,6 +568,13 @@ function setupSocketHandlers(io, db) {
       statusText: socket.user.statusText || ''
     });
 
+    // Send current voice counts so sidebar indicators are correct on connect
+    for (const [code, room] of voiceUsers) {
+      if (room.size > 0) {
+        socket.emit('voice-count-update', { code, count: room.size });
+      }
+    }
+
     // ── Per-socket flood protection ─────────────────────────
     const floodBuckets = { message: [], event: [] };
     const FLOOD_LIMITS = {
@@ -681,11 +688,11 @@ function setupSocketHandlers(io, db) {
       socket.emit('channels-list', channels);
     });
 
-    // ── Create channel (admin only) ─────────────────────────
+    // ── Create channel (permission-based) ─────────────────
     socket.on('create-channel', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) {
-        return socket.emit('error-msg', 'Only admins can create channels');
+      if (!userHasPermission(socket.user.id, 'create_channel')) {
+        return socket.emit('error-msg', 'You don\'t have permission to create channels');
       }
 
       const name = typeof data.name === 'string' ? data.name.trim() : '';
@@ -1235,6 +1242,7 @@ function setupSocketHandlers(io, db) {
 
       // Update voice user list for voice participants + text viewers
       broadcastVoiceUsers(code);
+      broadcastStreamInfo(code); // Ensure late joiner gets current stream viewer data
 
       // Send active music state to late joiner
       const music = activeMusic.get(code);
@@ -1497,10 +1505,9 @@ function setupSocketHandlers(io, db) {
           });
         }
       }
-      // Send to all voice participants
-      for (const [, user] of voiceRoom) {
-        io.to(user.socketId).emit('stream-viewers-update', { channelCode: code, streams });
-      }
+      // Send to voice participants AND text channel viewers (so non-voice users
+      // see stream info in the voice panel)
+      io.to(`voice:${code}`).to(`channel:${code}`).emit('stream-viewers-update', { channelCode: code, streams });
     }
 
     // ── Music Sharing ───────────────────────────────────
@@ -1771,6 +1778,16 @@ function setupSocketHandlers(io, db) {
       });
 
       broadcastVoiceUsers(code);
+      broadcastStreamInfo(code); // Ensure re-joined user gets current stream info
+    });
+
+    // Let clients explicitly request voice counts (fallback for missed push events)
+    socket.on('get-voice-counts', () => {
+      for (const [code, room] of voiceUsers) {
+        if (room.size > 0) {
+          socket.emit('voice-count-update', { code, count: room.size });
+        }
+      }
     });
 
     socket.on('get-channel-members', (data) => {
@@ -3109,6 +3126,17 @@ function setupSocketHandlers(io, db) {
       // Store only the public components
       const publicJwk = { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y };
       try {
+        // Prevent accidental key overwrites: reject if a DIFFERENT key already exists
+        // unless the client explicitly sets force=true (key reset / recovery)
+        const current = db.prepare('SELECT public_key FROM users WHERE id = ?').get(socket.user.id);
+        if (current && current.public_key && !data.force) {
+          const existing = JSON.parse(current.public_key);
+          if (existing.x !== publicJwk.x || existing.y !== publicJwk.y) {
+            console.warn(`[E2E] User ${socket.user.id} (${socket.user.username}) tried to overwrite public key — blocked`);
+            socket.emit('public-key-conflict', { existing });
+            return;
+          }
+        }
         db.prepare('UPDATE users SET public_key = ? WHERE id = ?')
           .run(JSON.stringify(publicJwk), socket.user.id);
         socket.emit('public-key-published');
@@ -3151,15 +3179,16 @@ function setupSocketHandlers(io, db) {
 
     socket.on('get-encrypted-key', () => {
       try {
-        const row = db.prepare('SELECT encrypted_private_key, e2e_key_salt FROM users WHERE id = ?')
+        const row = db.prepare('SELECT encrypted_private_key, e2e_key_salt, public_key FROM users WHERE id = ?')
           .get(socket.user.id);
         socket.emit('encrypted-key-result', {
           encryptedKey: row?.encrypted_private_key || null,
-          salt: row?.e2e_key_salt || null
+          salt: row?.e2e_key_salt || null,
+          hasPublicKey: !!(row && row.public_key)
         });
       } catch (err) {
         console.error('Get encrypted key error:', err);
-        socket.emit('encrypted-key-result', { encryptedKey: null, salt: null });
+        socket.emit('encrypted-key-result', { encryptedKey: null, salt: null, hasPublicKey: false });
       }
     });
 
