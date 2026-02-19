@@ -168,11 +168,8 @@ class HavenApp {
       }
     }, 5000);
 
-    // E2E init is deferred to 'session-info' handler to ensure
-    // the socket is fully connected and server-side handlers are registered.
-
-    document.getElementById('current-user').textContent = this.user.displayName || this.user.username;
-    const loginEl = document.getElementById('login-name');
+    // Check for ad consent (Android app specific)
+    this._checkAdConsent();
     if (loginEl) loginEl.textContent = `@${this.user.username}`;
 
     if (this.user.isAdmin || this._hasPerm('create_channel')) {
@@ -1393,8 +1390,9 @@ class HavenApp {
     };
     this.voice.onVoiceLeave = (userId, username) => {
       this.notifications.playDirect('voice_leave');
-      // Trigger interstitial ad on voice leave
-      if (window.HavenBridge && window.HavenBridge.showInterstitialAd) {
+      // Trigger interstitial ad on voice leave (only if consent given and ads enabled)
+      if (this._adConsentGiven && localStorage.getItem('haven_ads_enabled') !== 'false' &&
+          window.HavenBridge && window.HavenBridge.showInterstitialAd) {
         window.HavenBridge.showInterstitialAd();
       }
     };
@@ -1734,16 +1732,28 @@ class HavenApp {
     // ── Settings popout modal ────────────────────────────
     document.getElementById('open-settings-btn').addEventListener('click', () => {
       this._snapshotAdminSettings();
-      // Initialize ads toggle
-      const adsEnabled = localStorage.getItem('haven_ads_enabled') !== 'false'; // Default to true
-      document.getElementById('ads-enabled').checked = adsEnabled;
+      // Initialize ads toggle and show ads section only if consent given
+      const adsSection = document.getElementById('ads-settings-section');
+      if (adsSection) {
+        adsSection.style.display = this._adConsentGiven ? '' : 'none';
+      }
+      if (this._adConsentGiven) {
+        const adsEnabled = localStorage.getItem('haven_ads_enabled') !== 'false'; // Default to true
+        document.getElementById('ads-enabled').checked = adsEnabled;
+      }
       document.getElementById('settings-modal').style.display = 'flex';
     });
     document.getElementById('mobile-settings-btn')?.addEventListener('click', () => {
       this._snapshotAdminSettings();
-      // Initialize ads toggle
-      const adsEnabled = localStorage.getItem('haven_ads_enabled') !== 'false'; // Default to true
-      document.getElementById('ads-enabled').checked = adsEnabled;
+      // Initialize ads toggle and show ads section only if consent given
+      const adsSection = document.getElementById('ads-settings-section');
+      if (adsSection) {
+        adsSection.style.display = this._adConsentGiven ? '' : 'none';
+      }
+      if (this._adConsentGiven) {
+        const adsEnabled = localStorage.getItem('haven_ads_enabled') !== 'false'; // Default to true
+        document.getElementById('ads-enabled').checked = adsEnabled;
+      }
       document.getElementById('settings-modal').style.display = 'flex';
       document.getElementById('app-body')?.classList.remove('mobile-sidebar-open');
       document.getElementById('mobile-overlay')?.classList.remove('active');
@@ -1760,6 +1770,13 @@ class HavenApp {
 
     // ── Ads toggle ──────────────────────────────────────
     document.getElementById('ads-enabled').addEventListener('change', (e) => {
+      // Only allow ads toggle if consent has been given
+      if (!this._adConsentGiven) {
+        e.preventDefault();
+        e.target.checked = false;
+        this._showToast('Ad consent required to enable ads', 'error');
+        return;
+      }
       const enabled = e.target.checked;
       localStorage.setItem('haven_ads_enabled', enabled);
       // Notify Android app
@@ -3607,8 +3624,9 @@ class HavenApp {
     if (iframe) iframe.src = 'about:blank';
     this._currentGame = null;
     this._gameIframe = null;
-    // Trigger interstitial ad on game close
-    if (window.HavenBridge && window.HavenBridge.showInterstitialAd) {
+    // Trigger interstitial ad on game close (only if consent given and ads enabled)
+    if (this._adConsentGiven && localStorage.getItem('haven_ads_enabled') !== 'false' &&
+        window.HavenBridge && window.HavenBridge.showInterstitialAd) {
       window.HavenBridge.showInterstitialAd();
     }
   }
@@ -8847,6 +8865,18 @@ class HavenApp {
     // Load webhooks list for admin preview
     if (this.user?.isAdmin) {
       this.socket.emit('get-webhooks');
+    }
+  }
+
+  _checkAdConsent() {
+    // Check if running in Android app and if ads are consented to
+    if (window.HavenBridge && window.HavenBridge.getAdConsent) {
+      const consented = window.HavenBridge.getAdConsent();
+      localStorage.setItem('haven_ad_consent', consented ? 'true' : 'false');
+      this._adConsentGiven = consented;
+    } else {
+      // For web version, default to consented (existing behavior)
+      this._adConsentGiven = localStorage.getItem('haven_ad_consent') !== 'false';
     }
   }
 
