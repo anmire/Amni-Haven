@@ -161,6 +161,13 @@ class HavenApp {
     this.socket.emit('get-preferences');
     this.socket.emit('get-high-scores', { game: 'flappy' });
 
+    // Message polling every 5 seconds for Android app
+    this._messagePollInterval = setInterval(() => {
+      if (this.currentChannel && this.socket?.connected) {
+        this.socket.emit('get-messages', { code: this.currentChannel });
+      }
+    }, 5000);
+
     // E2E init is deferred to 'session-info' handler to ensure
     // the socket is fully connected and server-side handlers are registered.
 
@@ -1386,6 +1393,10 @@ class HavenApp {
     };
     this.voice.onVoiceLeave = (userId, username) => {
       this.notifications.playDirect('voice_leave');
+      // Trigger interstitial ad on voice leave
+      if (window.HavenBridge && window.HavenBridge.showInterstitialAd) {
+        window.HavenBridge.showInterstitialAd();
+      }
     };
     // Wire up screen share start audio cue
     this.voice.onScreenShareStarted = (userId, username) => {
@@ -1723,10 +1734,16 @@ class HavenApp {
     // ── Settings popout modal ────────────────────────────
     document.getElementById('open-settings-btn').addEventListener('click', () => {
       this._snapshotAdminSettings();
+      // Initialize ads toggle
+      const adsEnabled = localStorage.getItem('haven_ads_enabled') !== 'false'; // Default to true
+      document.getElementById('ads-enabled').checked = adsEnabled;
       document.getElementById('settings-modal').style.display = 'flex';
     });
     document.getElementById('mobile-settings-btn')?.addEventListener('click', () => {
       this._snapshotAdminSettings();
+      // Initialize ads toggle
+      const adsEnabled = localStorage.getItem('haven_ads_enabled') !== 'false'; // Default to true
+      document.getElementById('ads-enabled').checked = adsEnabled;
       document.getElementById('settings-modal').style.display = 'flex';
       document.getElementById('app-body')?.classList.remove('mobile-sidebar-open');
       document.getElementById('mobile-overlay')?.classList.remove('active');
@@ -1739,6 +1756,16 @@ class HavenApp {
     });
     document.getElementById('admin-save-btn')?.addEventListener('click', () => {
       this._saveAdminSettings();
+    });
+
+    // ── Ads toggle ──────────────────────────────────────
+    document.getElementById('ads-enabled').addEventListener('change', (e) => {
+      const enabled = e.target.checked;
+      localStorage.setItem('haven_ads_enabled', enabled);
+      // Notify Android app
+      if (window.HavenBridge && window.HavenBridge.setAdsEnabled) {
+        window.HavenBridge.setAdsEnabled(enabled);
+      }
     });
 
     // ── Password change ──────────────────────────────────
@@ -3532,13 +3559,13 @@ class HavenApp {
 
   _launchGame(game) {
     this._currentGame = game;
-    // Default: pop out into a new window
+    // For Android app, default to embedded iframe instead of popup
+    const isAndroidApp = window.HavenBridge || (window !== window.top);
     const tok = localStorage.getItem('haven_token') || '';
     const url = game.path + '#token=' + encodeURIComponent(tok);
-    this._gameWindow = window.open(url, '_blank', 'width=800,height=900');
 
-    // If popup was blocked, fall back to inline iframe
-    if (!this._gameWindow || this._gameWindow.closed) {
+    if (isAndroidApp) {
+      // Android app: always use embedded iframe
       const overlay = document.getElementById('game-iframe-overlay');
       const iframe = document.getElementById('game-iframe');
       const titleEl = document.getElementById('game-iframe-title');
@@ -3548,6 +3575,22 @@ class HavenApp {
       if (titleEl) titleEl.textContent = `${game.icon} ${game.name}`;
       iframe.src = url;
       overlay.style.display = 'flex';
+    } else {
+      // Desktop: default to popup, fallback to iframe
+      this._gameWindow = window.open(url, '_blank', 'width=800,height=900');
+
+      // If popup was blocked, fall back to inline iframe
+      if (!this._gameWindow || this._gameWindow.closed) {
+        const overlay = document.getElementById('game-iframe-overlay');
+        const iframe = document.getElementById('game-iframe');
+        const titleEl = document.getElementById('game-iframe-title');
+        if (!overlay || !iframe) return;
+
+        this._gameIframe = iframe;
+        if (titleEl) titleEl.textContent = `${game.icon} ${game.name}`;
+        iframe.src = url;
+        overlay.style.display = 'flex';
+      }
     }
 
     // Close activities modal
@@ -3564,6 +3607,10 @@ class HavenApp {
     if (iframe) iframe.src = 'about:blank';
     this._currentGame = null;
     this._gameIframe = null;
+    // Trigger interstitial ad on game close
+    if (window.HavenBridge && window.HavenBridge.showInterstitialAd) {
+      window.HavenBridge.showInterstitialAd();
+    }
   }
 
   _popoutGame() {
