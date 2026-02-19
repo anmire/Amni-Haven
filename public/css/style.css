@@ -8486,6 +8486,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   display: flex;
   align-items: center;
   gap: 4px;
+  width: 100%;
   user-select: none;
   transition: color 0.15s;
 }
@@ -9888,6 +9889,7 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   display: flex;
   align-items: center;
   gap: 4px;
+  width: 100%;
   transition: color 0.15s;
 }
 .channels-toggle:hover { color: var(--text-secondary); }
