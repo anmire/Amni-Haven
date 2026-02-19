@@ -171,6 +171,42 @@ app.get('/api/push/vapid-key', (req, res) => {
   res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
 });
 
+// ── ICE servers endpoint (STUN + optional TURN) ──────────
+app.get('/api/ice-servers', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ];
+
+  const turnUrl = process.env.TURN_URL;
+  if (turnUrl) {
+    const turnSecret = process.env.TURN_SECRET;
+    const turnUser = process.env.TURN_USERNAME;
+    const turnPass = process.env.TURN_PASSWORD;
+
+    if (turnSecret) {
+      // Time-limited TURN credentials (coturn --use-auth-secret / REST API)
+      const ttl = 24 * 3600; // 24 hours
+      const expiry = Math.floor(Date.now() / 1000) + ttl;
+      const username = `${expiry}:${user.username}`;
+      const hmac = crypto.createHmac('sha1', turnSecret).update(username).digest('base64');
+      iceServers.push({ urls: turnUrl, username, credential: hmac });
+    } else if (turnUser && turnPass) {
+      // Static TURN credentials
+      iceServers.push({ urls: turnUrl, username: turnUser, credential: turnPass });
+    } else {
+      // TURN URL with no auth (uncommon but possible)
+      iceServers.push({ urls: turnUrl });
+    }
+  }
+
+  res.json({ iceServers });
+});
+
 // ── Avatar upload endpoint (saves to /uploads, updates DB) ──
 app.post('/api/upload-avatar', uploadLimiter, (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];

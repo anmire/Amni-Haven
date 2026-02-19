@@ -446,6 +446,37 @@ Voice chat is **peer-to-peer** — audio goes directly between you and other use
 
 > Voice requires HTTPS. If you're running locally, use `https://localhost:3000`. For remote connections, use `https://YOUR_IP:3000`.
 
+### TURN Server (Voice Over the Internet)
+
+By default, voice/screen sharing uses STUN servers, which work when both users are on the same network or behind simple NATs. For connections across different networks (especially mobile data / 5G), you need a **TURN server** to relay traffic.
+
+**Quick setup with coturn (free, open-source):**
+
+```bash
+# Ubuntu/Debian
+sudo apt install coturn
+
+# /etc/turnserver.conf:
+listening-port=3478
+tls-listening-port=5349
+realm=your-domain.com
+use-auth-secret
+static-auth-secret=YOUR_RANDOM_SECRET_HERE
+```
+
+Then add to your Haven `.env`:
+
+```env
+TURN_URL=turn:your-server.com:3478
+TURN_SECRET=YOUR_RANDOM_SECRET_HERE
+```
+
+Restart Haven, and voice/screen sharing will work across any network.
+
+> **Docker users:** Add `TURN_URL` and `TURN_SECRET` as environment variables in your `docker-compose.yml`. See the commented example in the default compose file.
+
+> **Oracle Cloud / cloud VMs:** Make sure ports 3478 (UDP+TCP) and 49152–65535 (UDP) are open in your security group / firewall rules. These are needed for TURN relay traffic.
+
 ---
 
 ## 🔔 Push Notifications
