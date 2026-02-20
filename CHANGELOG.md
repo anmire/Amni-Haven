@@ -11,6 +11,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.2.0] — 2026-02-20
+
+### Added
+- **CRT fishbowl vignette overlay** — the CRT effect now simulates the convex glass of a classic cathode-ray tube with a parabolic vignette, curved edges, phosphor glow, and a subtle glass reflection highlight.
+- **CRT vignette darkness slider** — new slider in the effect panel controls how far the darkness encroaches from the edges and how dark it gets (0 = almost invisible, 100 = heavy CRT tunnel).
+- **CRT scanline intensity slider** — new slider controls scanline opacity (0–80%) with lines that fade toward the center via a radial mask.
+- **CRT flicker frequency range** — the CRT speed slider now maps to a wider flicker frequency range (half the previous slowest, double the previous fastest) for fine-grained control.
+- **Inline YouTube embeds** — YouTube links posted in chat now render an inline video player directly in the message, supporting youtube.com, youtu.be, /shorts/, /embed/, and music.youtube.com URLs.
+- **Emoji quickbar flip-below** — the quick-react emoji picker now detects when it would be clipped at the top of the viewport and flips below the message instead.
+
+### Fixed
+- **CRT vignette slider not appearing** — the vignette/scanline sliders are now injected directly into the effect speed editor block, fixing a visibility bug where the standalone editor div was never shown.
+- **CRT vignette slider not working** — the flicker animation was overriding inline opacity; vignette now controls the gradient directly so both flicker and vignette coexist.
+- **Reaction picker clipping** — emoji quickbar for messages near the top of the chat area no longer gets cut off.
+
+### Changed
+- **Website & docs** updated to v2.2.0 with feature descriptions and version history.
+- **README** — version badge updated to v2.2.0.
+
+---
+
 ## [2.1.0] — 2026-02-19
 
 ### Fixed

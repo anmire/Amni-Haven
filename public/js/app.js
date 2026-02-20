@@ -6098,6 +6098,21 @@ class HavenApp {
       if (/^https:\/\/media\d*\.giphy\.com\//i.test(url)) return;
       if (url.startsWith(window.location.origin)) return;
 
+      // ── Inline YouTube embed ────────────────────────────
+      const ytVideoId = this._extractYouTubeVideoId(url);
+      if (ytVideoId) {
+        const msgContent = link.closest('.message-content');
+        if (!msgContent) return;
+        if (msgContent.querySelector(`.link-preview-yt[data-url="${CSS.escape(url)}"]`)) return;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'link-preview-yt';
+        wrapper.dataset.url = url;
+        wrapper.innerHTML = `<iframe src="https://www.youtube.com/embed/${this._escapeHtml(ytVideoId)}?rel=0" width="100%" height="270" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`;
+        msgContent.appendChild(wrapper);
+        if (this._isScrolledToBottom()) this._scrollToBottom();
+        return; // skip generic link preview for YouTube
+      }
+
       fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
         headers: { 'Authorization': `Bearer ${this.token}` }
       })
@@ -6135,6 +6150,33 @@ class HavenApp {
         })
         .catch(() => {});
     });
+  }
+
+  /**
+   * Extract YouTube video ID from various URL formats:
+   *   youtube.com/watch?v=ID, youtu.be/ID, youtube.com/embed/ID,
+   *   youtube.com/shorts/ID, music.youtube.com/watch?v=ID
+   */
+  _extractYouTubeVideoId(url) {
+    try {
+      const u = new URL(url);
+      const host = u.hostname.replace('www.', '').replace('m.', '');
+      // youtu.be/VIDEO_ID
+      if (host === 'youtu.be') {
+        const id = u.pathname.slice(1).split('/')[0];
+        return id && /^[\w-]{11}$/.test(id) ? id : null;
+      }
+      // youtube.com or music.youtube.com
+      if (host === 'youtube.com' || host === 'music.youtube.com') {
+        // /watch?v=ID
+        const v = u.searchParams.get('v');
+        if (v && /^[\w-]{11}$/.test(v)) return v;
+        // /embed/ID or /shorts/ID
+        const pathMatch = u.pathname.match(/^\/(?:embed|shorts)\/([\w-]{11})/);
+        if (pathMatch) return pathMatch[1];
+      }
+    } catch {}
+    return null;
   }
 
   // ── Users ─────────────────────────────────────────────
@@ -9240,6 +9282,23 @@ class HavenApp {
     picker.appendChild(gearBtn);
 
     msgEl.appendChild(picker);
+
+    // Flip picker below the message if it would be clipped above
+    requestAnimationFrame(() => {
+      const pickerRect = picker.getBoundingClientRect();
+      if (pickerRect.top < 0) {
+        picker.classList.add('flip-below');
+      } else {
+        // Also check against the messages container top (channel header/topic)
+        const container = document.getElementById('messages');
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          if (pickerRect.top < containerRect.top) {
+            picker.classList.add('flip-below');
+          }
+        }
+      }
+    });
 
     // Close on click outside
     const close = (e) => {
