@@ -667,11 +667,14 @@ function setupSocketHandlers(io, db) {
         channels.forEach(ch => joinRooms(`channel:${ch.code}`));
       }
 
-      if (!isAdmin) {
-        channels.forEach(ch => {
-          if (ch.code_visibility === 'private') ch.code = '••••••••';
-        });
-      }
+      // For non-admins, mask the display code but keep the real code for navigation
+      channels.forEach(ch => {
+        if (!isAdmin && ch.code_visibility === 'private') {
+          ch.display_code = '••••••••';
+        } else {
+          ch.display_code = ch.code;
+        }
+      });
 
       return channels;
     }
@@ -730,6 +733,7 @@ function setupSocketHandlers(io, db) {
           id: result.lastInsertRowid,
           name: name.trim(),
           code,
+          display_code: code,
           created_by: socket.user.id,
           topic: '',
           is_dm: 0
@@ -855,11 +859,13 @@ function setupSocketHandlers(io, db) {
         user: { id: socket.user.id, username: socket.user.displayName }
       });
 
-      // Send channel info to joiner
+      // Send channel info to joiner (always include real code — they just joined)
+      const isPrivateCode = channel.code_visibility === 'private';
       socket.emit('channel-joined', {
         id: channel.id,
         name: channel.name,
         code: activeCode,
+        display_code: (!socket.user.isAdmin && isPrivateCode) ? '••••••••' : activeCode,
         created_by: channel.created_by,
         topic: channel.topic || '',
         is_dm: channel.is_dm || 0
@@ -2608,9 +2614,14 @@ function setupSocketHandlers(io, db) {
         } catch { return; }
       }
 
-      db.prepare(
-        'INSERT OR REPLACE INTO server_settings (key, value) VALUES (?, ?)'
-      ).run(key, value);
+      try {
+        db.prepare(
+          'INSERT OR REPLACE INTO server_settings (key, value) VALUES (?, ?)'
+        ).run(key, value);
+      } catch (err) {
+        console.error('Failed to save server setting:', key, err.message);
+        return socket.emit('error-msg', 'Failed to save setting — database write error');
+      }
 
       // Broadcast to all connected clients
       io.emit('server-setting-changed', { key, value });

@@ -625,12 +625,14 @@ class HavenApp {
       const ch = this.channels.find(c => c.id === data.channelId);
       if (ch) {
         ch.code = data.newCode;
+        // Update display_code too (admins see real code, non-admins see masked)
+        if (ch.display_code && ch.display_code !== '••••••••') ch.display_code = data.newCode;
         this._renderChannels();
         // If currently viewing this channel, update the header code display
         if (this.currentChannel === data.oldCode) {
           this.currentChannel = data.newCode;
           const codeDisplay = document.getElementById('channel-code-display');
-          if (codeDisplay) codeDisplay.textContent = data.newCode;
+          if (codeDisplay) codeDisplay.textContent = ch.display_code || data.newCode;
           // Update the active class on the new code
           document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
           const activeEl = document.querySelector(`.channel-item[data-code="${data.newCode}"]`);
@@ -1040,10 +1042,14 @@ class HavenApp {
 
     // Copy code
     document.getElementById('copy-code-btn').addEventListener('click', () => {
-      if (this.currentChannel && this.currentChannel !== '••••••••') {
-        navigator.clipboard.writeText(this.currentChannel).then(() => {
-          this._showToast('Channel code copied!', 'success');
-        });
+      if (this.currentChannel) {
+        const ch = this.channels.find(c => c.code === this.currentChannel);
+        const codeToCopy = ch && ch.display_code !== '••••••••' ? this.currentChannel : null;
+        if (codeToCopy) {
+          navigator.clipboard.writeText(codeToCopy).then(() => {
+            this._showToast('Channel code copied!', 'success');
+          });
+        }
       }
     });
 
@@ -4375,8 +4381,9 @@ class HavenApp {
     // Clear scramble cache so the effect picks up the new channel name
     const headerEl = document.getElementById('channel-header-name');
     if (headerEl) { delete headerEl.dataset.originalText; headerEl._scrambling = false; }
-    const isMaskedCode = (code === '••••••••');
-    document.getElementById('channel-code-display').textContent = isDm ? '' : code;
+    const displayCode = channel ? (channel.display_code || code) : code;
+    const isMaskedCode = (displayCode === '••••••••');
+    document.getElementById('channel-code-display').textContent = isDm ? '' : displayCode;
     document.getElementById('copy-code-btn').style.display = (isDm || isMaskedCode) ? 'none' : 'inline-flex';
 
     // Show channel code settings gear for admins on non-DM channels
