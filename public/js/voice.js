@@ -51,7 +51,7 @@ class VoiceManager {
 
   async _fetchIceServers() {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('haven_token');
       if (!token) return;
       const res = await fetch('/api/ice-servers', {
         headers: { 'Authorization': `Bearer ${token}` }
