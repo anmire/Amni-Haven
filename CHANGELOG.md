@@ -11,6 +11,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.2.1] — 2026-02-21
+
+### Fixed
+- **Channel code hidden on mobile** — the channel code tag is now visible on tablet and phone with compact sizing instead of being hidden entirely.
+- **Logout icon broken on Android** — replaced the Unicode power symbol (⏻) with an inline SVG that renders on all devices.
+- **Mobile menu buttons missing on first load** — added an early media query so hamburger / users sidebar buttons render immediately instead of waiting for later CSS to load.
+- **Status picker clipped on mobile** — switched from `position: absolute` (clipped by sidebar overflow) to `position: fixed` with JS-based placement.
+- **Status change fails while disconnected** — status updates are now queued and applied automatically on reconnect, with a toast notification.
+- **TURN credentials never fetched** — fixed localStorage key mismatch (`haven_token` → `token`) so voice chat works across networks, not just LAN.
+- **File upload type restrictions removed** — server no longer blocks uploads by MIME type; a client-side warning is shown for risky file extensions instead.
+- **Server branding not persisting** — added error handling for branding save failures.
+
+### Changed
+- Website & docs updated to v2.2.1 with download links and version history.
+
+---
+
 ## [2.2.0] — 2026-02-20
 
 ### Added
