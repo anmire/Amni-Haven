@@ -110,13 +110,36 @@ if /I "%FORCE_HTTP%"=="true" (
 ) else if not exist "%HAVEN_DATA%\certs\cert.pem" (
     echo  [*] Generating self-signed SSL certificate...
     if not exist "%HAVEN_DATA%\certs" mkdir "%HAVEN_DATA%\certs"
+
+    :: Try to find openssl on PATH first, then check common install locations
+    set "OPENSSL_CMD="
     where openssl >nul 2>&1
-    if errorlevel 1 (
-        echo  [!] OpenSSL not found - skipping cert generation.
-        echo      Haven will run in HTTP mode. See README for details.
-        echo      To enable HTTPS, install OpenSSL or provide certs manually.
+    if not errorlevel 1 (
+        set "OPENSSL_CMD=openssl"
     ) else (
-        openssl req -x509 -newkey rsa:2048 -keyout "%HAVEN_DATA%\certs\key.pem" -out "%HAVEN_DATA%\certs\cert.pem" -days 3650 -nodes -subj "/CN=Haven" 2>nul
+        for %%D in (
+            "C:\Program Files\OpenSSL-Win64\bin"
+            "C:\Program Files\OpenSSL\bin"
+            "C:\Program Files (x86)\OpenSSL-Win32\bin"
+            "C:\OpenSSL-Win64\bin"
+            "C:\OpenSSL-Win32\bin"
+            "C:\OpenSSL\bin"
+        ) do (
+            if exist "%%~D\openssl.exe" (
+                if not defined OPENSSL_CMD (
+                    set "OPENSSL_CMD=%%~D\openssl.exe"
+                    echo  [*] Found OpenSSL at %%~D
+                )
+            )
+        )
+    )
+    if not defined OPENSSL_CMD (
+        echo  [!] OpenSSL not found on PATH or in common install directories.
+        echo      Haven will run in HTTP mode. See README for details.
+        echo      To enable HTTPS, install OpenSSL or add it to your PATH.
+        echo      Common install location: C:\Program Files\OpenSSL-Win64\bin
+    ) else (
+        "%OPENSSL_CMD%" req -x509 -newkey rsa:2048 -keyout "%HAVEN_DATA%\certs\key.pem" -out "%HAVEN_DATA%\certs\cert.pem" -days 3650 -nodes -subj "/CN=Haven" 2>nul
         if exist "%HAVEN_DATA%\certs\cert.pem" (
             echo  [OK] SSL certificate generated in %HAVEN_DATA%\certs
         ) else (
