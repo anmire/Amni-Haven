@@ -8888,6 +8888,25 @@ class HavenApp {
 
     let html = this._escapeHtml(withPlaceholders);
 
+    // ── Markdown images & links (extract before auto-linking) ──
+    const mdLinks = [];
+    // ![alt](url)
+    html = html.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (full, alt, url) => {
+      try { new URL(url); } catch { return full; }
+      const safeUrl = url.replace(/['"<>]/g, '');
+      const idx = mdLinks.length;
+      mdLinks.push(`<img src="${safeUrl}" class="chat-image" alt="${alt || 'image'}" loading="lazy">`);
+      return `\x00MDLINK_${idx}\x00`;
+    });
+    // [text](url)
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (full, text, url) => {
+      try { new URL(url); } catch { return full; }
+      const safeUrl = url.replace(/['"<>]/g, '');
+      const idx = mdLinks.length;
+      mdLinks.push(`<a href="${safeUrl}" target="_blank" rel="noopener noreferrer nofollow">${text}</a>`);
+      return `\x00MDLINK_${idx}\x00`;
+    });
+
     // Auto-link URLs (and render image URLs as inline images)
     html = html.replace(
       /\bhttps?:\/\/[a-zA-Z0-9\-._~:/?#\[\]@!$&()*+,;=%]+/g,
@@ -8942,6 +8961,31 @@ class HavenApp {
       return `\n<blockquote class="chat-blockquote">${text}</blockquote>`;
     });
 
+    // ── Headings: # H1, ## H2, ### H3 at start of line ──
+    html = html.replace(/(^|\n)(#{1,3})\s+(.+)/g, (_, pre, hashes, text) => {
+      const level = hashes.length;
+      return `${pre}<div class="chat-heading chat-h${level}">${text}</div>`;
+    });
+
+    // ── Horizontal rules: --- or ___ on their own line (3+ chars) ──
+    html = html.replace(/(^|\n)([-]{3,}|[_]{3,})\s*(?=\n|$)/g, '$1<hr class="chat-hr">');
+
+    // ── Unordered lists: consecutive lines starting with "- " ──
+    html = html.replace(/((?:(?:^|\n)- .+)+)/g, (match) => {
+      const items = match.trim().split('\n').map(line =>
+        `<li>${line.replace(/^- /, '')}</li>`
+      ).join('');
+      return `\n<ul class="chat-list">${items}</ul>`;
+    });
+
+    // ── Ordered lists: consecutive lines starting with "N. " ──
+    html = html.replace(/((?:(?:^|\n)\d+\.\s+.+)+)/g, (match) => {
+      const items = match.trim().split('\n').map(line =>
+        `<li>${line.replace(/^\d+\.\s+/, '')}</li>`
+      ).join('');
+      return `\n<ol class="chat-list">${items}</ol>`;
+    });
+
     html = html.replace(/\n/g, '<br>');
 
     // ── Restore fenced code blocks ──
@@ -8951,6 +8995,11 @@ class HavenApp {
       const langLabel = block.lang ? `<span class="code-block-lang">${this._escapeHtml(block.lang)}</span>` : '';
       const rendered = `<div class="code-block"${langAttr}>${langLabel}<pre><code>${escaped}</code></pre></div>`;
       html = html.replace(`\x00CODEBLOCK_${idx}\x00`, rendered);
+    });
+
+    // ── Restore markdown links/images ──
+    mdLinks.forEach((link, idx) => {
+      html = html.replace(`\x00MDLINK_${idx}\x00`, link);
     });
 
     return html;
