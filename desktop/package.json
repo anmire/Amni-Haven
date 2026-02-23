@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node -e \"const p=require('electron');require('child_process').execFileSync(p,['.'],{stdio:'inherit'})\"",
     "dev": "cross-env NODE_ENV=development node -e \"const p=require('electron');require('child_process').execFileSync(p,['.'],{stdio:'inherit'})\"",
-    "patch-icon": "rcedit-x64 node_modules/electron/dist/electron.exe --set-icon build/icon.ico --set-version-string ProductName Haven --set-version-string FileDescription \"Haven Desktop\" --set-version-string CompanyName Haven --set-version-string InternalName haven --set-version-string OriginalFilename Haven.exe",
+    "patch-icon": "node -e \"const{execFileSync}=require('child_process');const p=require('path');execFileSync(p.join(__dirname,'node_modules','rcedit','bin','rcedit-x64.exe'),[p.join(__dirname,'node_modules','electron','dist','electron.exe'),'--set-icon',p.join(__dirname,'build','icon.ico'),'--set-version-string','ProductName','Haven','--set-version-string','FileDescription','Haven Desktop','--set-version-string','CompanyName','Haven','--set-version-string','InternalName','haven','--set-version-string','OriginalFilename','Haven.exe'],{stdio:'inherit'})\"",
     "postinstall": "npm run patch-icon",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
