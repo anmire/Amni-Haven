@@ -456,12 +456,15 @@ class HavenApp {
       } else {
         this.unreadCounts[data.channelCode] = (this.unreadCounts[data.channelCode] || 0) + 1;
         this._updateBadge(data.channelCode);
-        // Check @mention even in other channels
-        const mentionRegex = new RegExp(`@${this.user.username}\\b`, 'i');
-        if (data.message.user_id !== this.user.id && mentionRegex.test(data.message.content)) {
-          this.notifications.play('mention');
-        } else {
-          this.notifications.play('message');
+        // Don't play notification sounds for your own messages in other channels
+        if (data.message.user_id !== this.user.id) {
+          // Check @mention even in other channels
+          const mentionRegex = new RegExp(`@${this.user.username}\\b`, 'i');
+          if (mentionRegex.test(data.message.content)) {
+            this.notifications.play('mention');
+          } else {
+            this.notifications.play('message');
+          }
         }
       }
     });
@@ -1580,7 +1583,15 @@ class HavenApp {
       if (this.voice && this.voice.inVoice) {
         this.voice.setNoiseSensitivity(parseInt(e.target.value, 10));
       }
+      this._updateMicMeterThreshold(parseInt(e.target.value, 10));
     });
+
+    // ── Mic level meter ──
+    this._micMeterFill = document.getElementById('mic-meter-fill');
+    this._micMeterThreshold = document.getElementById('mic-meter-threshold');
+    this._micMeterRAF = null;
+    this._updateMicMeterThreshold(10); // default
+    this._startMicMeter();
 
     // ── Screen share quality dropdowns ──
     const screenResSelect = document.getElementById('screen-res-select');
@@ -3069,6 +3080,7 @@ class HavenApp {
         content: data.url,
         isImage: true
       });
+      this.notifications.play('sent');
     } catch {
       this._showToast('Upload failed — check your connection', 'error');
     }
@@ -3981,12 +3993,14 @@ class HavenApp {
     const msgSound = document.getElementById('notif-msg-sound');
     const mentionVolume = document.getElementById('notif-mention-volume');
     const mentionSound = document.getElementById('notif-mention-sound');
+    const sentSound = document.getElementById('notif-sent-sound');
     const joinSound = document.getElementById('notif-join-sound');
     const leaveSound = document.getElementById('notif-leave-sound');
 
     toggle.checked = this.notifications.enabled;
     volume.value = this.notifications.volume * 100;
     msgSound.value = this.notifications.sounds.message;
+    if (sentSound) sentSound.value = this.notifications.sounds.sent;
     mentionVolume.value = this.notifications.mentionVolume * 100;
     mentionSound.value = this.notifications.sounds.mention;
     if (joinSound) joinSound.value = this.notifications.sounds.join;
@@ -4004,6 +4018,13 @@ class HavenApp {
       this.notifications.setSound('message', msgSound.value);
       this.notifications.play('message'); // Preview the selected sound
     });
+
+    if (sentSound) {
+      sentSound.addEventListener('change', () => {
+        this.notifications.setSound('sent', sentSound.value);
+        this.notifications.play('sent');
+      });
+    }
 
     mentionVolume.addEventListener('input', () => {
       this.notifications.setMentionVolume(mentionVolume.value / 100);
@@ -5994,6 +6015,7 @@ class HavenApp {
         }
       }
       this.socket.emit('send-message', payload);
+      this.notifications.play('sent');
     }
 
     // Upload queued images
@@ -7436,6 +7458,44 @@ class HavenApp {
       this._updateHiddenStreamsBar();
       this._updateScreenShareVisibility();
     }
+  }
+
+  // ── Mic Level Meter ──────────────────────────────────────
+
+  _startMicMeter() {
+    if (this._micMeterRAF) return;
+    const fill = this._micMeterFill;
+    if (!fill) return;
+
+    const tick = () => {
+      const level = (this.voice && this.voice.inVoice) ? this.voice.currentMicLevel : 0;
+      fill.style.width = level + '%';
+      this._micMeterRAF = requestAnimationFrame(tick);
+    };
+    this._micMeterRAF = requestAnimationFrame(tick);
+  }
+
+  _stopMicMeter() {
+    if (this._micMeterRAF) {
+      cancelAnimationFrame(this._micMeterRAF);
+      this._micMeterRAF = null;
+    }
+    if (this._micMeterFill) this._micMeterFill.style.width = '0%';
+  }
+
+  _updateMicMeterThreshold(sensitivity) {
+    // Map sensitivity 0-100 to threshold position
+    // Same mapping as voice.js: threshold = 2 + (sensitivity/100)*38 → range 2-40
+    // Meter is 0-100 which maps to avg 0-50, so threshold of N → (N/50)*100 percent
+    if (!this._micMeterThreshold) return;
+    if (sensitivity === 0) {
+      this._micMeterThreshold.style.display = 'none';
+      return;
+    }
+    const threshold = 2 + (sensitivity / 100) * 38;
+    const percent = (threshold / 50) * 100;
+    this._micMeterThreshold.style.display = '';
+    this._micMeterThreshold.style.left = percent + '%';
   }
 
   _applyStreamLayout(mode) {
@@ -9281,6 +9341,7 @@ class HavenApp {
       this._clearReply();
     }
     this.socket.emit('send-message', payload);
+    this.notifications.play('sent');
   }
 
   // /gif slash command — inline GIF search results above the input
@@ -11046,6 +11107,7 @@ class HavenApp {
         content,
         replyTo: this.replyingTo ? this.replyingTo.id : null
       });
+      this.notifications.play('sent');
       this._clearReply();
     })
     .catch(() => this._showToast('Upload failed', 'error'));

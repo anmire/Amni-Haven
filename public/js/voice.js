@@ -15,6 +15,7 @@ class VoiceManager {
     this.isDeafened = false;
     this.inVoice = false;
     this.noiseSensitivity = 10;     // Noise gate sensitivity 0 (off) to 100 (aggressive)
+    this.currentMicLevel = 0;       // Real-time mic input level 0-100 for UI meter
     this.audioCtx = null;           // Web Audio context for volume boost
     this.gainNodes = new Map();     // userId → GainNode
     this.localUserId = null;        // set by app.js so stopScreenShare can reference own tile
@@ -296,8 +297,22 @@ class VoiceManager {
     this._stopLocalTalkDetection();
     for (const [id] of this.analysers) this._stopAnalyser(id);
 
-    if (this.currentChannel) {
-      this.socket.emit('voice-leave', { code: this.currentChannel });
+    // Capture channel code BEFORE clearing state
+    const leavingChannel = this.currentChannel;
+
+    if (leavingChannel) {
+      // Use Socket.IO acknowledgment to confirm server received the leave.
+      // If no ack within 2s (socket glitch, transport switch), retry.
+      let acked = false;
+      this.socket.emit('voice-leave', { code: leavingChannel }, (response) => {
+        acked = true;
+      });
+      setTimeout(() => {
+        if (!acked && this.socket.connected) {
+          console.warn('[Voice] voice-leave not acked, retrying...');
+          this.socket.emit('voice-leave', { code: leavingChannel });
+        }
+      }, 2000);
     }
 
     // Close all peer connections
@@ -876,10 +891,16 @@ class VoiceManager {
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     const ATTACK = 0.015;    // Gate opens fast (seconds, ~15ms)
     const RELEASE = 0.12;    // Gate closes gently (seconds, ~120ms)
+    const HOLD_MS = 250;     // Keep gate open 250ms after level drops below threshold
+    let gateOpen = false;
+    let holdTimeout = null;
 
     this._noiseGateInterval = setInterval(() => {
       if (this.noiseSensitivity === 0) {
         gain.gain.value = 1;
+        this.currentMicLevel = 0;
+        gateOpen = false;
+        if (holdTimeout) { clearTimeout(holdTimeout); holdTimeout = null; }
         return;
       }
       // Map sensitivity 1-100 → threshold 2-40
@@ -889,10 +910,23 @@ class VoiceManager {
       for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
       const avg = sum / dataArray.length;
 
+      // Expose current level for UI meter (0-100 scale, capped)
+      this.currentMicLevel = Math.min(100, (avg / 50) * 100);
+
       if (avg > threshold) {
-        gain.gain.setTargetAtTime(1, this.audioCtx.currentTime, ATTACK);
-      } else {
-        gain.gain.setTargetAtTime(0, this.audioCtx.currentTime, RELEASE);
+        // Signal is above threshold — open gate immediately, cancel any pending close
+        if (holdTimeout) { clearTimeout(holdTimeout); holdTimeout = null; }
+        if (!gateOpen) {
+          gain.gain.setTargetAtTime(1, this.audioCtx.currentTime, ATTACK);
+          gateOpen = true;
+        }
+      } else if (gateOpen && !holdTimeout) {
+        // Signal dropped below threshold — start hold timer before closing
+        holdTimeout = setTimeout(() => {
+          gain.gain.setTargetAtTime(0, this.audioCtx.currentTime, RELEASE);
+          gateOpen = false;
+          holdTimeout = null;
+        }, HOLD_MS);
       }
     }, 20);
   }
@@ -904,6 +938,7 @@ class VoiceManager {
     }
     this._noiseGateAnalyser = null;
     this._noiseGateGain = null;
+    this.currentMicLevel = 0;
   }
 
   // ── Talking Detection ───────────────────────────────────

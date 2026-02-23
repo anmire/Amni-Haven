@@ -258,6 +258,18 @@
             <span class="update-pulse"></span>
             <span class="update-text">Update Available</span>
           </a>
+          <!-- Desktop app button (hidden when inside desktop app) -->
+          <button id="desktop-app-btn" class="desktop-app-btn" style="display:none" title="Get the Haven Desktop App">
+            <span class="desktop-app-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                <line x1="8" y1="21" x2="16" y2="21"/>
+                <line x1="12" y1="17" x2="12" y2="21"/>
+              </svg>
+            </span>
+            <span class="desktop-app-label">Desktop App</span>
+            <span class="desktop-app-badge">NEW</span>
+          </button>
           <!-- Spacer pushes voice controls to the right -->
           <div style="flex:1"></div>
           <!-- Right-side: dynamic indicators, then voice (always furthest right) -->
@@ -427,6 +439,13 @@
           <div class="voice-settings-row">
             <label class="voice-settings-label">🤫 Noise Suppression</label>
             <input type="range" id="voice-ns-slider" class="ns-slider" min="0" max="100" value="10" title="Noise gate: 0 = off, 100 = aggressive">
+          </div>
+          <div class="voice-settings-row mic-meter-row">
+            <label class="voice-settings-label">🎙️ Mic Level</label>
+            <div class="mic-meter" id="mic-level-meter">
+              <div class="mic-meter-fill" id="mic-meter-fill"></div>
+              <div class="mic-meter-threshold" id="mic-meter-threshold" title="Gate threshold"></div>
+            </div>
           </div>
           <div class="voice-settings-divider"></div>
           <div class="voice-settings-section-label">🖥️ Screen Share Quality</div>
@@ -870,6 +889,17 @@
               <option value="drop">Drop</option>
               <option value="alert">Alert</option>
               <option value="chord">Chord</option>
+              <option value="none">None</option>
+            </select>
+          </label>
+          <label class="select-row">
+            <span>Msg Sent</span>
+            <select id="notif-sent-sound">
+              <option value="swoosh">Swoosh</option>
+              <option value="blip">Blip</option>
+              <option value="ping">Ping</option>
+              <option value="chime">Chime</option>
+              <option value="drop">Drop</option>
               <option value="none">None</option>
             </select>
           </label>
@@ -1679,5 +1709,6 @@
   <script src="/js/modmode.js?v=1.8.0"></script>
   <script src="/js/e2e.js?v=2.1.0"></script>
   <script src="/js/app.js?v=2.1.0"></script>
+  <script src="/js/desktop-promo.js?v=1.0.0"></script>
 </body>
 </html>

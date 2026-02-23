@@ -726,6 +726,22 @@ function setupSocketHandlers(io, db) {
       }, 150); // 150ms debounce — batches rapid channel mutations
     }
 
+    // ── Stale voice user cleanup helper ──
+    // Removes voice entries whose sockets are no longer connected.
+    // Called before every broadcastVoiceUsers to prevent ghost users.
+    function pruneStaleVoiceUsers(code) {
+      const room = voiceUsers.get(code);
+      if (!room) return;
+      for (const [userId, entry] of room) {
+        const sock = io.sockets.sockets.get(entry.socketId);
+        if (!sock || !sock.connected) {
+          room.delete(userId);
+          console.log(`[Voice] Pruned stale voice entry for user ${userId} (socket ${entry.socketId} gone)`);
+        }
+      }
+      if (room.size === 0) voiceUsers.delete(code);
+    }
+
     // ── Get user's channels ─────────────────────────────────
     socket.on('get-channels', () => {
       const channels = getEnrichedChannels(
@@ -1394,10 +1410,12 @@ function setupSocketHandlers(io, db) {
       }
     });
 
-    socket.on('voice-leave', (data) => {
+    socket.on('voice-leave', (data, callback) => {
       if (!data || typeof data !== 'object') return;
       if (!isString(data.code, 8, 8)) return;
       handleVoiceLeave(socket, data.code);
+      // Acknowledge so the client knows the server processed the leave
+      if (typeof callback === 'function') callback({ ok: true });
     });
 
     // ── Voice Kick (mod/admin can remove lower-level users from voice) ──
@@ -3709,6 +3727,8 @@ function setupSocketHandlers(io, db) {
     }
 
     function broadcastVoiceUsers(code) {
+      // Prune any stale/disconnected voice entries first
+      pruneStaleVoiceUsers(code);
       const channel = db.prepare('SELECT id FROM channels WHERE code = ?').get(code);
       const channelId = channel ? channel.id : null;
       const room = voiceUsers.get(code);
