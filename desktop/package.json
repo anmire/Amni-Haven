@@ -8,6 +8,8 @@
   "scripts": {
     "start": "node -e \"const p=require('electron');require('child_process').execFileSync(p,['.'],{stdio:'inherit'})\"",
     "dev": "cross-env NODE_ENV=development node -e \"const p=require('electron');require('child_process').execFileSync(p,['.'],{stdio:'inherit'})\"",
+    "patch-icon": "rcedit-x64 node_modules/electron/dist/electron.exe --set-icon build/icon.ico --set-version-string ProductName Haven --set-version-string FileDescription \"Haven Desktop\" --set-version-string CompanyName Haven --set-version-string InternalName haven --set-version-string OriginalFilename Haven.exe",
+    "postinstall": "npm run patch-icon",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
@@ -20,6 +22,7 @@
     "cross-env": "^7.0.3",
     "electron": "^33.0.0",
     "electron-builder": "^25.1.0",
+    "rcedit": "^5.0.2",
     "sharp": "^0.34.5"
   },
   "build": {
@@ -67,11 +70,12 @@
       "category": "Network"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "include": "installer/nsis-hooks.nsh"
+      "include": "installer/nsis-hooks.nsh",
+      "runAfterFinish": true
     }
   }
 }

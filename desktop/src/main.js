@@ -33,6 +33,7 @@ const store = new Store({
 let mainWindow  = null;
 let trayManager = null;
 let audioRouter = null;
+let serverProcess = null;   // managed Haven server child process
 
 // ── Accept self-signed certificates for localhost ────────
 // Haven generates self-signed certs by default. Session-level cert
@@ -54,6 +55,14 @@ if (!gotLock) {
 // ── Force dark window chrome ─────────────────────────────
 nativeTheme.themeSource = 'dark';
 
+// ── Windows app identity ─────────────────────────────────
+// Sets the AppUserModelID so Windows shows "Haven" in taskbar,
+// alt-tab, and notification banners instead of "Electron".
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.haven.desktop');
+}
+app.name = 'Haven';
+
 // ── Create the main window ───────────────────────────────
 function createWindow() {
   const bounds = store.get('windowBounds');
@@ -64,7 +73,9 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: 'Haven',
-    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+    icon: process.platform === 'win32'
+      ? path.join(__dirname, '..', 'build', 'icon.ico')
+      : path.join(__dirname, '..', 'assets', 'icon.png'),
     backgroundColor: '#191b28',
     show: !store.get('startMinimized'),
     webPreferences: {
@@ -125,7 +136,7 @@ function createWindow() {
       } catch {}
     }
 
-    // Both protocols failed — show retry page
+    // Both protocols failed — show retry page with server launch option
     const retryUrl = store.get('serverUrl');
     mainWindow.webContents.loadURL(`data:text/html,` + encodeURIComponent(`<html>
 <head><style>
@@ -134,15 +145,51 @@ function createWindow() {
          height: 100vh; margin: 0; text-align: center; }
   h2 { margin-bottom: 8px; } p { color: #9498b3; margin-bottom: 24px; }
   button { background: #7c5cfc; color: #fff; border: none; padding: 10px 28px;
-           border-radius: 8px; font-size: 15px; cursor: pointer; margin: 6px; }
-  button:hover { background: #9478ff; }
+           border-radius: 8px; font-size: 15px; cursor: pointer; margin: 6px;
+           transition: all 0.15s; }
+  button:hover { background: #9478ff; transform: translateY(-1px); }
+  .btn-green { background: linear-gradient(135deg, #4ade80, #22c55e); color: #0a2010; }
+  .btn-green:hover { filter: brightness(1.1); }
   .hint { font-size: 13px; color: #5d6180; margin-top: 16px; }
+  .status { font-size: 13px; color: #facc15; margin-top: 12px; display: none; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #2a2d40;
+             border-top-color: #facc15; border-radius: 50%; animation: spin 0.8s linear infinite;
+             vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style></head>
 <body>
   <h2>Can't reach Haven server</h2>
   <p>${retryUrl}</p>
-  <button onclick="location.href='${retryUrl}'">Retry</button>
-  <p class="hint">Make sure the Haven server is running.<br>Default: npm start in the Haven folder.</p>
+  <div>
+    <button onclick="location.href='${retryUrl}'">Retry</button>
+    <button class="btn-green" id="launch-btn" onclick="launchServer()">▶ Launch Server</button>
+  </div>
+  <div class="status" id="status"></div>
+  <p class="hint">Make sure the Haven server is running.<br>Or click "Launch Server" to start it from here.</p>
+  <script>
+    async function launchServer() {
+      const btn = document.getElementById('launch-btn');
+      const status = document.getElementById('status');
+      btn.disabled = true; btn.textContent = '⏳ Starting...';
+      status.style.display = 'block';
+      status.innerHTML = '<span class="spinner"></span> Starting Haven server...';
+      try {
+        const result = await window.havenDesktop.serverManager.start();
+        if (result.success) {
+          status.innerHTML = '<span class="spinner"></span> Server started! Connecting...';
+          setTimeout(() => { location.href = '${retryUrl}'; }, 3000);
+        } else {
+          status.style.color = '#ef4444';
+          status.textContent = result.reason || 'Failed to start server';
+          btn.disabled = false; btn.textContent = '▶ Launch Server';
+        }
+      } catch(e) {
+        status.style.color = '#ef4444';
+        status.textContent = e.message;
+        btn.disabled = false; btn.textContent = '▶ Launch Server';
+      }
+    }
+  </script>
 </body></html>`));
   });
 
@@ -176,6 +223,87 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // ── Navigation restrictions ────────────────────────────
+  // Prevent the main window from navigating to untrusted origins.
+  // Only allow navigation to the configured Haven server URL.
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      const target = new URL(navigationUrl);
+      const server = new URL(store.get('serverUrl'));
+      // Allow navigation to the Haven server (same host + port) and data: URLs
+      if (target.protocol === 'data:') return;
+      if (target.hostname === server.hostname && target.port === server.port) return;
+      if (target.hostname === 'localhost' || target.hostname === '127.0.0.1') return;
+    } catch {}
+    console.warn('[Haven Desktop] Blocked navigation to:', navigationUrl);
+    event.preventDefault();
+  });
+
+  // Block window.open redirects to untrusted origins
+  mainWindow.webContents.on('will-redirect', (event, redirectUrl) => {
+    try {
+      const target = new URL(redirectUrl);
+      const server = new URL(store.get('serverUrl'));
+      if (target.hostname === server.hostname && target.port === server.port) return;
+      if (target.hostname === 'localhost' || target.hostname === '127.0.0.1') return;
+    } catch {}
+    console.warn('[Haven Desktop] Blocked redirect to:', redirectUrl);
+    event.preventDefault();
+  });
+
+  // ── Permission request handler ─────────────────────────
+  // Only grant permissions the app actually needs (microphone for voice,
+  // notifications for desktop alerts). Block everything else.
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const allowedPermissions = [
+      'media',           // microphone + camera (voice chat)
+      'audioCapture',    // microphone specifically
+      'notifications',   // native desktop notifications
+      'clipboard-read',  // copy/paste support
+      'clipboard-sanitized-write',
+      'mediaKeySystem',  // DRM media keys (Spotify embeds, etc.)
+    ];
+    if (allowedPermissions.includes(permission)) {
+      callback(true);
+    } else {
+      console.warn('[Haven Desktop] Denied permission request:', permission);
+      callback(false);
+    }
+  });
+
+  // Also handle permission checks (synchronous permission state queries).
+  // Electron calls this to verify permissions before the request handler.
+  // Must return true for media or getUserMedia() will fail immediately.
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    const allowedChecks = [
+      'media', 'audioCapture', 'videoCapture',
+      'notifications',
+      'clipboard-read', 'clipboard-sanitized-write',
+      'mediaKeySystem',
+    ];
+    if (allowedChecks.includes(permission)) return true;
+
+    // Also allow if the requesting origin is the Haven server
+    try {
+      const server = new URL(store.get('serverUrl'));
+      const origin = new URL(requestingOrigin);
+      if (origin.hostname === server.hostname || origin.hostname === 'localhost' || origin.hostname === '127.0.0.1') {
+        return true;
+      }
+    } catch {}
+
+    return false;
+  });
+
+  // ── Block <webview> tags ───────────────────────────────
+  // Haven doesn't use <webview>. Block them to prevent potential abuse.
+  app.on('web-contents-created', (event, contents) => {
+    contents.on('will-attach-webview', (event) => {
+      console.warn('[Haven Desktop] Blocked <webview> creation');
+      event.preventDefault();
+    });
+  });
+
   // Inject desktop-specific CSS overrides (e.g., drag region for title bar)
   // and renderer scripts for audio panel, device settings, and voice integration.
   mainWindow.webContents.on('did-finish-load', () => {
@@ -195,6 +323,7 @@ function createWindow() {
       path.join(__dirname, 'renderer', 'audio-panel.js'),
       path.join(__dirname, 'renderer', 'audio-settings.js'),
       path.join(__dirname, 'renderer', 'voice-integration.js'),
+      path.join(__dirname, 'renderer', 'server-manager.js'),
     ];
     for (const scriptPath of rendererScripts) {
       try {
@@ -430,4 +559,201 @@ function registerIPC() {
     console.warn('[Haven Desktop] Blocked openExternal for non-http URL:', url);
     return Promise.resolve();
   });
+
+  // ── Server Management ────────────────────────────────
+  // The desktop app can start/stop the Haven server as a child process.
+  let serverLogs = [];
+
+  function findHavenRoot() {
+    // Strategy: look for server.js relative to the app location
+    const candidates = [
+      // Running from source (development): desktop/ is sibling of server.js
+      path.join(__dirname, '..', '..'),
+      // Installed via electron-builder: look for server.js in parent dirs
+      path.join(app.getAppPath(), '..', '..', '..'),
+      // Packaged: app.asar is inside resources/ — check parent
+      path.join(app.getAppPath(), '..', '..'),
+      // Check if HAVEN_ROOT env var is set
+      process.env.HAVEN_ROOT,
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      try {
+        const resolved = path.resolve(candidate);
+        if (fs.existsSync(path.join(resolved, 'server.js')) &&
+            fs.existsSync(path.join(resolved, 'package.json'))) {
+          return resolved;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  ipcMain.handle('server:findRoot', () => {
+    return findHavenRoot();
+  });
+
+  ipcMain.handle('server:status', async () => {
+    // Check if server is responding
+    const serverUrl = store.get('serverUrl');
+    try {
+      const { net } = require('electron');
+      const url = new URL('/api/health', serverUrl);
+      return new Promise((resolve) => {
+        const request = net.request({ url: url.href, method: 'GET' });
+        request.on('response', (response) => {
+          let body = '';
+          response.on('data', (chunk) => body += chunk);
+          response.on('end', () => {
+            try {
+              const data = JSON.parse(body);
+              resolve({
+                running: true,
+                managed: !!serverProcess,
+                name: data.name || 'Haven',
+                url: serverUrl,
+              });
+            } catch {
+              resolve({ running: true, managed: !!serverProcess, url: serverUrl });
+            }
+          });
+        });
+        request.on('error', () => {
+          resolve({ running: false, managed: false, url: serverUrl });
+        });
+        setTimeout(() => {
+          try { request.abort(); } catch {}
+          resolve({ running: false, managed: false, url: serverUrl });
+        }, 3000);
+        request.end();
+      });
+    } catch {
+      return { running: false, managed: false, url: serverUrl };
+    }
+  });
+
+  ipcMain.handle('server:start', async () => {
+    if (serverProcess) {
+      return { success: false, reason: 'Server is already running (managed by this app)' };
+    }
+
+    const havenRoot = findHavenRoot();
+    if (!havenRoot) {
+      return {
+        success: false,
+        reason: 'Could not find Haven server files (server.js). Make sure the desktop app is in the Haven project folder.',
+      };
+    }
+
+    // Check if node is available
+    const { execSync } = require('child_process');
+    let nodePath = 'node';
+    try {
+      execSync('node -v', { stdio: 'pipe' });
+    } catch {
+      return {
+        success: false,
+        reason: 'Node.js not found. Install Node.js from https://nodejs.org',
+      };
+    }
+
+    // Check if dependencies are installed
+    if (!fs.existsSync(path.join(havenRoot, 'node_modules'))) {
+      return {
+        success: false,
+        reason: 'Dependencies not installed. Run "npm install" in the Haven folder first.',
+      };
+    }
+
+    const { spawn } = require('child_process');
+    serverLogs = [];
+
+    return new Promise((resolve) => {
+      try {
+        serverProcess = spawn(nodePath, ['server.js'], {
+          cwd: havenRoot,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, HAVEN_DATA_DIR: process.env.APPDATA ? path.join(process.env.APPDATA, 'Haven') : undefined },
+          windowsHide: true,
+        });
+
+        let started = false;
+
+        serverProcess.stdout.on('data', (data) => {
+          const line = data.toString();
+          serverLogs.push(line);
+          if (serverLogs.length > 200) serverLogs.shift();
+          // Detect when server is ready
+          if (line.includes('HAVEN is running') && !started) {
+            started = true;
+            resolve({ success: true, pid: serverProcess.pid });
+          }
+          // Forward to renderer
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('server:log', line);
+          }
+        });
+
+        serverProcess.stderr.on('data', (data) => {
+          const line = data.toString();
+          serverLogs.push('[ERR] ' + line);
+          if (serverLogs.length > 200) serverLogs.shift();
+        });
+
+        serverProcess.on('error', (err) => {
+          serverProcess = null;
+          if (!started) {
+            resolve({ success: false, reason: err.message });
+          }
+        });
+
+        serverProcess.on('close', (code) => {
+          serverProcess = null;
+          if (!started) {
+            resolve({ success: false, reason: `Server exited with code ${code}` });
+          }
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('server:stopped', code);
+          }
+        });
+
+        // Timeout — if server doesn't start within 20 seconds
+        setTimeout(() => {
+          if (!started) {
+            resolve({ success: true, pid: serverProcess?.pid, warning: 'Server may still be starting...' });
+          }
+        }, 20000);
+      } catch (err) {
+        resolve({ success: false, reason: err.message });
+      }
+    });
+  });
+
+  ipcMain.handle('server:stop', () => {
+    if (!serverProcess) {
+      return { success: false, reason: 'No managed server process' };
+    }
+    try {
+      serverProcess.kill('SIGTERM');
+      // Force kill after 5 seconds
+      const proc = serverProcess;
+      setTimeout(() => {
+        try { if (proc && !proc.killed) proc.kill('SIGKILL'); } catch {}
+      }, 5000);
+      return { success: true };
+    } catch (err) {
+      return { success: false, reason: err.message };
+    }
+  });
+
+  ipcMain.handle('server:getLogs', () => {
+    return serverLogs.join('');
+  });
 }
+
+// Clean up server process on quit
+app.on('before-quit', () => {
+  if (serverProcess) {
+    try { serverProcess.kill('SIGTERM'); } catch {}
+  }
+});
