@@ -533,6 +533,26 @@ function initDatabase() {
     db.exec("ALTER TABLE messages ADD COLUMN is_archived INTEGER DEFAULT 0");
   }
 
+  // ── Migration: role-based channel access ────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS role_channel_access (
+      role_id    INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+      channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      grant_on_promote  INTEGER NOT NULL DEFAULT 0,
+      revoke_on_demote  INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (role_id, channel_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_rca_role ON role_channel_access(role_id);
+    CREATE INDEX IF NOT EXISTS idx_rca_channel ON role_channel_access(channel_id);
+  `);
+
+  // ── Migration: link_channel_access flag on roles ────────
+  try {
+    db.prepare("SELECT link_channel_access FROM roles LIMIT 0").get();
+  } catch {
+    db.exec("ALTER TABLE roles ADD COLUMN link_channel_access INTEGER NOT NULL DEFAULT 0");
+  }
+
   return db;
 }
 

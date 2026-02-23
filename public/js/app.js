@@ -1136,6 +1136,24 @@ class HavenApp {
       this.switchChannel(code);
       setTimeout(() => this._joinVoice(), 300);
     });
+    // Leave channel
+    document.querySelector('[data-action="leave-channel"]')?.addEventListener('click', () => {
+      const code = this._ctxMenuChannel;
+      if (!code) return;
+      this._closeChannelCtxMenu();
+      const ch = this.channels.find(c => c.code === code);
+      const name = ch ? ch.name : code;
+      if (!confirm(`Leave channel "${name}"?\nYou'll need the channel code to rejoin.`)) return;
+      this.socket.emit('leave-channel', { code }, (res) => {
+        if (res && res.error) { this._showToast(res.error, 'error'); return; }
+        this._showToast(`Left #${name}`, 'success');
+        // Switch to another channel if we're currently in this one
+        if (this.currentChannel === code) {
+          const remaining = this.channels.filter(c => c.code !== code && !c.is_dm);
+          if (remaining.length) this.switchChannel(remaining[0].code);
+        }
+      });
+    });
     // Disconnect from voice via context menu
     document.querySelector('[data-action="leave-voice"]')?.addEventListener('click', () => {
       this._closeChannelCtxMenu();
@@ -4790,6 +4808,9 @@ class HavenApp {
     if (createSubBtn && ch && ch.parent_channel_id) {
       createSubBtn.style.display = 'none';
     }
+    // Hide "Leave Channel" for admins (always in all channels)
+    const leaveBtn = menu.querySelector('[data-action="leave-channel"]');
+    if (leaveBtn) leaveBtn.style.display = isAdmin ? 'none' : '';
     // Show "Organize" only for parent channels that have sub-channels
     const organizeBtn = menu.querySelector('[data-action="organize"]');
     if (organizeBtn) {
@@ -12014,11 +12035,44 @@ class HavenApp {
             <input type="checkbox" class="role-perm-checkbox" data-perm="${p}" ${rolePerms.includes(p) ? 'checked' : ''}>
           </label>
         `).join('')}
+        <div class="role-channel-access-section">
+          <h5 class="settings-section-subtitle">Channel Access</h5>
+          <label class="toggle-row">
+            <span>Link channel access to this role</span>
+            <input type="checkbox" id="role-edit-link-channel-access" ${role.link_channel_access ? 'checked' : ''}>
+          </label>
+          <small class="muted-text" style="font-size:11px;">When enabled, assigning/revoking this role will automatically grant/revoke channel memberships.</small>
+          <div id="role-channel-access-panel" style="display:${role.link_channel_access ? 'block' : 'none'};margin-top:8px;">
+            <div class="role-channel-access-list" id="role-channel-access-list">
+              <p class="muted-text" style="padding:12px;text-align:center;font-size:12px">Loading channels…</p>
+            </div>
+            <button class="btn-sm btn-accent rca-reapply-btn" id="rca-reapply-btn">🔄 Reapply Access to All Users</button>
+          </div>
+        </div>
         <div style="margin-top:12px;display:flex;gap:8px">
           <button class="btn-sm danger" id="delete-role-btn">Delete</button>
         </div>
       </div>
     `;
+
+    // Toggle channel access panel visibility
+    const linkCheckbox = document.getElementById('role-edit-link-channel-access');
+    const accessPanel = document.getElementById('role-channel-access-panel');
+    linkCheckbox.addEventListener('change', () => {
+      accessPanel.style.display = linkCheckbox.checked ? 'block' : 'none';
+      if (linkCheckbox.checked) this._loadRoleChannelAccess(role.id);
+    });
+    // Load channel access if already enabled
+    if (role.link_channel_access) this._loadRoleChannelAccess(role.id);
+
+    // Reapply button
+    document.getElementById('rca-reapply-btn').addEventListener('click', () => {
+      if (!confirm('Reapply channel access to ALL users with this role?\nThis will grant configured channels to every user who currently has this role.')) return;
+      this.socket.emit('reapply-role-access', { roleId: role.id }, (res) => {
+        if (res && res.error) return this._showToast(res.error, 'error');
+        this._showToast(`Access reapplied to ${res.affected} user(s)`, 'success');
+      });
+    });
 
     // The Save button lives in the modal-actions bar (always visible). Show it
     // when a role is selected, and wire up the click handler.
@@ -12029,17 +12083,47 @@ class HavenApp {
     saveBtn.parentNode.replaceChild(freshSaveBtn, saveBtn);
     freshSaveBtn.addEventListener('click', () => {
       const perms = [...panel.querySelectorAll('.role-perm-checkbox:checked')].map(cb => cb.dataset.perm);
+      const linkEnabled = document.getElementById('role-edit-link-channel-access').checked;
       freshSaveBtn.disabled = true;
       freshSaveBtn.textContent = 'Saving...';
+
+      // Collect channel access config
+      const accessRows = [...panel.querySelectorAll('.rca-channel-row')];
+      const accessData = accessRows.map(row => ({
+        channelId: parseInt(row.dataset.channelId, 10),
+        grant: row.querySelector('.rca-grant')?.checked || false,
+        revoke: row.querySelector('.rca-revoke')?.checked || false
+      })).filter(a => a.channelId);
+
       this.socket.emit('update-role', {
         roleId: role.id,
         name: document.getElementById('role-edit-name').value.trim(),
         level: parseInt(document.getElementById('role-edit-level').value, 10),
         color: document.getElementById('role-edit-color').value,
         autoAssign: document.getElementById('role-edit-auto-assign').checked,
+        linkChannelAccess: linkEnabled,
         permissions: perms
       }, (res) => {
         if (res.error) { this._showToast(res.error, 'error'); freshSaveBtn.disabled = false; freshSaveBtn.textContent = 'Save'; return; }
+
+        // Save channel access config separately
+        if (linkEnabled && accessData.length) {
+          this.socket.emit('update-role-channel-access', {
+            roleId: role.id,
+            linkEnabled: true,
+            access: accessData
+          }, (accRes) => {
+            if (accRes && accRes.error) this._showToast(accRes.error, 'error');
+          });
+        } else if (!linkEnabled) {
+          // Disable channel access linking
+          this.socket.emit('update-role-channel-access', {
+            roleId: role.id,
+            linkEnabled: false,
+            access: []
+          });
+        }
+
         // Use server-returned roles directly (no re-fetch needed)
         if (res.roles) {
           this._allRoles = res.roles;
@@ -12067,6 +12151,57 @@ class HavenApp {
         this._renderRoleDetail();
       });
     });
+  }
+
+  _loadRoleChannelAccess(roleId) {
+    const listEl = document.getElementById('role-channel-access-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<p class="muted-text" style="padding:12px;text-align:center;font-size:12px">Loading…</p>';
+
+    this.socket.emit('get-role-channel-access', { roleId }, (res) => {
+      if (res && res.error) {
+        listEl.innerHTML = `<p class="muted-text" style="padding:12px;text-align:center;font-size:12px">${this._escapeHtml(res.error)}</p>`;
+        return;
+      }
+      const channels = res.channels || [];
+      const accessMap = {};
+      (res.access || []).forEach(a => { accessMap[a.channel_id] = a; });
+
+      if (!channels.length) {
+        listEl.innerHTML = '<p class="muted-text" style="padding:12px;text-align:center;font-size:12px">No channels found</p>';
+        return;
+      }
+
+      // Build parent → sub hierarchy
+      const parents = channels.filter(c => !c.parent_channel_id);
+      const subMap = {};
+      channels.filter(c => c.parent_channel_id).forEach(c => {
+        if (!subMap[c.parent_channel_id]) subMap[c.parent_channel_id] = [];
+        subMap[c.parent_channel_id].push(c);
+      });
+
+      let html = '';
+      parents.forEach(p => {
+        const pa = accessMap[p.id] || {};
+        html += this._renderRcaRow(p, pa, false);
+        (subMap[p.id] || []).forEach(s => {
+          const sa = accessMap[s.id] || {};
+          html += this._renderRcaRow(s, sa, true);
+        });
+      });
+      listEl.innerHTML = html;
+    });
+  }
+
+  _renderRcaRow(ch, access, isSub) {
+    const grantChecked = access.grant_on_promote ? ' checked' : '';
+    const revokeChecked = access.revoke_on_demote ? ' checked' : '';
+    const lockIcon = ch.is_private ? ' 🔒' : '';
+    return `<div class="rca-channel-row" data-channel-id="${ch.id}">
+      <span class="rca-channel-name${isSub ? ' rca-sub' : ''}">${isSub ? '↳ ' : '# '}${this._escapeHtml(ch.name)}${lockIcon}</span>
+      <label><input type="checkbox" class="rca-grant"${grantChecked}> Grant</label>
+      <label><input type="checkbox" class="rca-revoke"${revokeChecked}> Revoke</label>
+    </div>`;
   }
 
   // ═══════════════════════════════════════════════════════

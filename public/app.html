@@ -1437,6 +1437,8 @@
     <button class="channel-ctx-item" data-action="join-voice">🎙️ Join Voice</button>
     <button class="channel-ctx-item" data-action="leave-voice" style="display:none">📴 Disconnect Voice</button>
     <hr class="channel-ctx-sep">
+    <button class="channel-ctx-item" data-action="leave-channel">🚪 Leave Channel</button>
+    <hr class="channel-ctx-sep">
     <button class="channel-ctx-item mod-only" data-action="rename-channel">✏️ Rename Channel</button>
     <button class="channel-ctx-item mod-only" data-action="create-sub-channel">📁 Create Sub-channel</button>
     <hr class="channel-ctx-sep admin-only">
@@ -1627,6 +1629,7 @@
         <input type="checkbox" id="create-sub-private" style="width:16px;height:16px">
         <span style="font-size:0.9rem">🔒 Private <span style="opacity:0.5;font-size:0.8rem">(invite-only, hidden from non-members)</span></span>
       </label>
+      <p class="muted-text" style="font-size:0.75rem;margin:0 0 8px;opacity:0.6">ℹ️ Admins always have access to all channels, including private ones.</p>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
         <button class="btn-sm" id="create-sub-cancel-btn">Cancel</button>
         <button class="btn-sm btn-accent" id="create-sub-confirm-btn">Create</button>

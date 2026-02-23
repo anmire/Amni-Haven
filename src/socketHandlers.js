@@ -645,16 +645,43 @@ function setupSocketHandlers(io, db) {
 
     // ── Helper: get enriched channel list for a user ───────
     function getEnrichedChannels(userId, isAdmin, joinRooms) {
-      const channels = db.prepare(`
-        SELECT c.id, c.name, c.code, c.created_by, c.topic, c.is_dm,
-               c.code_visibility, c.code_mode, c.code_rotation_type, c.code_rotation_interval,
-               c.parent_channel_id, c.position, c.is_private,
-               c.streams_enabled, c.music_enabled, c.slow_mode_interval, c.category, c.sort_alphabetical
-        FROM channels c
-        JOIN channel_members cm ON c.id = cm.channel_id
-        WHERE cm.user_id = ?
-        ORDER BY c.is_dm, c.position, c.name
-      `).all(userId);
+      let channels;
+      if (isAdmin) {
+        // Admins see ALL non-DM channels plus their own DMs
+        channels = db.prepare(`
+          SELECT c.id, c.name, c.code, c.created_by, c.topic, c.is_dm,
+                 c.code_visibility, c.code_mode, c.code_rotation_type, c.code_rotation_interval,
+                 c.parent_channel_id, c.position, c.is_private,
+                 c.streams_enabled, c.music_enabled, c.slow_mode_interval, c.category, c.sort_alphabetical
+          FROM channels c
+          WHERE c.is_dm = 0
+          UNION
+          SELECT c.id, c.name, c.code, c.created_by, c.topic, c.is_dm,
+                 c.code_visibility, c.code_mode, c.code_rotation_type, c.code_rotation_interval,
+                 c.parent_channel_id, c.position, c.is_private,
+                 c.streams_enabled, c.music_enabled, c.slow_mode_interval, c.category, c.sort_alphabetical
+          FROM channels c
+          JOIN channel_members cm ON c.id = cm.channel_id
+          WHERE cm.user_id = ? AND c.is_dm = 1
+          ORDER BY is_dm, position, name
+        `).all(userId);
+        // Auto-add admin to channel_members for any channels they aren't a member of
+        const insertMember = db.prepare('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)');
+        channels.forEach(ch => {
+          if (!ch.is_dm) insertMember.run(ch.id, userId);
+        });
+      } else {
+        channels = db.prepare(`
+          SELECT c.id, c.name, c.code, c.created_by, c.topic, c.is_dm,
+                 c.code_visibility, c.code_mode, c.code_rotation_type, c.code_rotation_interval,
+                 c.parent_channel_id, c.position, c.is_private,
+                 c.streams_enabled, c.music_enabled, c.slow_mode_interval, c.category, c.sort_alphabetical
+          FROM channels c
+          JOIN channel_members cm ON c.id = cm.channel_id
+          WHERE cm.user_id = ?
+          ORDER BY c.is_dm, c.position, c.name
+        `).all(userId);
+      }
 
       if (channels.length > 0) {
         const channelIds = channels.map(c => c.id);
@@ -936,19 +963,70 @@ function setupSocketHandlers(io, db) {
       socket.emit('channels-list', getEnrichedChannels(socket.user.id, socket.user.isAdmin, (room) => socket.join(room)));
     });
 
+    // ── Leave channel ───────────────────────────────────────
+    socket.on('leave-channel', (data, callback) => {
+      if (!data || typeof data !== 'object') return;
+      const cb = typeof callback === 'function' ? callback : () => {};
+      const code = typeof data.code === 'string' ? data.code.trim() : '';
+      if (!code || !/^[a-f0-9]{8}$/i.test(code)) return cb({ error: 'Invalid code' });
+
+      const channel = db.prepare('SELECT * FROM channels WHERE code = ?').get(code);
+      if (!channel) return cb({ error: 'Channel not found' });
+
+      // Admins can't leave (they always have access to all channels)
+      if (socket.user.isAdmin) return cb({ error: 'Admins cannot leave channels' });
+
+      // Can't leave DMs via this mechanism
+      if (channel.is_dm) return cb({ error: 'Use Delete DM instead' });
+
+      // Remove membership
+      db.prepare('DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?').run(channel.id, socket.user.id);
+
+      // Also remove from all sub-channels of this channel
+      if (!channel.parent_channel_id) {
+        const subs = db.prepare('SELECT id FROM channels WHERE parent_channel_id = ?').all(channel.id);
+        const delSub = db.prepare('DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?');
+        subs.forEach(s => delSub.run(s.id, socket.user.id));
+      }
+
+      // Leave socket rooms
+      socket.leave(`channel:${code}`);
+
+      // Remove from online tracking
+      if (socket.currentChannel === code) {
+        const prevUsers = channelUsers.get(code);
+        if (prevUsers) {
+          prevUsers.delete(socket.user.id);
+          emitOnlineUsers(code);
+        }
+        socket.currentChannel = null;
+      }
+
+      // Refresh channel list for this user
+      socket.emit('channels-list', getEnrichedChannels(socket.user.id, socket.user.isAdmin, (room) => socket.join(room)));
+      cb({ success: true });
+    });
+
     // ── Switch active channel ───────────────────────────────
     socket.on('enter-channel', (data) => {
       if (!data || typeof data !== 'object') return;
       const code = typeof data.code === 'string' ? data.code.trim() : '';
       if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
 
-      // Verify membership before allowing channel access
-      const ch = db.prepare('SELECT id FROM channels WHERE code = ?').get(code);
+      // Verify membership before allowing channel access (admins bypass)
+      const ch = db.prepare('SELECT id, is_dm FROM channels WHERE code = ?').get(code);
       if (!ch) return;
       const isMember = db.prepare(
         'SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?'
       ).get(ch.id, socket.user.id);
-      if (!isMember) return socket.emit('error-msg', 'Not a member of this channel');
+      if (!isMember) {
+        if (socket.user.isAdmin && !ch.is_dm) {
+          // Auto-add admin to channel
+          db.prepare('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(ch.id, socket.user.id);
+        } else {
+          return socket.emit('error-msg', 'Not a member of this channel');
+        }
+      }
 
       // Remove from previous channel's online tracking
       if (socket.currentChannel && socket.currentChannel !== code) {
@@ -992,7 +1070,7 @@ function setupSocketHandlers(io, db) {
       const member = db.prepare(
         'SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?'
       ).get(channel.id, socket.user.id);
-      if (!member) return socket.emit('error-msg', 'Not a member of this channel');
+      if (!member && !socket.user.isAdmin) return socket.emit('error-msg', 'Not a member of this channel');
 
       let messages;
       if (before) {
@@ -4017,6 +4095,9 @@ function setupSocketHandlers(io, db) {
           }
           updates.push('auto_assign = ?'); values.push(data.autoAssign ? 1 : 0);
         }
+        if (data.linkChannelAccess !== undefined) {
+          updates.push('link_channel_access = ?'); values.push(data.linkChannelAccess ? 1 : 0);
+        }
 
         if (updates.length > 0) {
           values.push(roleId);
@@ -4064,6 +4145,7 @@ function setupSocketHandlers(io, db) {
 
       db.prepare('DELETE FROM user_roles WHERE role_id = ?').run(roleId);
       db.prepare('DELETE FROM role_permissions WHERE role_id = ?').run(roleId);
+      db.prepare('DELETE FROM role_channel_access WHERE role_id = ?').run(roleId);
       db.prepare('DELETE FROM roles WHERE id = ?').run(roleId);
       // Refresh all online users' role data
       for (const [code] of channelUsers) { emitOnlineUsers(code); }
@@ -4108,6 +4190,9 @@ function setupSocketHandlers(io, db) {
           db.prepare('DELETE FROM user_roles WHERE user_id = ? AND role_id = ? AND channel_id IS NULL').run(userId, roleId);
         }
         db.prepare('INSERT INTO user_roles (user_id, role_id, channel_id, granted_by) VALUES (?, ?, ?, ?)').run(userId, roleId, channelId, socket.user.id);
+
+        // Apply role-linked channel access (grant channels on promote)
+        applyRoleChannelAccess(roleId, userId, 'grant');
 
         // Notify the target user if online
         for (const [, s] of io.sockets.sockets) {
@@ -4155,6 +4240,9 @@ function setupSocketHandlers(io, db) {
 
       const channelId = isInt(data.channelId) ? data.channelId : null;
 
+      // Apply role-linked channel access (revoke channels on demote) BEFORE removing the role
+      applyRoleChannelAccess(roleId, userId, 'revoke');
+
       if (channelId) {
         db.prepare('DELETE FROM user_roles WHERE user_id = ? AND role_id = ? AND channel_id = ?').run(userId, roleId, channelId);
       } else {
@@ -4173,6 +4261,114 @@ function setupSocketHandlers(io, db) {
         }
       }
       for (const [code] of channelUsers) { emitOnlineUsers(code); }
+    });
+
+    // ── Helper: apply role channel access for a user ──────
+    // direction: 'grant' (on promote) or 'revoke' (on demote)
+    function applyRoleChannelAccess(roleId, userId, direction) {
+      const role = db.prepare('SELECT link_channel_access FROM roles WHERE id = ?').get(roleId);
+      if (!role || !role.link_channel_access) return;
+
+      const col = direction === 'grant' ? 'grant_on_promote' : 'revoke_on_demote';
+      const channelRows = db.prepare(
+        `SELECT channel_id FROM role_channel_access WHERE role_id = ? AND ${col} = 1`
+      ).all(roleId);
+
+      if (direction === 'grant') {
+        const ins = db.prepare('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)');
+        channelRows.forEach(r => ins.run(r.channel_id, userId));
+      } else {
+        const del = db.prepare('DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?');
+        channelRows.forEach(r => del.run(r.channel_id, userId));
+      }
+
+      // Refresh the user's channel list if they're online
+      for (const [, s] of io.sockets.sockets) {
+        if (s.user && s.user.id === userId) {
+          s.emit('channels-list', getEnrichedChannels(userId, s.user.isAdmin, (room) => s.join(room)));
+        }
+      }
+    }
+
+    // ── Get role channel access config ──────────────────────
+    socket.on('get-role-channel-access', (data, callback) => {
+      if (!data || typeof data !== 'object') return;
+      const cb = typeof callback === 'function' ? callback : () => {};
+      if (!socket.user.isAdmin) return cb({ error: 'Only admins can view role channel access' });
+
+      const roleId = isInt(data.roleId) ? data.roleId : null;
+      if (!roleId) return cb({ error: 'Invalid role ID' });
+
+      const rows = db.prepare('SELECT channel_id, grant_on_promote, revoke_on_demote FROM role_channel_access WHERE role_id = ?').all(roleId);
+      const channels = db.prepare('SELECT id, name, parent_channel_id, is_dm, is_private, position FROM channels WHERE is_dm = 0 ORDER BY parent_channel_id IS NOT NULL, position, name').all();
+      cb({ success: true, access: rows, channels });
+    });
+
+    // ── Update role channel access config ───────────────────
+    socket.on('update-role-channel-access', (data, callback) => {
+      if (!data || typeof data !== 'object') return;
+      const cb = typeof callback === 'function' ? callback : () => {};
+      if (!socket.user.isAdmin) return cb({ error: 'Only admins can edit role channel access' });
+
+      const roleId = isInt(data.roleId) ? data.roleId : null;
+      if (!roleId) return cb({ error: 'Invalid role ID' });
+      if (!Array.isArray(data.access)) return cb({ error: 'Invalid access data' });
+
+      try {
+        const txn = db.transaction(() => {
+          db.prepare('DELETE FROM role_channel_access WHERE role_id = ?').run(roleId);
+          const ins = db.prepare('INSERT INTO role_channel_access (role_id, channel_id, grant_on_promote, revoke_on_demote) VALUES (?, ?, ?, ?)');
+          data.access.forEach(a => {
+            const chId = isInt(a.channelId) ? a.channelId : null;
+            if (!chId) return;
+            const grant = a.grant ? 1 : 0;
+            const revoke = a.revoke ? 1 : 0;
+            if (grant || revoke) ins.run(roleId, chId, grant, revoke);
+          });
+
+          // Also update the link_channel_access flag on the role
+          if (data.linkEnabled !== undefined) {
+            db.prepare('UPDATE roles SET link_channel_access = ? WHERE id = ?').run(data.linkEnabled ? 1 : 0, roleId);
+          }
+        });
+        txn();
+        cb({ success: true });
+      } catch (err) {
+        console.error('Update role channel access error:', err);
+        cb({ error: 'Failed to update channel access' });
+      }
+    });
+
+    // ── Reapply role channel access to all users with this role ──
+    socket.on('reapply-role-access', (data, callback) => {
+      if (!data || typeof data !== 'object') return;
+      const cb = typeof callback === 'function' ? callback : () => {};
+      if (!socket.user.isAdmin) return cb({ error: 'Only admins can reapply access' });
+
+      const roleId = isInt(data.roleId) ? data.roleId : null;
+      if (!roleId) return cb({ error: 'Invalid role ID' });
+
+      const role = db.prepare('SELECT * FROM roles WHERE id = ?').get(roleId);
+      if (!role) return cb({ error: 'Role not found' });
+      if (!role.link_channel_access) return cb({ error: 'Channel access linking is not enabled for this role' });
+
+      // Get all users who have this role
+      const users = db.prepare('SELECT DISTINCT user_id FROM user_roles WHERE role_id = ?').all(roleId);
+
+      // Get grant channels
+      const grantChannels = db.prepare('SELECT channel_id FROM role_channel_access WHERE role_id = ? AND grant_on_promote = 1').all(roleId);
+      const ins = db.prepare('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)');
+
+      const txn = db.transaction(() => {
+        users.forEach(u => {
+          grantChannels.forEach(c => ins.run(c.channel_id, u.user_id));
+        });
+      });
+      txn();
+
+      // Refresh channel lists for affected online users
+      broadcastChannelLists();
+      cb({ success: true, affected: users.length });
     });
 
     // ═══════════════ PROMOTE USER (role-based) ═══════════════

@@ -2951,6 +2951,59 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
 }
 .channel-voice-indicator .voice-icon { font-size: 12px; }
 
+/* ── Private channel styling (muted appearance) ─── */
+.channel-item.private-channel .channel-name { opacity: 0.6; }
+.channel-item.private-channel .channel-hash { opacity: 0.6; }
+.channel-item.private-channel:hover .channel-name,
+.channel-item.private-channel:hover .channel-hash { opacity: 1; }
+.channel-item.private-channel.active .channel-name,
+.channel-item.private-channel.active .channel-hash { opacity: 1; }
+
+/* ── Role channel access panel ─── */
+.role-channel-access-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.role-channel-access-section h5 { margin: 0 0 8px; }
+.role-channel-access-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  padding: 4px 0;
+}
+.rca-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.rca-channel-row:hover { background: var(--bg-hover); }
+.rca-channel-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.rca-channel-name.rca-sub { padding-left: 16px; opacity: 0.85; }
+.rca-channel-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rca-reapply-btn {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
 /* ── Main Content ──────────────────────────────────────── */
 
 .main {
