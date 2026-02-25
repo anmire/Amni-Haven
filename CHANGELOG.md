@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.3.1] — 2026-02-25
+
+### Fixed
+- **Plugin CSP error** — added `'unsafe-eval'` to Content Security Policy `scriptSrc` so plugins using `new Function()` (like MessageTimestamps) can load without EvalError.
+- **Health check 404 spam** — multi-server sidebar health checks now extract the origin from stored server URLs before appending `/api/health`, fixing 404s when the URL contained a path (e.g. `/app`).
+
+---
+
 ## [2.3.0] — 2026-02-24
 
 ### Added
