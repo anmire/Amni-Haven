@@ -193,8 +193,9 @@ function _rebuildEffectSpeedSliders() {
   // Clear existing sliders
   editor.innerHTML = '';
 
-  // Get active dynamic effects
-  const active = [..._activeFx].filter(fx => DYNAMIC_THEMES.includes(fx));
+  // Get active dynamic effects — exclude CRT and Cyberpunk which have dedicated editors
+  const DEDICATED_EDITORS = ['crt', 'cyberpunk'];
+  const active = [..._activeFx].filter(fx => DYNAMIC_THEMES.includes(fx) && !DEDICATED_EDITORS.includes(fx));
   if (active.length === 0) return;
 
   active.forEach(fx => {
@@ -263,7 +264,8 @@ function _applyFxSpeedToLayers(effectName, cssMult) {
 function showEffectEditorIfDynamic(theme) {
   const editor = document.getElementById('effect-speed-editor');
   if (!editor) return;
-  const hasDynamic = [..._activeFx].some(fx => DYNAMIC_THEMES.includes(fx));
+  const DEDICATED_EDITOR_FX = ['crt', 'cyberpunk'];
+  const hasDynamic = [..._activeFx].some(fx => DYNAMIC_THEMES.includes(fx) && !DEDICATED_EDITOR_FX.includes(fx));
   if (hasDynamic) {
     _rebuildEffectSpeedSliders();
     if (editor._show) editor._show();

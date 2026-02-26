@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.3.4] — 2026-02-26
+
+### Added
+- **Right-click voice users** — right-clicking a player name in the voice channel now opens the same volume/mute/deafen menu as the ⋯ button.
+- **Donor tier background boxes** — each donor tier section in the Thank You modal now has a styled background card for better visual organization.
+
+### Fixed
+- **Duplicate theme effect sliders** — CRT and Glitch no longer show redundant speed sliders in the effect panel. Each effect now only appears in its dedicated editor section.
+- **Hover profile card stuck open** — the translucent bio/profile popup that appears on hover now reliably closes when the mouse moves away, using a global mousemove safety net that tracks distance from both the trigger and the popup.
+- **Profile card missing channel roles** — the profile popup now correctly shows channel-specific roles (e.g. Channel Mod) instead of only server-wide roles. Previously a user with a Channel Mod role would still display as just "User" in their profile card.
+
+---
+
 ## [2.3.3] — 2026-02-25
 
 ### Added

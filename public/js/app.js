@@ -755,6 +755,7 @@ class HavenApp {
     this._isHoverPopup = false;
     this._hoverProfileTimer = null;
     this._hoverCloseTimer = null;
+    this._hoverAutoCloseTimer = null;
     this._hoverTarget = null;
 
     this.socket.on('user-profile', (profile) => {
@@ -2190,16 +2191,31 @@ class HavenApp {
     const setupHoverProfile = (container, getInfo) => {
       container.addEventListener('mouseover', (e) => {
         const trigger = getInfo(e);
-        if (!trigger) return;
+        if (!trigger) {
+          // Mouse moved to a non-trigger element — cancel any pending timer
+          clearTimeout(this._hoverProfileTimer);
+          this._hoverTarget = null;
+          // If a hover popup is open and mouse moved away from trigger, start close timer
+          if (this._isHoverPopup) {
+            clearTimeout(this._hoverCloseTimer);
+            this._hoverCloseTimer = setTimeout(() => {
+              if (this._isHoverPopup) this._fadeOutHoverPopup();
+            }, 300);
+          }
+          return;
+        }
         if (trigger.el === this._hoverTarget) return;
         clearTimeout(this._hoverProfileTimer);
         clearTimeout(this._hoverCloseTimer);
+        clearTimeout(this._hoverAutoCloseTimer);
         this._hoverTarget = trigger.el;
 
         // Don't show hover popup if a click-based popup is already open
         if (document.getElementById('profile-popup') && !this._isHoverPopup) return;
 
         this._hoverProfileTimer = setTimeout(() => {
+          // Verify the mouse is still over this trigger element
+          if (this._hoverTarget !== trigger.el) return;
           if (!isNaN(trigger.userId)) {
             this._profilePopupAnchor = trigger.el;
             this._isHoverPopup = true;
@@ -2208,15 +2224,12 @@ class HavenApp {
         }, 400);
       });
 
-      container.addEventListener('mouseout', (e) => {
-        const related = e.relatedTarget;
-        // If mouse moved to the popup itself, don't close
-        if (related && related.closest && related.closest('#profile-popup')) return;
+      container.addEventListener('mouseleave', () => {
         clearTimeout(this._hoverProfileTimer);
         this._hoverTarget = null;
         if (this._isHoverPopup) {
           this._hoverCloseTimer = setTimeout(() => {
-            if (this._isHoverPopup) this._closeProfilePopup();
+            if (this._isHoverPopup) this._fadeOutHoverPopup();
           }, 300);
         }
       });
@@ -2784,7 +2797,11 @@ class HavenApp {
       `;
 
       row.querySelector('.manage-server-visit').addEventListener('click', () => {
-        window.open(s.url, '_blank', 'noopener');
+        if (window.havenDesktop?.switchServer) {
+          window.havenDesktop.switchServer(s.url);
+        } else {
+          window.open(s.url, '_blank', 'noopener');
+        }
       });
       row.querySelector('.manage-server-edit').addEventListener('click', () => {
         document.getElementById('manage-servers-modal').style.display = 'none';
@@ -2853,7 +2870,11 @@ class HavenApp {
           this._showToast('Server removed', 'success');
           return;
         }
-        window.open(el.dataset.url, '_blank', 'noopener');
+        if (window.havenDesktop?.switchServer) {
+          window.havenDesktop.switchServer(el.dataset.url);
+        } else {
+          window.open(el.dataset.url, '_blank', 'noopener');
+        }
       });
       // Right-click to edit
       el.addEventListener('contextmenu', (e) => {
@@ -4757,33 +4778,83 @@ class HavenApp {
     if (existing) existing.remove();
   }
 
-  // ── User Context Menu (right-click → invite to channel) ──
+  // ── User Context Menu (right-click → options) ──
 
   _showUserContextMenu(e, targetUserId) {
     this._hideUserContextMenu();
-
-    // Build list of non-DM channels the current user is a member of
-    const inviteChannels = (this.channels || []).filter(ch => !ch.is_dm && ch.name);
-    if (inviteChannels.length === 0) return;
 
     const menu = document.createElement('div');
     menu.id = 'user-context-menu';
     menu.className = 'user-context-menu';
 
-    // Header
+    // Find target username from online users
+    const targetUser = (this._lastOnlineUsers || []).find(u => u.id === targetUserId);
+    const targetName = targetUser ? targetUser.username : 'User';
+
+    // Header with username
     const header = document.createElement('div');
     header.className = 'user-ctx-header';
-    header.textContent = 'Invite to Channel';
+    header.textContent = targetName;
     menu.appendChild(header);
 
-    // Channel list
-    for (const ch of inviteChannels) {
-      const btn = document.createElement('button');
-      btn.dataset.channelId = ch.id;
-      btn.textContent = `# ${ch.name}`;
-      btn.title = ch.topic || ch.name;
-      menu.appendChild(btn);
+    // 1) View Profile
+    const profileBtn = document.createElement('button');
+    profileBtn.innerHTML = '👤 View Profile';
+    profileBtn.addEventListener('click', () => {
+      this._hideUserContextMenu();
+      this._isHoverPopup = false;
+      this._profilePopupAnchor = e.target.closest('.user-item') || e.target;
+      this.socket.emit('get-user-profile', { userId: targetUserId });
+    });
+    menu.appendChild(profileBtn);
+
+    // 2) Direct Message
+    const dmBtn = document.createElement('button');
+    dmBtn.innerHTML = '💬 Direct Message';
+    dmBtn.addEventListener('click', () => {
+      this._hideUserContextMenu();
+      this.socket.emit('start-dm', { targetUserId });
+      this._showToast(`Opening DM with ${this._escapeHtml(targetName)}…`, 'info');
+    });
+    menu.appendChild(dmBtn);
+
+    // 3) Invite to Channel (submenu)
+    const inviteChannels = (this.channels || []).filter(ch => !ch.is_dm && ch.name);
+    if (inviteChannels.length > 0) {
+      const inviteItem = document.createElement('div');
+      inviteItem.className = 'user-ctx-submenu-wrapper';
+      const inviteBtn = document.createElement('button');
+      inviteBtn.className = 'user-ctx-submenu-trigger';
+      inviteBtn.innerHTML = '📨 Invite to Channel <span class="user-ctx-arrow">▸</span>';
+      inviteItem.appendChild(inviteBtn);
+
+      const submenu = document.createElement('div');
+      submenu.className = 'user-ctx-submenu';
+      for (const ch of inviteChannels) {
+        const chBtn = document.createElement('button');
+        chBtn.textContent = `# ${ch.name}`;
+        chBtn.title = ch.topic || ch.name;
+        chBtn.addEventListener('click', () => {
+          this.socket.emit('invite-to-channel', {
+            targetUserId,
+            channelId: ch.id
+          });
+          this._hideUserContextMenu();
+        });
+        submenu.appendChild(chBtn);
+      }
+      inviteItem.appendChild(submenu);
+      menu.appendChild(inviteItem);
     }
+
+    // 4) Set Nickname
+    const nickBtn = document.createElement('button');
+    nickBtn.innerHTML = '🏷️ Set Nickname';
+    nickBtn.addEventListener('click', () => {
+      this._hideUserContextMenu();
+      this._showNicknameDialog(targetUserId, targetName);
+    });
+    menu.appendChild(nickBtn);
 
     menu.style.left = e.clientX + 'px';
     menu.style.top = e.clientY + 'px';
@@ -4793,16 +4864,6 @@ class HavenApp {
     const rect = menu.getBoundingClientRect();
     if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
     if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
-
-    menu.addEventListener('click', (ev) => {
-      const channelId = ev.target.dataset.channelId;
-      if (!channelId) return;
-      this.socket.emit('invite-to-channel', {
-        targetUserId,
-        channelId: parseInt(channelId)
-      });
-      this._hideUserContextMenu();
-    });
 
     // Close on click elsewhere
     const closer = (ev) => {
@@ -7494,7 +7555,7 @@ class HavenApp {
         const action = btn.dataset.action;
         this._closeUserGearMenu();
         if (action === 'assign-role') {
-          this._loadRoles(() => this._openAssignRoleModal(userId, username));
+          this._openRoleAssignCenter(userId);
         } else if (action === 'transfer-admin') {
           this._confirmTransferAdmin(userId, username);
         } else {
@@ -7595,6 +7656,9 @@ class HavenApp {
   // ── Profile Popup (Discord-style mini profile) ────────
 
   _showProfilePopup(profile) {
+    // If this was a hover-triggered popup but the mouse already left, abort
+    if (this._isHoverPopup && !this._hoverTarget) return;
+
     this._closeProfilePopup();
 
     const isSelf = profile.id === this.user.id;
@@ -7684,39 +7748,50 @@ class HavenApp {
     if (this._isHoverPopup) {
       popup.addEventListener('mouseenter', () => {
         clearTimeout(this._hoverCloseTimer);
+        clearTimeout(this._hoverAutoCloseTimer);
       });
-      popup.addEventListener('mouseleave', (e) => {
-        // If mouse moved back to the trigger, let mouseover handle it
+      popup.addEventListener('mouseleave', () => {
         if (this._isHoverPopup) {
           this._hoverCloseTimer = setTimeout(() => {
-            if (this._isHoverPopup) this._closeProfilePopup();
+            if (this._isHoverPopup) this._fadeOutHoverPopup();
           }, 200);
         }
       });
 
-      // Robust fallback: track mouse position globally so the popup
-      // always closes when the cursor drifts away from both the
-      // trigger element and the popup itself.
-      const hoverMoveHandler = (e) => {
+      // Global mousemove safety net: close if mouse is far from both trigger and popup
+      this._hoverMousemoveHandler = (e) => {
         if (!this._isHoverPopup) {
-          document.removeEventListener('mousemove', hoverMoveHandler);
+          document.removeEventListener('mousemove', this._hoverMousemoveHandler);
           return;
         }
-        const overPopup  = popup.contains(e.target);
-        const anchor     = this._profilePopupAnchor;
-        const overAnchor = anchor && anchor.contains ? anchor.contains(e.target) : false;
-        if (!overPopup && !overAnchor) {
-          clearTimeout(this._hoverCloseTimer);
-          this._hoverCloseTimer = setTimeout(() => {
-            document.removeEventListener('mousemove', hoverMoveHandler);
-            if (this._isHoverPopup) this._closeProfilePopup();
-          }, 300);
-        } else {
-          clearTimeout(this._hoverCloseTimer);
+        const popupEl = document.getElementById('profile-popup');
+        if (!popupEl) {
+          document.removeEventListener('mousemove', this._hoverMousemoveHandler);
+          return;
+        }
+        const popRect = popupEl.getBoundingClientRect();
+        const pad = 30; // px grace zone around popup
+        const inPopup = e.clientX >= popRect.left - pad && e.clientX <= popRect.right + pad &&
+                        e.clientY >= popRect.top - pad && e.clientY <= popRect.bottom + pad;
+        // Also check if over trigger
+        const anchor = this._profilePopupAnchor;
+        let inTrigger = false;
+        if (anchor && anchor.getBoundingClientRect) {
+          const aRect = anchor.getBoundingClientRect();
+          inTrigger = e.clientX >= aRect.left - pad && e.clientX <= aRect.right + pad &&
+                      e.clientY >= aRect.top - pad && e.clientY <= aRect.bottom + pad;
+        }
+        if (!inPopup && !inTrigger) {
+          document.removeEventListener('mousemove', this._hoverMousemoveHandler);
+          this._fadeOutHoverPopup();
         }
       };
-      // Small delay before attaching so initial positioning doesn't trigger close
-      setTimeout(() => document.addEventListener('mousemove', hoverMoveHandler), 100);
+      document.addEventListener('mousemove', this._hoverMousemoveHandler);
+
+      // Safety net: auto-close hover popups after 6 seconds max
+      this._hoverAutoCloseTimer = setTimeout(() => {
+        if (this._isHoverPopup) this._fadeOutHoverPopup();
+      }, 6000);
     }
 
     // Close button
@@ -7833,9 +7908,24 @@ class HavenApp {
       document.removeEventListener('click', this._profilePopupOutsideHandler);
       this._profilePopupOutsideHandler = null;
     }
+    if (this._hoverMousemoveHandler) {
+      document.removeEventListener('mousemove', this._hoverMousemoveHandler);
+      this._hoverMousemoveHandler = null;
+    }
     this._isHoverPopup = false;
     this._hoverTarget = null;
     clearTimeout(this._hoverCloseTimer);
+    clearTimeout(this._hoverAutoCloseTimer);
+  }
+
+  _fadeOutHoverPopup() {
+    const existing = document.getElementById('profile-popup');
+    if (existing && this._isHoverPopup) {
+      existing.classList.add('profile-popup-fading');
+      setTimeout(() => this._closeProfilePopup(), 200);
+    } else {
+      this._closeProfilePopup();
+    }
   }
 
   _openEditProfileModal(profile) {
@@ -7944,6 +8034,17 @@ class HavenApp {
           }
         });
       }
+
+      // Right-click on voice user → same options as "..." button
+      item.addEventListener('contextmenu', (e) => {
+        const userId = parseInt(item.dataset.userId);
+        if (isNaN(userId) || userId === this.user.id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const btn = item.querySelector('.voice-user-menu-btn');
+        const username = btn ? btn.dataset.username : '';
+        this._showVoiceUserMenu(btn || item, userId, username);
+      });
     });
   }
 
@@ -12404,8 +12505,8 @@ class HavenApp {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const uid = parseInt(btn.dataset.uid);
-        const uname = btn.dataset.uname;
-        self._loadRoles(() => self._openAssignRoleModal(uid, uname));
+        document.getElementById('all-members-modal').style.display = 'none';
+        self._openRoleAssignCenter(uid);
       });
     });
 
@@ -13811,6 +13912,12 @@ class HavenApp {
 
     // Listen for role updates
     this.socket.on('roles-updated', () => this._loadRoles());
+
+    // Initialize centralized role assignment 3-pane modal
+    this._initRoleAssignCenter();
+
+    // Donors "thank you" modal
+    this._initDonorsModal();
   }
 
   _loadRoles(cb) {
@@ -14437,6 +14544,610 @@ class HavenApp {
     scopeSel.innerHTML = scopeHtml;
     modal.style.display = 'flex';
     modal.style.zIndex = '100002';
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // CENTRALIZED ROLE ASSIGNMENT — Three-Pane Modal
+  // ═══════════════════════════════════════════════════════
+
+  _openRoleAssignCenter(preSelectUserId = null) {
+    const modal = document.getElementById('role-assign-center-modal');
+    modal.style.display = 'flex';
+    modal.style.zIndex = '100003';
+
+    // Reset state
+    this._racData = null;
+    this._racSelectedUser = null;
+    this._racSelectedChannel = null; // null = server-wide, number = channel id
+    this._racPendingChanges = {}; // key: `${userId}:${channelId||'server'}` → { roleId, level, permissions[] }
+
+    document.getElementById('rac-user-list').innerHTML = '<p class="rac-placeholder">Loading…</p>';
+    document.getElementById('rac-channel-list').innerHTML = '<p class="rac-placeholder">← Select a user</p>';
+    document.getElementById('rac-config-body').innerHTML = '<p class="rac-placeholder">← Select a channel</p>';
+    document.getElementById('rac-save-btn').disabled = true;
+
+    // Show admin-only buttons
+    const manageBtn = document.getElementById('rac-manage-roles-btn');
+    if (manageBtn) manageBtn.style.display = this.user.isAdmin ? '' : 'none';
+
+    this.socket.emit('get-role-assignment-data', {}, (res) => {
+      if (res.error) { this._showToast(res.error, 'error'); return; }
+      this._racData = res;
+      this._renderRacUsers();
+      if (preSelectUserId) {
+        this._racSelectedUser = preSelectUserId;
+        this._renderRacUsers();
+        this._renderRacChannels();
+      }
+    });
+  }
+
+  _renderRacUsers(filter = '') {
+    const list = document.getElementById('rac-user-list');
+    if (!this._racData) return;
+    const q = filter.toLowerCase();
+    const users = this._racData.users.filter(u =>
+      !q || u.username.toLowerCase().includes(q) || u.displayName.toLowerCase().includes(q)
+    );
+
+    if (users.length === 0) {
+      list.innerHTML = '<p class="rac-placeholder">No users found</p>';
+      return;
+    }
+
+    list.innerHTML = users.map(u => {
+      const color = this._getUserColor(u.username);
+      const initial = u.displayName.charAt(0).toUpperCase();
+      const shapeStyle = u.avatarShape === 'square' ? 'border-radius:4px' : '';
+      const avatarInner = u.avatar
+        ? `<img src="${this._escapeHtml(u.avatar)}" alt="${initial}" style="${shapeStyle}">`
+        : initial;
+      const activeClass = this._racSelectedUser === u.id ? ' active' : '';
+      const roleNames = u.currentRoles
+        .filter(r => !r.channel_id) // server-wide only for summary
+        .map(r => r.name).join(', ') || 'No role';
+      return `<div class="rac-user-item${activeClass}" data-uid="${u.id}">
+        <div class="rac-user-avatar" style="background-color:${color};${shapeStyle}">${avatarInner}</div>
+        <div class="rac-user-info">
+          <span class="rac-user-name">${this._escapeHtml(this._getNickname(u.id, u.displayName))}</span>
+          <span class="rac-user-level">${this._escapeHtml(roleNames)} – Lv.${u.serverLevel}</span>
+        </div>
+      </div>`;
+    }).join('');
+
+    list.querySelectorAll('.rac-user-item').forEach(el => {
+      el.addEventListener('click', () => {
+        this._racSelectedUser = parseInt(el.dataset.uid);
+        this._racSelectedChannel = null;
+        this._renderRacUsers(document.getElementById('rac-user-search').value);
+        this._renderRacChannels();
+        document.getElementById('rac-config-body').innerHTML = '<p class="rac-placeholder">← Select a channel</p>';
+      });
+    });
+  }
+
+  _renderRacChannels() {
+    const list = document.getElementById('rac-channel-list');
+    if (!this._racData || !this._racSelectedUser) {
+      list.innerHTML = '<p class="rac-placeholder">← Select a user</p>';
+      return;
+    }
+
+    const userId = this._racSelectedUser;
+    const user = this._racData.users.find(u => u.id === userId);
+    if (!user) return;
+
+    const sharedIds = new Set(this._racData.userChannelMap[userId] || []);
+    const channels = this._racData.channels;
+
+    // Get current role per scope for this user
+    const getRoleName = (channelId) => {
+      const key = `${userId}:${channelId || 'server'}`;
+      if (this._racPendingChanges[key]) {
+        const pc = this._racPendingChanges[key];
+        if (pc.action === 'revoke') return 'None ✎';
+        const pendingRole = this._racData.roles.find(r => r.id === pc.roleId);
+        return pendingRole ? `${pendingRole.name} ✎` : '';
+      }
+      const match = user.currentRoles.filter(r => channelId ? r.channel_id === channelId : !r.channel_id);
+      return match.map(r => r.name).join(', ') || '';
+    };
+
+    let html = '';
+
+    // Admin: server-wide option
+    if (this._racData.callerIsAdmin) {
+      const serverActive = this._racSelectedChannel === 'server' ? ' active' : '';
+      const serverRole = getRoleName(null);
+      html += `<div class="rac-channel-item rac-server-wide${serverActive}" data-channel="server">
+        <span class="rac-channel-icon">🌐</span>
+        <span>Server-wide</span>
+        ${serverRole ? `<span class="rac-channel-current-role">${this._escapeHtml(serverRole)}</span>` : ''}
+      </div>`;
+    }
+
+    // Parent channels
+    const parents = channels.filter(c => !c.parentId);
+    const subMap = {};
+    channels.filter(c => c.parentId).forEach(c => {
+      if (!subMap[c.parentId]) subMap[c.parentId] = [];
+      subMap[c.parentId].push(c);
+    });
+
+    parents.forEach(p => {
+      if (!sharedIds.has(p.id) && !this._racData.callerIsAdmin) return;
+      const pActive = this._racSelectedChannel === p.id ? ' active' : '';
+      const pRole = getRoleName(p.id);
+      html += `<div class="rac-channel-item${pActive}" data-channel="${p.id}">
+        <span class="rac-channel-icon">#</span>
+        <span>${this._escapeHtml(p.name)}</span>
+        ${pRole ? `<span class="rac-channel-current-role">${this._escapeHtml(pRole)}</span>` : ''}
+      </div>`;
+
+      const subs = subMap[p.id] || [];
+      subs.forEach(s => {
+        if (!sharedIds.has(s.id) && !this._racData.callerIsAdmin) return;
+        const sActive = this._racSelectedChannel === s.id ? ' active' : '';
+        const sRole = getRoleName(s.id);
+        html += `<div class="rac-channel-item rac-sub${sActive}" data-channel="${s.id}">
+          <span class="rac-channel-icon">└</span>
+          <span>${this._escapeHtml(s.name)}</span>
+          ${sRole ? `<span class="rac-channel-current-role">${this._escapeHtml(sRole)}</span>` : ''}
+        </div>`;
+      });
+    });
+
+    if (!html) {
+      html = '<p class="rac-placeholder">No shared channels</p>';
+    }
+    list.innerHTML = html;
+
+    list.querySelectorAll('.rac-channel-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const ch = el.dataset.channel;
+        const prevChannel = this._racSelectedChannel;
+        this._racSelectedChannel = ch === 'server' ? 'server' : parseInt(ch);
+
+        // Carry forward pending modifications to the new channel so the user
+        // doesn't have to re-configure the same role/permissions from scratch
+        if (this._racSelectedUser && prevChannel != null && prevChannel !== this._racSelectedChannel) {
+          const prevChId = prevChannel === 'server' ? null : prevChannel;
+          const newChId  = this._racSelectedChannel === 'server' ? null : this._racSelectedChannel;
+          const prevKey  = `${this._racSelectedUser}:${prevChId || 'server'}`;
+          const newKey   = `${this._racSelectedUser}:${newChId || 'server'}`;
+          const prevPending = this._racPendingChanges[prevKey];
+          if (prevPending && !this._racPendingChanges[newKey]) {
+            // Clone the previous config as a starting point for the new channel
+            this._racPendingChanges[newKey] = {
+              ...prevPending,
+              customPerms: prevPending.customPerms ? [...prevPending.customPerms] : [],
+              applyToSubs: false  // reset sub-channel toggle for new scope
+            };
+          }
+        }
+
+        this._renderRacChannels();
+        this._renderRacConfig();
+      });
+    });
+  }
+
+  _renderRacConfig() {
+    const body = document.getElementById('rac-config-body');
+    if (!this._racData || !this._racSelectedUser || this._racSelectedChannel == null) {
+      body.innerHTML = '<p class="rac-placeholder">← Select a channel</p>';
+      return;
+    }
+
+    const userId = this._racSelectedUser;
+    const user = this._racData.users.find(u => u.id === userId);
+    if (!user) return;
+
+    const channelId = this._racSelectedChannel === 'server' ? null : this._racSelectedChannel;
+    const key = `${userId}:${channelId || 'server'}`;
+
+    // Current assignment (from server data)
+    const currentRoles = user.currentRoles.filter(r =>
+      channelId ? r.channel_id === channelId : !r.channel_id
+    );
+    const currentRole = currentRoles.length > 0 ? currentRoles[0] : null;
+
+    // Pending changes (if any)
+    const pending = this._racPendingChanges[key];
+
+    const selectedRoleId = pending
+      ? (pending.action === 'revoke' ? '' : pending.roleId)
+      : (currentRole ? currentRole.role_id : '');
+    const selectedLevel = pending && pending.level !== undefined
+      ? pending.level
+      : (currentRole ? currentRole.level : 0);
+
+    // Available roles (filter to roles below caller's level for non-admins)
+    const availableRoles = this._racData.roles.filter(r =>
+      this._racData.callerIsAdmin || r.level < this._racData.callerLevel
+    );
+
+    // Current role display
+    let currentHtml = '';
+    if (currentRole) {
+      currentHtml = `<div class="rac-current-role">
+        <span class="rac-role-dot" style="background:${this._safeColor(currentRole.color, '#888')}"></span>
+        ${this._escapeHtml(currentRole.name)} — Lv.${currentRole.level}
+      </div>`;
+    } else {
+      currentHtml = '<div class="rac-current-role" style="opacity:0.5">No role assigned</div>';
+    }
+    if (pending) {
+      currentHtml += '<span class="rac-changed-badge">Modified</span>';
+    }
+
+    // Determine which permissions the caller can grant
+    const callerPerms = this._racData.callerPerms || [];
+    const callerIsAdmin = this._racData.callerIsAdmin;
+    const allPerms = [
+      'edit_own_messages', 'delete_own_messages', 'delete_message', 'delete_lower_messages',
+      'pin_message', 'kick_user', 'mute_user', 'ban_user',
+      'rename_channel', 'rename_sub_channel', 'set_channel_topic', 'manage_sub_channels',
+      'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
+      'promote_user', 'transfer_admin'
+    ];
+    // Perms that only admin can grant
+    const adminOnlyPerms = ['transfer_admin'];
+    // Perms that require the caller to have them to be able to grant
+    const permLabels = {
+      edit_own_messages: 'Edit Own Messages', delete_own_messages: 'Delete Own Messages',
+      delete_message: 'Delete Any Message', delete_lower_messages: 'Delete Lower Messages',
+      pin_message: 'Pin Messages', kick_user: 'Kick Users', mute_user: 'Mute Users',
+      ban_user: 'Ban Users', rename_channel: 'Rename Channels',
+      rename_sub_channel: 'Rename Sub-channels', set_channel_topic: 'Set Topic',
+      manage_sub_channels: 'Manage Sub-channels', upload_files: 'Upload Files',
+      use_voice: 'Use Voice', manage_webhooks: 'Manage Webhooks',
+      mention_everyone: 'Mention Everyone', view_history: 'View History',
+      promote_user: 'Promote Users', transfer_admin: 'Transfer Admin'
+    };
+
+    // If a role preset is selected, get its permissions
+    const selectedRoleObj = availableRoles.find(r => r.id === Number(selectedRoleId));
+    const presetPerms = selectedRoleObj ? (selectedRoleObj.permissions || []) : [];
+    const presetLevel = selectedRoleObj ? selectedRoleObj.level : 0;
+
+    // Custom permissions: if pending has custom perms, use those; otherwise start from preset
+    const customPerms = pending && pending.customPerms
+      ? pending.customPerms
+      : [...presetPerms];
+
+    // Custom level: if pending has custom level, use it; otherwise use preset
+    const customLevel = pending && pending.level !== undefined
+      ? pending.level
+      : presetLevel;
+
+    // Max level the caller can assign (own level - 1, or 99 for admin)
+    const maxLevel = callerIsAdmin ? 99 : (this._racData.callerLevel - 1);
+
+    // Check if the selected channel is a parent with sub-channels
+    const isParentChannel = channelId && this._racData.channels.some(c => c.parentId === channelId);
+    const applyToSubsChecked = pending && pending.applyToSubs ? ' checked' : '';
+
+    body.innerHTML = `
+      <div class="rac-config-section">
+        <div class="rac-config-label">Current</div>
+        ${currentHtml}
+      </div>
+
+      <div class="rac-config-section">
+        <div class="rac-config-label">Assign Role</div>
+        <div class="rac-config-row">
+          <select class="rac-role-select" id="rac-role-dropdown">
+            <option value="">-- No Role --</option>
+            ${availableRoles.map(r =>
+              `<option value="${r.id}" ${r.id === Number(selectedRoleId) ? 'selected' : ''}>● ${this._escapeHtml(r.name)} — Lv.${r.level}</option>`
+            ).join('')}
+          </select>
+        </div>
+      </div>
+
+      ${selectedRoleId ? `
+      <div class="rac-config-section">
+        <div class="rac-config-label">Level <span style="font-weight:400;text-transform:none;letter-spacing:0">(independent of preset, max ${maxLevel})</span></div>
+        <div class="rac-config-row">
+          <input type="number" class="rac-level-input" id="rac-level-input" min="1" max="${maxLevel}" value="${customLevel}" style="width:80px">
+          <span class="rac-level-hint" style="font-size:0.75rem;color:var(--text-muted)">Preset default: ${presetLevel}</span>
+        </div>
+      </div>
+      ` : ''}
+
+      ${isParentChannel && selectedRoleId ? `
+      <div class="rac-config-section">
+        <label class="rac-perm-item" style="padding:6px 0;">
+          <input type="checkbox" id="rac-apply-subs"${applyToSubsChecked}>
+          <strong>Apply role to all sub-channels</strong>
+        </label>
+      </div>
+      ` : ''}
+
+      <div class="rac-config-section">
+        <div class="rac-config-label">Role Permissions <span style="font-weight:400;text-transform:none;letter-spacing:0">(toggle to customize)</span></div>
+        <div class="rac-perms-grid" id="rac-perms-grid">
+          ${allPerms.map(p => {
+            const checked = customPerms.includes(p);
+            // A perm is read-only if:
+            // 1) Admin-only perm and caller is not admin, OR
+            // 2) Caller doesn't have the perm themselves (can't grant what you don't have), OR
+            // 3) No role is selected
+            const callerHasPerm = callerIsAdmin || callerPerms.includes('*') || callerPerms.includes(p);
+            const isAdminOnly = adminOnlyPerms.includes(p) && !callerIsAdmin;
+            const isReadOnly = !selectedRoleId || isAdminOnly || !callerHasPerm;
+            return `<label class="rac-perm-item${isReadOnly ? ' disabled' : ''}${checked ? ' checked' : ''}">
+              <input type="checkbox" data-perm="${p}" ${checked ? 'checked' : ''} ${isReadOnly ? 'disabled' : ''}>
+              ${permLabels[p] || p}
+            </label>`;
+          }).join('')}
+        </div>
+      </div>
+    `;
+
+    // Bind role dropdown change
+    document.getElementById('rac-role-dropdown').addEventListener('change', (e) => {
+      const roleId = e.target.value ? parseInt(e.target.value) : null;
+      // When changing the preset, reset custom perms and level to the new preset's defaults
+      if (roleId) {
+        const roleObj = this._racData.roles.find(r => r.id === roleId);
+        const pendingEntry = this._racPendingChanges[key] || {};
+        this._racPendingChanges[key] = {
+          action: 'assign',
+          roleId: roleId,
+          level: roleObj ? roleObj.level : 0,
+          customPerms: roleObj ? [...(roleObj.permissions || [])] : [],
+          applyToSubs: pendingEntry.applyToSubs || false
+        };
+      } else {
+        this._racUpdatePending(null);
+        return;
+      }
+      const hasChanges = Object.keys(this._racPendingChanges).length > 0;
+      document.getElementById('rac-save-btn').disabled = !hasChanges;
+      this._renderRacChannels();
+      this._renderRacConfig();
+    });
+
+    // Bind level input change
+    const levelInput = document.getElementById('rac-level-input');
+    if (levelInput) {
+      levelInput.addEventListener('change', () => {
+        let val = parseInt(levelInput.value);
+        if (isNaN(val) || val < 1) val = 1;
+        if (val > maxLevel) val = maxLevel;
+        levelInput.value = val;
+        if (this._racPendingChanges[key]) {
+          this._racPendingChanges[key].level = val;
+        } else {
+          const roleObj = availableRoles.find(r => r.id === Number(selectedRoleId));
+          this._racPendingChanges[key] = {
+            action: 'assign',
+            roleId: Number(selectedRoleId),
+            level: val,
+            customPerms: [...customPerms]
+          };
+        }
+        const hasChanges = Object.keys(this._racPendingChanges).length > 0;
+        document.getElementById('rac-save-btn').disabled = !hasChanges;
+        this._renderRacChannels();
+      });
+    }
+
+    // Bind apply-to-subs checkbox
+    const subsCheck = document.getElementById('rac-apply-subs');
+    if (subsCheck) {
+      subsCheck.addEventListener('change', () => {
+        if (this._racPendingChanges[key]) {
+          this._racPendingChanges[key].applyToSubs = subsCheck.checked;
+        }
+      });
+    }
+
+    // Bind permission checkboxes (toggleable ones)
+    document.querySelectorAll('#rac-perms-grid input[type="checkbox"]:not([disabled])').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const perm = cb.dataset.perm;
+        const pendingEntry = this._racPendingChanges[key] || {
+          action: 'assign',
+          roleId: Number(selectedRoleId),
+          level: customLevel,
+          customPerms: [...customPerms]
+        };
+        if (!pendingEntry.customPerms) pendingEntry.customPerms = [...customPerms];
+
+        if (cb.checked) {
+          if (!pendingEntry.customPerms.includes(perm)) pendingEntry.customPerms.push(perm);
+        } else {
+          pendingEntry.customPerms = pendingEntry.customPerms.filter(p => p !== perm);
+        }
+        this._racPendingChanges[key] = pendingEntry;
+        const hasChanges = Object.keys(this._racPendingChanges).length > 0;
+        document.getElementById('rac-save-btn').disabled = !hasChanges;
+        // Update label styling
+        cb.closest('.rac-perm-item').classList.toggle('checked', cb.checked);
+        this._renderRacChannels();
+      });
+    });
+  }
+
+  _racUpdatePending(forceRoleId) {
+    const userId = this._racSelectedUser;
+    const channelId = this._racSelectedChannel === 'server' ? null : this._racSelectedChannel;
+    const key = `${userId}:${channelId || 'server'}`;
+
+    const roleId = forceRoleId !== undefined
+      ? forceRoleId
+      : (this._racPendingChanges[key] ? this._racPendingChanges[key].roleId : null);
+
+    if (roleId === null || roleId === '') {
+      // Check if user currently HAS a role at this scope — if so, queue a revocation
+      const user = this._racData.users.find(u => u.id === userId);
+      const currentRoles = user ? user.currentRoles.filter(r =>
+        channelId ? r.channel_id === channelId : !r.channel_id
+      ) : [];
+      if (currentRoles.length > 0) {
+        this._racPendingChanges[key] = {
+          action: 'revoke',
+          revokeRoleIds: currentRoles.map(r => r.role_id)
+        };
+      } else {
+        delete this._racPendingChanges[key];
+      }
+    } else {
+      const roleObj = this._racData.roles.find(r => r.id === Number(roleId));
+      this._racPendingChanges[key] = {
+        action: 'assign',
+        roleId: Number(roleId),
+        level: roleObj ? roleObj.level : 0
+      };
+    }
+
+    const hasChanges = Object.keys(this._racPendingChanges).length > 0;
+    document.getElementById('rac-save-btn').disabled = !hasChanges;
+
+    // Re-render channel list to show updated badges
+    this._renderRacChannels();
+    // Re-render config to update "Modified" badge
+    this._renderRacConfig();
+  }
+
+  _racSaveChanges() {
+    const changes = Object.entries(this._racPendingChanges);
+    if (changes.length === 0) return;
+
+    // Expand applyToSubs: for any parent channel with applyToSubs, add entries for sub-channels
+    const expandedChanges = [];
+    for (const [key, val] of changes) {
+      expandedChanges.push([key, val]);
+      if (val.applyToSubs && val.action === 'assign') {
+        const [userIdStr, scope] = key.split(':');
+        const channelId = scope === 'server' ? null : parseInt(scope);
+        if (channelId && this._racData) {
+          const subs = this._racData.channels.filter(c => c.parentId === channelId);
+          for (const sub of subs) {
+            const subKey = `${userIdStr}:${sub.id}`;
+            if (!this._racPendingChanges[subKey]) {
+              expandedChanges.push([subKey, { ...val, applyToSubs: false }]);
+            }
+          }
+        }
+      }
+    }
+
+    let completed = 0;
+    let errors = [];
+    const total = expandedChanges.length;
+
+    const onDone = () => {
+      if (errors.length) {
+        this._showToast(`${errors.length} error(s): ${errors[0]}`, 'error');
+      } else {
+        this._showToast(`${total} role change(s) saved`, 'success');
+        // Close modal after successful save
+        document.getElementById('role-assign-center-modal').style.display = 'none';
+      }
+      this._racPendingChanges = {};
+      document.getElementById('rac-save-btn').disabled = true;
+      this.socket.emit('get-role-assignment-data', {}, (res) => {
+        if (!res.error) {
+          this._racData = res;
+          this._renderRacUsers(document.getElementById('rac-user-search')?.value || '');
+          this._renderRacChannels();
+          this._renderRacConfig();
+        }
+      });
+    };
+
+    expandedChanges.forEach(([key, val]) => {
+      const [userIdStr, scope] = key.split(':');
+      const userId = parseInt(userIdStr);
+      const channelId = scope === 'server' ? null : parseInt(scope);
+
+      if (val.action === 'revoke') {
+        // Revoke each role the user currently has at this scope
+        const toRevoke = val.revokeRoleIds || [];
+        if (toRevoke.length === 0) { completed++; if (completed === total) onDone(); return; }
+        let revokeCount = 0;
+        toRevoke.forEach(roleId => {
+          this.socket.emit('revoke-role', { userId, roleId, channelId }, (res) => {
+            revokeCount++;
+            if (res && res.error) errors.push(res.error);
+            if (revokeCount === toRevoke.length) {
+              completed++;
+              if (completed === total) onDone();
+            }
+          });
+        });
+      } else {
+        this.socket.emit('assign-role', {
+          userId,
+          roleId: val.roleId,
+          channelId,
+          customLevel: val.level,
+          customPerms: val.customPerms || null
+        }, (res) => {
+          completed++;
+          if (res.error) errors.push(res.error);
+          if (completed === total) onDone();
+        });
+      }
+    });
+  }
+
+  _initRoleAssignCenter() {
+    // Cancel button
+    document.getElementById('rac-cancel-btn')?.addEventListener('click', () => {
+      this._racPendingChanges = {};
+      document.getElementById('role-assign-center-modal').style.display = 'none';
+    });
+
+    // Save button
+    document.getElementById('rac-save-btn')?.addEventListener('click', () => {
+      this._racSaveChanges();
+    });
+
+    // Close on overlay (outside) click
+    document.getElementById('role-assign-center-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'role-assign-center-modal') {
+        this._racPendingChanges = {};
+        document.getElementById('role-assign-center-modal').style.display = 'none';
+      }
+    });
+
+    // Manage Roles button (admin only - opens main role management modal)
+    document.getElementById('rac-manage-roles-btn')?.addEventListener('click', () => {
+      document.getElementById('role-assign-center-modal').style.display = 'none';
+      this._loadRoles(() => {
+        document.getElementById('role-modal').style.display = 'flex';
+      });
+    });
+
+    // User search
+    document.getElementById('rac-user-search')?.addEventListener('input', (e) => {
+      this._renderRacUsers(e.target.value);
+    });
+  }
+
+  _initDonorsModal() {
+    const modal = document.getElementById('donors-modal');
+    if (!modal) return;
+
+    // Open on heart button click
+    document.getElementById('donors-btn')?.addEventListener('click', () => {
+      modal.style.display = 'flex';
+    });
+
+    // Close on X button
+    document.getElementById('donors-close-btn')?.addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+
+    // Close on overlay click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    });
   }
 
   // ═══════════════════════════════════════════════════════

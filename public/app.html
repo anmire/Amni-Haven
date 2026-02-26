@@ -234,7 +234,7 @@
             <button id="mobile-settings-btn" class="sidebar-bottom-btn mobile-settings-btn" title="Settings">⚙️</button>
             <div id="voice-bar" class="voice-bar" style="display:none"></div>
             <span style="flex:1"></span>
-            <a href="https://ko-fi.com/ancsemi" target="_blank" rel="noopener noreferrer" class="sidebar-bottom-btn donate-btn" title="Support Haven">❤️</a>
+            <button id="donors-btn" class="sidebar-bottom-btn donate-btn">❤️</button>
           </div>
         </div>
       </aside>
@@ -1427,6 +1427,54 @@
       </div>
     </div>
   </div>
+
+  <!-- Centralized Role Assignment (3-pane) Modal -->
+  <div class="modal-overlay" id="role-assign-center-modal" style="display:none">
+    <div class="modal role-assign-center-box">
+      <h3>👑 Role Assignment</h3>
+      <p class="muted-text role-assign-center-subtitle">Select a user, then a channel, then configure their role.</p>
+
+      <div class="rac-layout">
+        <!-- Left pane: Users -->
+        <div class="rac-pane rac-users-pane">
+          <div class="rac-pane-header">
+            <span class="rac-pane-title">Users</span>
+            <input type="text" id="rac-user-search" class="rac-search" placeholder="Search users…">
+          </div>
+          <div class="rac-pane-list" id="rac-user-list"></div>
+        </div>
+
+        <!-- Center pane: Channels -->
+        <div class="rac-pane rac-channels-pane">
+          <div class="rac-pane-header">
+            <span class="rac-pane-title">Channels</span>
+          </div>
+          <div class="rac-pane-list" id="rac-channel-list">
+            <p class="rac-placeholder">← Select a user</p>
+          </div>
+        </div>
+
+        <!-- Right pane: Role config -->
+        <div class="rac-pane rac-config-pane">
+          <div class="rac-pane-header">
+            <span class="rac-pane-title">Role Configuration</span>
+          </div>
+          <div class="rac-config-body" id="rac-config-body">
+            <p class="rac-placeholder">← Select a channel</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions rac-footer">
+        <button class="btn-sm" id="rac-manage-roles-btn" style="display:none" title="Open role management">⚙️ Manage Roles</button>
+        <div class="rac-footer-right">
+          <button class="btn-sm" id="rac-cancel-btn">Cancel</button>
+          <button class="btn-sm btn-accent" id="rac-save-btn" disabled>Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Bot Management Modal -->
   <div class="modal-overlay" id="bot-modal" style="display:none">
     <div class="modal modal-wide">
@@ -1891,6 +1939,41 @@
       <label class="desktop-promo-dismiss-label">
         <input type="checkbox" id="desktop-promo-dismiss-check"> Don't show this again
       </label>
+    </div>
+  </div>
+
+  <!-- Donors Thank You Modal -->
+  <div class="modal-overlay" id="donors-modal" style="display:none">
+    <div class="modal donors-modal-box">
+      <button class="donors-close-btn" id="donors-close-btn" title="Close">&times;</button>
+      <div class="donors-heart-icon">❤️</div>
+      <h2 class="donors-title">Thank You</h2>
+      <p class="donors-subtitle">Haven is built with love and kept alive by the generosity of people like you. Every donation — big or small — means the world.</p>
+
+      <div class="donors-tiers">
+        <div class="donors-tier">
+          <h3 class="donors-tier-title donors-sponsor-title">✨ Sponsors</h3>
+          <div class="donors-grid">
+            <span class="donor-chip donor-sponsor">BillyAlt</span>
+          </div>
+        </div>
+
+        <div class="donors-tier">
+          <h3 class="donors-tier-title donors-donor-title">💛 Donors</h3>
+          <div class="donors-grid">
+            <span class="donor-chip">wreckedcarzz</span>
+            <span class="donor-chip">JollyOrc</span>
+            <span class="donor-chip">nexitem</span>
+            <span class="donor-chip">ArtyDaSmarty</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="donors-note">New donors will be added each release. If you've donated and don't see your name, it'll be in the next update!</p>
+
+      <a href="https://ko-fi.com/ancsemi" target="_blank" rel="noopener noreferrer" class="donors-kofi-btn">
+        ☕ Support Haven on Ko-fi
+      </a>
     </div>
   </div>
 

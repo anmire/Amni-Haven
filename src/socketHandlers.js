@@ -210,9 +210,9 @@ function setupSocketHandlers(io, db) {
     const user = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(userId);
     if (user && user.is_admin) return 100;
 
-    // Check server-scoped roles first (highest level wins)
+    // Check server-scoped roles first (highest level wins, using custom_level if set)
     const serverRole = db.prepare(`
-      SELECT MAX(r.level) as maxLevel FROM roles r
+      SELECT MAX(COALESCE(ur.custom_level, r.level)) as maxLevel FROM roles r
       JOIN user_roles ur ON r.id = ur.role_id
       WHERE ur.user_id = ? AND r.scope = 'server' AND ur.channel_id IS NULL
     `).get(userId);
@@ -224,7 +224,7 @@ function setupSocketHandlers(io, db) {
       if (chain.length > 0) {
         const placeholders = chain.map(() => '?').join(',');
         const channelRole = db.prepare(`
-          SELECT MAX(r.level) as maxLevel FROM roles r
+          SELECT MAX(COALESCE(ur.custom_level, r.level)) as maxLevel FROM roles r
           JOIN user_roles ur ON r.id = ur.role_id
           WHERE ur.user_id = ? AND ur.channel_id IN (${placeholders})
         `).get(userId, ...chain);
@@ -247,6 +247,18 @@ function setupSocketHandlers(io, db) {
     // Admin has all permissions
     const user = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(userId);
     if (user && user.is_admin) return true;
+
+    // Check per-user permission overrides first (explicit deny takes priority)
+    try {
+      const override = db.prepare(`
+        SELECT allowed FROM user_role_perms WHERE user_id = ? AND permission = ?
+        ORDER BY allowed ASC LIMIT 1
+      `).get(userId, permission);
+      if (override) {
+        if (override.allowed === 0) return false;
+        if (override.allowed === 1) return true;
+      }
+    } catch { /* table may not exist yet */ }
 
     // Check level-based permission thresholds
     const thresholds = getPermissionThresholds();
@@ -294,6 +306,21 @@ function setupSocketHandlers(io, db) {
     `).all(userId);
     const perms = rows.map(r => r.permission);
 
+    // Apply per-user permission overrides (from user_role_perms)
+    try {
+      const overrides = db.prepare(`
+        SELECT permission, allowed FROM user_role_perms WHERE user_id = ?
+      `).all(userId);
+      for (const ov of overrides) {
+        if (ov.allowed === 1 && !perms.includes(ov.permission)) {
+          perms.push(ov.permission);
+        } else if (ov.allowed === 0) {
+          const idx = perms.indexOf(ov.permission);
+          if (idx !== -1) perms.splice(idx, 1);
+        }
+      }
+    } catch { /* user_role_perms table may not exist yet */ }
+
     // Add permissions from level thresholds
     const thresholds = getPermissionThresholds();
     const level = getUserEffectiveLevel(userId);
@@ -318,11 +345,12 @@ function setupSocketHandlers(io, db) {
     const user = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(userId);
     if (user && user.is_admin) return { name: 'Admin', level: 100, color: '#e74c3c' };
 
+    // Server-scoped roles (also catches channel-scope roles assigned without a channel_id)
     let role = db.prepare(`
-      SELECT r.name, r.level, r.color FROM roles r
+      SELECT r.name, COALESCE(ur.custom_level, r.level) as level, r.color FROM roles r
       JOIN user_roles ur ON r.id = ur.role_id
-      WHERE ur.user_id = ? AND r.scope = 'server' AND ur.channel_id IS NULL
-      ORDER BY r.level DESC LIMIT 1
+      WHERE ur.user_id = ? AND ur.channel_id IS NULL
+      ORDER BY COALESCE(ur.custom_level, r.level) DESC LIMIT 1
     `).get(userId);
 
     if (channelId) {
@@ -330,10 +358,10 @@ function setupSocketHandlers(io, db) {
       if (chain.length > 0) {
         const placeholders = chain.map(() => '?').join(',');
         const chRole = db.prepare(`
-          SELECT r.name, r.level, r.color FROM roles r
+          SELECT r.name, COALESCE(ur.custom_level, r.level) as level, r.color FROM roles r
           JOIN user_roles ur ON r.id = ur.role_id
           WHERE ur.user_id = ? AND ur.channel_id IN (${placeholders})
-          ORDER BY r.level DESC LIMIT 1
+          ORDER BY COALESCE(ur.custom_level, r.level) DESC LIMIT 1
         `).get(userId, ...chain);
         if (chRole && (!role || chRole.level > role.level)) role = chRole;
       }
@@ -3382,25 +3410,53 @@ function setupSocketHandlers(io, db) {
         ).get(data.userId);
         if (!row) return;
 
-        // Get user's roles (deduplicated — SQLite UNIQUE doesn't prevent NULL channel_id dups)
+        // Get user's server-wide roles
         const roles = db.prepare(
           `SELECT DISTINCT r.id, r.name, r.level, r.color
            FROM roles r
            JOIN user_roles ur ON r.id = ur.role_id
-           WHERE ur.user_id = ?
+           WHERE ur.user_id = ? AND ur.channel_id IS NULL
            GROUP BY r.id
            ORDER BY r.level DESC`
         ).all(data.userId);
 
-        // If user is admin, prepend the Admin pseudo-role so it shows in their profile
-        const isAdmin = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(data.userId);
-        if (isAdmin && isAdmin.is_admin) {
-          roles.unshift({ id: -1, name: 'Admin', level: 100, color: '#e74c3c' });
+        // Also include channel-specific roles for the requesting user's current channel
+        const currentChannelCode = socket.currentChannel;
+        if (currentChannelCode) {
+          const ch = db.prepare('SELECT id FROM channels WHERE code = ?').get(currentChannelCode);
+          if (ch) {
+            const chain = getChannelRoleChain(ch.id);
+            if (chain.length > 0) {
+              const placeholders = chain.map(() => '?').join(',');
+              const channelRoles = db.prepare(
+                `SELECT DISTINCT r.id, r.name, COALESCE(ur.custom_level, r.level) as level, r.color
+                 FROM roles r
+                 JOIN user_roles ur ON r.id = ur.role_id
+                 WHERE ur.user_id = ? AND ur.channel_id IN (${placeholders})
+                 GROUP BY r.id
+                 ORDER BY r.level DESC`
+              ).all(data.userId, ...chain);
+              // Merge channel roles (avoid duplicates)
+              const existingIds = new Set(roles.map(r => r.id));
+              for (const cr of channelRoles) {
+                if (!existingIds.has(cr.id)) {
+                  roles.push(cr);
+                  existingIds.add(cr.id);
+                }
+              }
+              // Re-sort by level descending
+              roles.sort((a, b) => b.level - a.level);
+            }
+          }
         }
 
-        // Strip the default "User" role whenever a higher-level role exists
-        // (e.g. Channel Mod + User → just Channel Mod; Admin + User → just Admin)
-        if (roles.length > 1) {
+        // If user is admin, show only the Admin pseudo-role (admin supersedes all)
+        const isAdmin = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(data.userId);
+        if (isAdmin && isAdmin.is_admin) {
+          roles.length = 0;
+          roles.push({ id: -1, name: 'Admin', level: 100, color: '#e74c3c' });
+        } else if (roles.length > 1) {
+          // Strip the default "User" role whenever a higher-level role exists
           const userRoleIdx = roles.findIndex(r => r.name === 'User' && r.level <= 1);
           if (userRoleIdx !== -1) roles.splice(userRoleIdx, 1);
         }
@@ -4559,16 +4615,143 @@ function setupSocketHandlers(io, db) {
       cb({ success: true });
     });
 
-    socket.on('assign-role', (data, callback) => {
+    // ═══════════════ CENTRALIZED ROLE ASSIGNMENT ═══════════
+    // Three-pane role assignment data: returns users, shared channels, and role options
+    // filtered by the caller's permissions and level hierarchy.
+    socket.on('get-role-assignment-data', (data, callback) => {
       if (!data || typeof data !== 'object') return;
       const cb = typeof callback === 'function' ? callback : () => {};
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'promote_user')) {
+        return cb({ error: 'You lack permission to manage roles' });
+      }
+
+      try {
+        const callerId = socket.user.id;
+        const callerIsAdmin = socket.user.isAdmin;
+        const callerServerLevel = getUserEffectiveLevel(callerId);
+
+        // Get all channels the caller has access to (non-DM)
+        const callerChannels = db.prepare(`
+          SELECT c.id, c.name, c.code, c.parent_channel_id, c.position
+          FROM channels c
+          JOIN channel_members cm ON c.id = cm.channel_id
+          WHERE cm.user_id = ? AND c.is_dm = 0
+          ORDER BY c.position, c.name
+        `).all(callerId);
+        const callerChannelIds = new Set(callerChannels.map(c => c.id));
+
+        if (callerChannels.length === 0) {
+          // Caller has no accessible channels — return empty but valid data
+          const roles = db.prepare('SELECT * FROM roles ORDER BY level DESC').all();
+          const permissions = db.prepare('SELECT * FROM role_permissions').all();
+          const permMap = {};
+          permissions.forEach(p => { if (!permMap[p.role_id]) permMap[p.role_id] = []; permMap[p.role_id].push(p.permission); });
+          roles.forEach(r => { r.permissions = permMap[r.id] || []; });
+          return cb({ users: [], userChannelMap: {}, channels: [], roles, callerPerms: getUserPermissions(callerId), callerLevel: callerServerLevel, callerIsAdmin });
+        }
+
+        // Get all users in channels the caller can see
+        const allMembers = db.prepare(`
+          SELECT DISTINCT u.id, u.username, COALESCE(u.display_name, u.username) as displayName,
+                 u.avatar, u.avatar_shape, u.is_admin
+          FROM users u
+          JOIN channel_members cm ON u.id = cm.user_id
+          WHERE cm.channel_id IN (${callerChannels.map(() => '?').join(',')})
+            AND u.id != ?
+          ORDER BY COALESCE(u.display_name, u.username)
+        `).all(...callerChannels.map(c => c.id), callerId);
+
+        // Filter to users whose server-wide level is strictly lower
+        const users = [];
+        const userChannelMap = {};
+        for (const m of allMembers) {
+          if (m.is_admin) continue; // Can't modify admin
+          const userServerLevel = getUserEffectiveLevel(m.id);
+          if (!callerIsAdmin && userServerLevel >= callerServerLevel) continue;
+
+          // Find shared channels where caller is strictly higher level
+          const uChans = db.prepare(`
+            SELECT cm.channel_id FROM channel_members cm
+            WHERE cm.user_id = ? AND cm.channel_id IN (${callerChannels.map(() => '?').join(',')})
+          `).all(m.id, ...callerChannels.map(c => c.id));
+
+          const sharedChannels = [];
+          for (const uc of uChans) {
+            const callerChanLevel = getUserEffectiveLevel(callerId, uc.channel_id);
+            const userChanLevel = getUserEffectiveLevel(m.id, uc.channel_id);
+            if (callerIsAdmin || callerChanLevel > userChanLevel) {
+              sharedChannels.push(uc.channel_id);
+            }
+          }
+          if (sharedChannels.length === 0 && !callerIsAdmin) continue;
+
+          // Get the user's current roles (all scopes)
+          const currentRoles = db.prepare(`
+            SELECT ur.role_id, ur.channel_id, r.name, r.level, r.color
+            FROM user_roles ur
+            JOIN roles r ON ur.role_id = r.id
+            WHERE ur.user_id = ?
+          `).all(m.id);
+
+          users.push({
+            id: m.id,
+            username: m.username,
+            displayName: m.displayName,
+            avatar: m.avatar || null,
+            avatarShape: m.avatar_shape || 'circle',
+            serverLevel: userServerLevel,
+            currentRoles
+          });
+          userChannelMap[m.id] = sharedChannels;
+        }
+
+        // Build channel hierarchy for the center pane
+        const channelsWithHierarchy = callerChannels.map(c => ({
+          id: c.id,
+          name: c.name,
+          code: c.code,
+          parentId: c.parent_channel_id,
+          position: c.position
+        }));
+
+        // Get all available roles
+        const roles = db.prepare('SELECT * FROM roles ORDER BY level DESC').all();
+        const permissions = db.prepare('SELECT * FROM role_permissions').all();
+        const permMap = {};
+        permissions.forEach(p => {
+          if (!permMap[p.role_id]) permMap[p.role_id] = [];
+          permMap[p.role_id].push(p.permission);
+        });
+        roles.forEach(r => { r.permissions = permMap[r.id] || []; });
+
+        // Get caller's own permissions (for restricting which perms they can grant)
+        const callerPerms = getUserPermissions(callerId);
+
+        cb({
+          users,
+          userChannelMap,
+          channels: channelsWithHierarchy,
+          roles,
+          callerPerms,
+          callerLevel: callerServerLevel,
+          callerIsAdmin: callerIsAdmin
+        });
+      } catch (err) {
+        console.error('get-role-assignment-data error:', err);
+        cb({ error: 'Failed to load role assignment data' });
+      }
+    });
+
+    socket.on('assign-role', (data, callback) => {
+      const cb = typeof callback === 'function' ? callback : () => {};
+      if (!data || typeof data !== 'object') return cb({ error: 'Invalid request' });
       if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'promote_user')) {
         return cb({ error: 'You lack permission to assign roles' });
       }
 
       const userId = isInt(data.userId) ? data.userId : null;
       const roleId = isInt(data.roleId) ? data.roleId : null;
-      if (!userId || !roleId) return;
+      if (!userId || !roleId) return cb({ error: 'Missing userId or roleId' });
 
       // Cannot modify your own roles (prevents privilege escalation and accidental self-nerf)
       if (userId === socket.user.id) {
@@ -4588,15 +4771,54 @@ function setupSocketHandlers(io, db) {
 
       const channelId = isInt(data.channelId) ? data.channelId : null;
 
-      try {
-        // Explicitly delete existing assignment to prevent duplicates
-        // (SQLite UNIQUE constraints don't work reliably with NULL channel_id)
-        if (channelId) {
-          db.prepare('DELETE FROM user_roles WHERE user_id = ? AND role_id = ? AND channel_id = ?').run(userId, roleId, channelId);
-        } else {
-          db.prepare('DELETE FROM user_roles WHERE user_id = ? AND role_id = ? AND channel_id IS NULL').run(userId, roleId);
+      // Custom level: allow caller to set a custom level (must be < caller's level)
+      let assignLevel = role.level;
+      if (data.customLevel !== undefined && data.customLevel !== null) {
+        const cl = parseInt(data.customLevel);
+        if (!isNaN(cl) && cl >= 1 && cl <= 99) {
+          if (!socket.user.isAdmin) {
+            const myLevel = getUserEffectiveLevel(socket.user.id);
+            if (cl >= myLevel) {
+              return cb({ error: `Custom level must be below your level (${myLevel})` });
+            }
+          }
+          assignLevel = cl;
         }
-        db.prepare('INSERT INTO user_roles (user_id, role_id, channel_id, granted_by) VALUES (?, ?, ?, ?)').run(userId, roleId, channelId, socket.user.id);
+      }
+
+      try {
+        // Replace all existing roles at the same scope —
+        // assigning "User" server-wide removes "Jester" server-wide, etc.
+        if (channelId) {
+          db.prepare('DELETE FROM user_roles WHERE user_id = ? AND channel_id = ?').run(userId, channelId);
+        } else {
+          db.prepare('DELETE FROM user_roles WHERE user_id = ? AND channel_id IS NULL').run(userId);
+        }
+        db.prepare('INSERT INTO user_roles (user_id, role_id, channel_id, granted_by, custom_level) VALUES (?, ?, ?, ?, ?)').run(userId, roleId, channelId, socket.user.id, assignLevel !== role.level ? assignLevel : null);
+
+        // Custom permissions: if provided, store per-user overrides
+        if (data.customPerms && Array.isArray(data.customPerms)) {
+          // Clear existing custom permission overrides for this user+role+scope
+          if (channelId) {
+            db.prepare('DELETE FROM user_role_perms WHERE user_id = ? AND role_id = ? AND channel_id = ?').run(userId, roleId, channelId);
+          } else {
+            db.prepare('DELETE FROM user_role_perms WHERE user_id = ? AND role_id = ? AND channel_id IS NULL').run(userId, roleId);
+          }
+          // Only store overrides if they differ from the role's default permissions
+          const rolePerms = db.prepare('SELECT permission FROM role_permissions WHERE role_id = ? AND allowed = 1').all(roleId).map(r => r.permission);
+          const customPerms = data.customPerms.filter(p => typeof p === 'string');
+          const added = customPerms.filter(p => !rolePerms.includes(p));
+          const removed = rolePerms.filter(p => !customPerms.includes(p));
+          if (added.length > 0 || removed.length > 0) {
+            const insertStmt = db.prepare('INSERT INTO user_role_perms (user_id, role_id, channel_id, permission, allowed) VALUES (?, ?, ?, ?, ?)');
+            for (const p of added) {
+              insertStmt.run(userId, roleId, channelId, p, 1);
+            }
+            for (const p of removed) {
+              insertStmt.run(userId, roleId, channelId, p, 0);
+            }
+          }
+        }
 
         // Apply role-linked channel access (grant channels on promote)
         applyRoleChannelAccess(roleId, userId, 'grant');
@@ -4619,19 +4841,20 @@ function setupSocketHandlers(io, db) {
       }
     });
 
-    socket.on('revoke-role', (data) => {
-      if (!data || typeof data !== 'object') return;
+    socket.on('revoke-role', (data, callback) => {
+      const cb = typeof callback === 'function' ? callback : () => {};
+      if (!data || typeof data !== 'object') return cb({ error: 'Invalid request' });
       if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'promote_user')) {
-        return socket.emit('error-msg', 'You lack permission to revoke roles');
+        return cb({ error: 'You lack permission to revoke roles' });
       }
 
       const userId = isInt(data.userId) ? data.userId : null;
       const roleId = isInt(data.roleId) ? data.roleId : null;
-      if (!userId || !roleId) return;
+      if (!userId || !roleId) return cb({ error: 'Missing userId or roleId' });
 
       // Cannot modify your own roles (prevents privilege escalation and accidental self-nerf)
       if (userId === socket.user.id) {
-        return socket.emit('error-msg', 'You cannot modify your own roles');
+        return cb({ error: 'You cannot modify your own roles' });
       }
 
       // Non-admins can only revoke roles below their own level
@@ -4640,7 +4863,7 @@ function setupSocketHandlers(io, db) {
         if (role) {
           const myLevel = getUserEffectiveLevel(socket.user.id);
           if (role.level >= myLevel) {
-            return socket.emit('error-msg', `You can only revoke roles below your level (${myLevel})`);
+            return cb({ error: `You can only revoke roles below your level (${myLevel})` });
           }
         }
       }
@@ -4657,7 +4880,7 @@ function setupSocketHandlers(io, db) {
       }
 
       const target = db.prepare('SELECT COALESCE(display_name, username) as username FROM users WHERE id = ?').get(userId);
-      socket.emit('error-msg', `Revoked role from ${target ? target.username : 'user'}`);
+      cb({ success: true, message: `Revoked role from ${target ? target.username : 'user'}` });
 
       // Notify target user if online
       for (const [, s] of io.sockets.sockets) {

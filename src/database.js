@@ -420,6 +420,28 @@ function initDatabase() {
     )
   `);
 
+  // ── Migration: custom_level column on user_roles for per-assignment level overrides ──
+  try {
+    db.prepare('SELECT custom_level FROM user_roles LIMIT 0').get();
+  } catch {
+    db.exec('ALTER TABLE user_roles ADD COLUMN custom_level INTEGER DEFAULT NULL');
+  }
+
+  // ── Migration: per-user permission overrides table ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_role_perms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+      channel_id INTEGER DEFAULT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      permission TEXT NOT NULL,
+      allowed INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  try {
+    db.prepare('SELECT 1 FROM user_role_perms LIMIT 0').get();
+  } catch { /* table just created */ }
+
   // ── Migration: push notification subscriptions ──────────
   db.exec(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
