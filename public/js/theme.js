@@ -227,11 +227,6 @@ function _rebuildEffectSpeedSliders() {
     if (_fxSpeedMap[fx] !== undefined) {
       _applyFxSpeedToLayers(fx, 2.15 - _fxSpeedMap[fx]);
     }
-
-    // Inject CRT vignette & scanline sliders right after the CRT speed slider
-    if (fx === 'crt') {
-      _injectCrtSliders(editor);
-    }
   });
 }
 
