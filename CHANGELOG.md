@@ -11,6 +11,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.3.5] — 2026-02-26
+
+### Added
+- **Donor list externalized** — sponsors and donors are now loaded from `donors.json` at the server root, so the list can be updated without editing HTML. The Thank You modal fetches `/api/donors` on open.
+
+### Fixed
+- **Password change redirect loop** — changing your password no longer kicks your own session into an infinite redirect. The server now sends the fresh token before disconnecting sockets, and the client guards against self-eviction during password changes.
+- **Plugin loader scope** — the plugin loader now passes `globalThis` into the plugin sandbox as `_win`, so plugins can register classes that the loader can discover. Previously `new Function()` ran in a strict scope where `window` was inaccessible, breaking all plugins including the built-in MessageTimestamps.
+- **MessageTimestamps plugin** — updated to register via `_win` so it loads correctly with the fixed plugin loader.
+
+---
+
 ## [2.3.4] — 2026-02-26
 
 ### Added

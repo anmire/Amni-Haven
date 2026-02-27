@@ -184,11 +184,12 @@ window.HavenPluginLoader = (function () {
       const code = await resp.text();
 
       // Execute in a Function scope so plugins can define classes
-      const factory = new Function('HavenApi', code + '\n;return (typeof module !== "undefined" && module.exports) || (typeof exports !== "undefined" ? exports : null);');
-      const exported = factory(HavenApi);
+      // Pass globalThis as _win so plugins can register classes via _win.ClassName = ...
+      const factory = new Function('HavenApi', '_win', code + '\n;return (typeof module !== "undefined" && module.exports) || (typeof exports !== "undefined" ? exports : null);');
+      const exported = factory(HavenApi, globalThis);
 
       // The plugin should place its class on window, or we find the last class defined
-      // Convention: plugin sets module.exports = ClassName or window.PluginName = class { ... }
+      // Convention: plugin sets module.exports = ClassName or _win.PluginName = class { ... }
       // We'll look for any new class on window that has start()/stop()
       let PluginClass = null;
 
@@ -201,10 +202,10 @@ window.HavenPluginLoader = (function () {
           PluginClass = window[baseName];
         } else {
           // Fallback: look for any class defined via the code — we wrap it
-          // The code itself may call window.XYZ = class { ... }
+          // The code itself may call _win.XYZ = class { ... }
           // Just re-execute looking for the return value
-          const fn2 = new Function('HavenApi', code + '\n;return typeof start === "function" ? { start, stop: typeof stop === "function" ? stop : () => {} } : null;');
-          const obj = fn2(HavenApi);
+          const fn2 = new Function('HavenApi', '_win', code + '\n;return typeof start === "function" ? { start, stop: typeof stop === "function" ? stop : () => {} } : null;');
+          const obj = fn2(HavenApi, globalThis);
           if (obj) PluginClass = function() { this.start = obj.start; this.stop = obj.stop || (() => {}); };
         }
       }

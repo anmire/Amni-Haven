@@ -1950,24 +1950,27 @@
       <h2 class="donors-title">Thank You</h2>
       <p class="donors-subtitle">Haven is built with love and kept alive by the generosity of people like you. Every donation — big or small — means the world.</p>
 
-      <div class="donors-tiers">
+      <div class="donors-tiers" id="donors-tiers">
         <div class="donors-tier">
           <h3 class="donors-tier-title donors-sponsor-title">✨ Sponsors</h3>
-          <div class="donors-grid">
-            <span class="donor-chip donor-sponsor">BillyAlt</span>
-          </div>
+          <div class="donors-grid" id="sponsors-grid"></div>
         </div>
 
         <div class="donors-tier">
           <h3 class="donors-tier-title donors-donor-title">💛 Donors</h3>
-          <div class="donors-grid">
-            <span class="donor-chip">wreckedcarzz</span>
-            <span class="donor-chip">JollyOrc</span>
-            <span class="donor-chip">nexitem</span>
-            <span class="donor-chip">ArtyDaSmarty</span>
-          </div>
+          <div class="donors-grid" id="donors-grid"></div>
         </div>
       </div>
+      <script>
+        (function(){
+          fetch('/api/donors').then(r=>r.json()).then(d=>{
+            const sg=document.getElementById('sponsors-grid');
+            const dg=document.getElementById('donors-grid');
+            (d.sponsors||[]).forEach(n=>{ const s=document.createElement('span'); s.className='donor-chip donor-sponsor'; s.textContent=n; sg.appendChild(s); });
+            (d.donors||[]).forEach(n=>{ const s=document.createElement('span'); s.className='donor-chip'; s.textContent=n; dg.appendChild(s); });
+          }).catch(()=>{});
+        })();
+      </script>
 
       <p class="donors-note">New donors will be added each release. If you've donated and don't see your name, it'll be in the next update!</p>
 

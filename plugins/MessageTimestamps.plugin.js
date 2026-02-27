@@ -56,3 +56,6 @@ class MessageTimestamps {
     return `${days}d ago`;
   }
 }
+
+// Register with the plugin loader's _win scope
+if (typeof _win !== 'undefined') _win.MessageTimestamps = MessageTimestamps;

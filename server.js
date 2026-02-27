@@ -462,6 +462,17 @@ app.get('/games/flappy', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'games', 'flappy.html'));
 });
 
+// ── Donors / sponsors list (loaded from donors.json) ──
+app.get('/api/donors', (req, res) => {
+  try {
+    const donorsPath = path.join(__dirname, 'donors.json');
+    const data = JSON.parse(fs.readFileSync(donorsPath, 'utf-8'));
+    res.json(data);
+  } catch {
+    res.json({ sponsors: [], donors: [] });
+  }
+});
+
 // ── Health check (CORS allowed for multi-server status pings) ──
 app.get('/api/health', (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');

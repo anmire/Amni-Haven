@@ -263,18 +263,23 @@ router.post('/change-password', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    // Send the response FIRST so the client can store the fresh token
+    // before we disconnect sockets (prevents redirect loop)
+    res.json({ message: 'Password changed successfully', token: freshToken });
+
     // Disconnect all existing sockets for this user (forces re-login on other sessions)
     const io = req.app.get('io');
     if (io) {
-      for (const [, s] of io.sockets.sockets) {
-        if (s.user && s.user.id === user.id) {
-          s.emit('force-logout', { reason: 'password_changed' });
-          s.disconnect(true);
+      // Small delay to let the HTTP response reach the client first
+      setTimeout(() => {
+        for (const [, s] of io.sockets.sockets) {
+          if (s.user && s.user.id === user.id) {
+            s.emit('force-logout', { reason: 'password_changed' });
+            s.disconnect(true);
+          }
         }
-      }
+      }, 500);
     }
-
-    res.json({ message: 'Password changed successfully', token: freshToken });
   } catch (err) {
     console.error('Change password error:', err);
     res.status(500).json({ error: 'Server error' });

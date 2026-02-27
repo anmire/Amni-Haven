@@ -367,6 +367,8 @@ class HavenApp {
     });
 
     this.socket.on('connect_error', (err) => {
+      // Don't kick during password change — socket will reconnect with fresh token
+      if (this._justChangedPassword) return;
       if (err.message === 'Invalid token' || err.message === 'Authentication required' || err.message === 'Session expired') {
         localStorage.removeItem('haven_token');
         localStorage.removeItem('haven_user');
@@ -380,15 +382,11 @@ class HavenApp {
     // Password was changed on this or another session — force re-login
     this.socket.on('force-logout', (data) => {
       if (data && data.reason === 'password_changed') {
-        // If WE just changed the password, we already have the fresh token
-        const freshToken = localStorage.getItem('haven_token');
-        if (freshToken && freshToken !== this.token) {
-          // Another tab/device changed it but we somehow got a new token — use it
-          this.token = freshToken;
-          this.socket.auth.token = freshToken;
+        // If WE just changed the password, skip the kick — we already have the fresh token
+        if (this._justChangedPassword) {
+          this._justChangedPassword = false;
           return;
         }
-        // Otherwise this is a different session — kick to login
         localStorage.removeItem('haven_token');
         localStorage.removeItem('haven_user');
         window.location.href = '/';
@@ -2348,6 +2346,9 @@ class HavenApp {
       if (np.length < 8) return hint.textContent = 'New password must be 8+ characters';
       if (np !== conf)   return hint.textContent = 'Passwords do not match';
 
+      // Flag to prevent force-logout from kicking us out
+      this._justChangedPassword = true;
+
       try {
         const res = await fetch('/api/auth/change-password', {
           method: 'POST',
@@ -2385,7 +2386,10 @@ class HavenApp {
         document.getElementById('current-password').value = '';
         document.getElementById('new-password').value = '';
         document.getElementById('confirm-password').value = '';
+        // Clear the flag after a delay so socket reconnects go through
+        setTimeout(() => { this._justChangedPassword = false; }, 5000);
       } catch {
+        this._justChangedPassword = false;
         hint.textContent = 'Network error';
         hint.classList.add('error');
       }
