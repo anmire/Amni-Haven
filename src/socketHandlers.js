@@ -1336,8 +1336,7 @@ function setupSocketHandlers(io, db) {
           } catch (e) { /* non-critical */ }
           return;
         }
-        // Unknown command — tell the user
-        return socket.emit('error-msg', `Unknown command: /${cmd}`);
+        // Unknown slash command — fall through as a plain message so bots/webhooks can handle it
       }
 
       const replyTo = isInt(data.replyTo) ? data.replyTo : null;

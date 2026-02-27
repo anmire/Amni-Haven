@@ -6874,6 +6874,20 @@ class HavenApp {
 
     // Update the DM section header total badge
     this._updateDmSectionBadge();
+    // Update browser tab title with total unread count
+    this._updateTabTitle();
+    // Notify desktop shell to set/clear taskbar badge
+    this._updateDesktopBadge();
+  }
+
+  _updateTabTitle() {
+    const total = Object.values(this.unreadCounts).reduce((s, v) => s + v, 0);
+    document.title = total > 0 ? `(${total}) Haven` : 'Haven';
+  }
+
+  _updateDesktopBadge() {
+    const total = Object.values(this.unreadCounts).reduce((s, v) => s + v, 0);
+    window.havenDesktop?.setUnreadBadge?.(total > 0);
   }
 
   _updateDmSectionBadge() {

@@ -225,6 +225,49 @@ app.get('/api/push/vapid-key', (req, res) => {
   res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
 });
 
+// ── Push notification subscription endpoints ─────────────
+app.post('/api/push/subscribe', express.json(), (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { endpoint, keys } = req.body;
+  if (!endpoint || !keys?.p256dh || !keys?.auth)
+    return res.status(400).json({ error: 'Invalid subscription object' });
+
+  try {
+    const { getDb } = require('./src/database');
+    getDb().prepare(`
+      INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth
+    `).run(user.id, endpoint, keys.p256dh, keys.auth);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[push/subscribe]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/push/subscribe', express.json(), (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { endpoint } = req.body || {};
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+
+  try {
+    const { getDb } = require('./src/database');
+    getDb().prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?')
+      .run(user.id, endpoint);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[push/unsubscribe]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── ICE servers endpoint (STUN + optional TURN) ──────────
 app.get('/api/ice-servers', (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
