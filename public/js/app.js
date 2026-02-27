@@ -15152,6 +15152,14 @@ class HavenApp {
     const modal = document.getElementById('donors-modal');
     if (!modal) return;
 
+    // Fetch donor/sponsor list from server
+    fetch('/api/donors').then(r => r.json()).then(d => {
+      const sg = document.getElementById('sponsors-grid');
+      const dg = document.getElementById('donors-grid');
+      (d.sponsors || []).forEach(n => { const s = document.createElement('span'); s.className = 'donor-chip donor-sponsor'; s.textContent = n; sg.appendChild(s); });
+      (d.donors || []).forEach(n => { const s = document.createElement('span'); s.className = 'donor-chip'; s.textContent = n; dg.appendChild(s); });
+    }).catch(() => {});
+
     // Open on heart button click
     document.getElementById('donors-btn')?.addEventListener('click', () => {
       modal.style.display = 'flex';
