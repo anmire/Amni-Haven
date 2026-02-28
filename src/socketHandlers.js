@@ -859,6 +859,23 @@ function setupSocketHandlers(io, db) {
           'INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)'
         ).run(result.lastInsertRowid, socket.user.id);
 
+        // Auto-assign creator a channel-scoped mod role in their new channel so they
+        // have elevated permissions in it (unless they're already an admin or server mod).
+        if (!socket.user.isAdmin) {
+          const creatorLevel = getUserEffectiveLevel(socket.user.id);
+          if (creatorLevel < 50) {
+            // Find the highest-level channel-scoped role (e.g. Channel Mod)
+            const channelModRole = db.prepare(
+              "SELECT id FROM roles WHERE scope = 'channel' ORDER BY level DESC LIMIT 1"
+            ).get();
+            if (channelModRole) {
+              db.prepare(
+                'INSERT OR IGNORE INTO user_roles (user_id, role_id, channel_id, granted_by) VALUES (?, ?, ?, NULL)'
+              ).run(socket.user.id, channelModRole.id, result.lastInsertRowid);
+            }
+          }
+        }
+
         const channel = {
           id: result.lastInsertRowid,
           name: name.trim(),
@@ -3834,6 +3851,16 @@ function setupSocketHandlers(io, db) {
       // Check channel exists and is not a DM
       const channel = db.prepare('SELECT * FROM channels WHERE id = ? AND is_dm = 0').get(channelId);
       if (!channel) return socket.emit('error-msg', 'Channel not found');
+
+      // Private channels: only the creator, admins, and mods can invite others.
+      // Regular members cannot bypass the code requirement by using the invite feature.
+      if (channel.is_private && !socket.user.isAdmin) {
+        const isCreator = channel.created_by === socket.user.id;
+        const isMod = userHasPermission(socket.user.id, 'kick_user', channelId);
+        if (!isCreator && !isMod) {
+          return socket.emit('error-msg', 'Only the channel creator or moderators can invite people to private channels');
+        }
+      }
 
       // Check target user exists
       const targetUser = db.prepare('SELECT id, username FROM users WHERE id = ?').get(targetUserId);

@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.3.7] — 2026-02-27
+
+### Fixed
+- **Private channels are now actually private** — any member of a private channel could previously invite anyone to it via the right-click menu, bypassing the code requirement entirely. Regular members can no longer invite others to private channels. Only the channel creator, admins, and moderators (users with a `kick_user`-level permission in that channel) can invite. Private channels are also hidden from the invite submenu for non-admin users.
+
+### Changed
+- **Channel creator auto-gets mod role** — when a user creates a new top-level channel, they are automatically assigned the highest channel-scoped role (e.g. Channel Mod) for that channel. Previously the creator was just added as a regular member. This means channel creators can manage their own channel (rename, moderate, create sub-channels) without an admin needing to manually assign them a role.
+
+---
+
 ## [2.3.6] — 2026-02-27
 
 ### Fixed

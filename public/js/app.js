@@ -4823,7 +4823,11 @@ class HavenApp {
     menu.appendChild(dmBtn);
 
     // 3) Invite to Channel (submenu)
-    const inviteChannels = (this.channels || []).filter(ch => !ch.is_dm && ch.name);
+    // Private channels are excluded for non-admins: regular members can't bypass
+    // the code requirement by using the right-click invite menu.
+    const inviteChannels = (this.channels || []).filter(ch =>
+      !ch.is_dm && ch.name && (!ch.is_private || this.user?.isAdmin)
+    );
     if (inviteChannels.length > 0) {
       const inviteItem = document.createElement('div');
       inviteItem.className = 'user-ctx-submenu-wrapper';
