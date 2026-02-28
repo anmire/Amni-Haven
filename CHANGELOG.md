@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.3.6] — 2026-02-27
+
+### Fixed
+- **Docker healthcheck respects FORCE_HTTP** — the container healthcheck now uses HTTP when `FORCE_HTTP=true` is set, so reverse-proxy setups (Traefik, nginx, etc.) no longer mark the container as unhealthy. Previously the check always used HTTPS, which caused unhealthy status and missing routes.
+- **Non-ASCII filenames in file transfer** — filenames containing Chinese characters (and other non-ASCII text) are no longer garbled when files are uploaded. The server now correctly re-encodes the filename from the raw multipart bytes to UTF-8.
+
+---
+
 ## [2.3.5] — 2026-02-26
 
 ### Added

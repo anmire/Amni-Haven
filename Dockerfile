@@ -47,7 +47,7 @@ EXPOSE 3000 3001
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- --no-check-certificate https://127.0.0.1:${PORT:-3000}/api/health || exit 1
+  CMD sh -c 'PROTO=https; [ "$FORCE_HTTP" = "true" ] && PROTO=http; wget -qO- --no-check-certificate "${PROTO}://127.0.0.1:${PORT:-3000}/api/health" || exit 1'
 
 ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
 CMD ["node", "server.js"]

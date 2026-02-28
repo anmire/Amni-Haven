@@ -745,7 +745,10 @@ app.post('/api/upload-file', uploadLimiter, (req, res) => {
     }
 
     const isImage = /^image\//.test(req.file.mimetype);
-    const originalName = req.file.originalname || 'file';
+    // multer passes the raw bytes from the multipart header as a latin1 string;
+    // browsers encode filenames as UTF-8 bytes, so re-decode to recover the
+    // original text (fixes garbled Chinese/emoji/non-ASCII filenames).
+    const originalName = Buffer.from(req.file.originalname || 'file', 'latin1').toString('utf8');
     const fileSize = req.file.size;
 
     res.json({
