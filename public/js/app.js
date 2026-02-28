@@ -1143,7 +1143,13 @@ class HavenApp {
     if (createBtn) {
       createBtn.addEventListener('click', () => {
         const name = nameInput.value.trim();
-        if (name) { this.socket.emit('create-channel', { name }); nameInput.value = ''; }
+        const isPrivate = document.getElementById('new-channel-private')?.checked || false;
+        if (name) {
+          this.socket.emit('create-channel', { name, isPrivate });
+          nameInput.value = '';
+          const pvt = document.getElementById('new-channel-private');
+          if (pvt) pvt.checked = false;
+        }
       });
       nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createBtn.click(); });
     }
@@ -6861,6 +6867,11 @@ class HavenApp {
 
     // Render voice indicators for channels with active voice users
     this._updateChannelVoiceIndicators();
+    // Debounced refresh of voice counts to catch any missed updates during re-render
+    clearTimeout(this._voiceCountRefreshTimer);
+    this._voiceCountRefreshTimer = setTimeout(() => {
+      if (this.socket?.connected) this.socket.emit('get-voice-counts');
+    }, 600);
   }
 
   _updateBadge(code) {

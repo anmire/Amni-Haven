@@ -855,11 +855,12 @@ function setupSocketHandlers(io, db) {
       }
 
       const code = generateChannelCode();
+      const isPrivate = data.isPrivate ? 1 : 0;
 
       try {
         const result = db.prepare(
-          'INSERT INTO channels (name, code, created_by) VALUES (?, ?, ?)'
-        ).run(name.trim(), code, socket.user.id);
+          'INSERT INTO channels (name, code, created_by, is_private) VALUES (?, ?, ?, ?)'
+        ).run(name.trim(), code, socket.user.id, isPrivate);
 
         // Auto-join creator
         db.prepare(
@@ -887,10 +888,11 @@ function setupSocketHandlers(io, db) {
           id: result.lastInsertRowid,
           name: name.trim(),
           code,
-          display_code: code,
+          display_code: code, // Creator always sees the real code
           created_by: socket.user.id,
           topic: '',
-          is_dm: 0
+          is_dm: 0,
+          is_private: isPrivate
         };
 
         socket.join(`channel:${code}`);
