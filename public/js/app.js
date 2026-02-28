@@ -4825,8 +4825,9 @@ class HavenApp {
     // 3) Invite to Channel (submenu)
     // Private channels are excluded for non-admins: regular members can't bypass
     // the code requirement by using the right-click invite menu.
+    // Both is_private=1 and code_visibility='private' count as private here.
     const inviteChannels = (this.channels || []).filter(ch =>
-      !ch.is_dm && ch.name && (!ch.is_private || this.user?.isAdmin)
+      !ch.is_dm && ch.name && ((!ch.is_private && ch.code_visibility !== 'private') || this.user?.isAdmin)
     );
     if (inviteChannels.length > 0) {
       const inviteItem = document.createElement('div');

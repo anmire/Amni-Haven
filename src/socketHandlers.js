@@ -3866,7 +3866,9 @@ function setupSocketHandlers(io, db) {
 
       // Private channels: only the creator, admins, and mods can invite others.
       // Regular members cannot bypass the code requirement by using the invite feature.
-      if (channel.is_private && !socket.user.isAdmin) {
+      // Treat both is_private=1 AND code_visibility='private' as private for this check.
+      const channelIsPrivate = channel.is_private || channel.code_visibility === 'private';
+      if (channelIsPrivate && !socket.user.isAdmin) {
         const isCreator = channel.created_by === socket.user.id;
         const isMod = userHasPermission(socket.user.id, 'kick_user', channelId);
         if (!isCreator && !isMod) {
