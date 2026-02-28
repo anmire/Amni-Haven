@@ -11,6 +11,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.3.8] — 2026-02-28
+
+### Fixed
+- **Private channel code is now actually hidden from members** — previously, `code_visibility` (admin setting) and `is_private` (requires code to join) were independent flags. A member of a private channel could still see the real invite code in the channel header and share it freely. Now, any channel marked `is_private` automatically hides its code from regular members — only the channel creator, admins, and mod-level users can see it. The same applies when a channel has `code_visibility` set to private.
+
+---
+
 ## [2.3.7] — 2026-02-27
 
 ### Fixed

@@ -775,10 +775,17 @@ function setupSocketHandlers(io, db) {
         channels.forEach(ch => joinRooms(`channel:${ch.code}`));
       }
 
-      // For non-admins, mask the display code but keep the real code for navigation
+      // For non-admins, mask the display code but keep the real code for navigation.
+      // Private channels (is_private=1 OR code_visibility='private') hide the real code
+      // from regular members — only the creator, admins, and channel mods can see it.
+      // This prevents members from leaking the join code to uninvited people.
       channels.forEach(ch => {
-        if (!isAdmin && ch.code_visibility === 'private') {
-          ch.display_code = '••••••••';
+        if (isAdmin) {
+          ch.display_code = ch.code;
+        } else if (ch.code_visibility === 'private' || ch.is_private) {
+          // Creators and mods can see the code so they can share it intentionally
+          const isMod = ch.created_by === userId || userHasPermission(userId, 'kick_user', ch.id);
+          ch.display_code = isMod ? ch.code : '••••••••';
         } else {
           ch.display_code = ch.code;
         }
@@ -1016,13 +1023,18 @@ function setupSocketHandlers(io, db) {
         user: { id: socket.user.id, username: socket.user.displayName }
       });
 
-      // Send channel info to joiner (always include real code — they just joined)
-      const isPrivateCode = channel.code_visibility === 'private';
+      // Send channel info to joiner.
+      // Even though they used the code to join, mask it in the UI afterward for
+      // private channels so they can't trivially copy it to re-share with others.
+      const isPrivateCode = channel.code_visibility === 'private' || channel.is_private;
+      const joinerCanSeeCode = socket.user.isAdmin
+        || channel.created_by === socket.user.id
+        || userHasPermission(socket.user.id, 'kick_user', channel.id);
       socket.emit('channel-joined', {
         id: channel.id,
         name: channel.name,
         code: activeCode,
-        display_code: (!socket.user.isAdmin && isPrivateCode) ? '••••••••' : activeCode,
+        display_code: (isPrivateCode && !joinerCanSeeCode) ? '••••••••' : activeCode,
         created_by: channel.created_by,
         topic: channel.topic || '',
         is_dm: channel.is_dm || 0
