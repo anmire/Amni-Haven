@@ -239,13 +239,13 @@
         totpCodeInput.placeholder = 'XXXX-XXXX';
         totpCodeInput.maxLength = 9;
         totpCodeInput.inputMode = 'text';
-        totpCodeInput.pattern = '';
+        totpCodeInput.removeAttribute('pattern');
         backupToggle.textContent = 'Use authenticator code instead';
       } else {
         totpCodeInput.placeholder = '000000';
         totpCodeInput.maxLength = 6;
         totpCodeInput.inputMode = 'numeric';
-        totpCodeInput.pattern = '[0-9]*';
+        totpCodeInput.setAttribute('pattern', '[0-9]*');
         backupToggle.textContent = 'Use a backup code instead';
       }
       totpCodeInput.value = '';

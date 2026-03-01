@@ -2517,6 +2517,18 @@ class HavenApp {
       }
     });
 
+    // Copy backup codes to clipboard
+    document.getElementById('totp-copy-backup-btn')?.addEventListener('click', () => {
+      const codesEl = document.getElementById('totp-backup-codes');
+      if (!codesEl) return;
+      const codes = Array.from(codesEl.querySelectorAll('div')).map(d => d.textContent).join('\n');
+      navigator.clipboard.writeText(codes).then(() => {
+        const btn = document.getElementById('totp-copy-backup-btn');
+        btn.textContent = '✅ Copied!';
+        setTimeout(() => { btn.textContent = '📋 Copy Backup Codes'; }, 2000);
+      });
+    });
+
     // Done viewing backup codes
     document.getElementById('totp-backup-done-btn')?.addEventListener('click', () => {
       loadTotpStatus();
