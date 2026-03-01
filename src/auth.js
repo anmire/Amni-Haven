@@ -367,9 +367,9 @@ router.post('/totp/setup', async (req, res) => {
     const qrDataUrl = await QRCode.toDataURL(otpauthUri, { width: 256, margin: 2 });
 
     res.json({
-      secret: secret.base32,
+      base32Secret: secret.base32,
       otpauthUri,
-      qrCode: qrDataUrl
+      qrDataUrl
     });
   } catch (err) {
     console.error('TOTP setup error:', err);
