@@ -821,6 +821,10 @@ class HavenApp {
             }
           }
           contentEl.innerHTML = this._formatContent(displayContent);
+          // Keep raw content in sync so the edit box is always seeded with
+          // the clean markdown source (not textContent which strips formatting
+          // and includes the '(edited)' tag text).
+          msgEl.dataset.rawContent = data.content;
           // Add or update edited indicator
           let editedTag = msgEl.querySelector('.edited-tag');
           if (!editedTag) {
@@ -7623,6 +7627,7 @@ class HavenApp {
       el.dataset.username = msg.username;
       el.dataset.time = msg.created_at;
       el.dataset.msgId = msg.id;
+      el.dataset.rawContent = msg.content;
       if (msg.pinned) el.dataset.pinned = '1';
       if (msg.is_archived) el.dataset.archived = '1';
       if (msg._e2e) el.dataset.e2e = '1';
@@ -7675,6 +7680,7 @@ class HavenApp {
     el.dataset.userId = msg.user_id;
     el.dataset.time = msg.created_at;
     el.dataset.msgId = msg.id;
+    el.dataset.rawContent = msg.content;
     if (msg.pinned) el.dataset.pinned = '1';
     if (msg.is_archived) el.dataset.archived = '1';
     if (msg._e2e) el.dataset.e2e = '1';
@@ -10977,10 +10983,36 @@ class HavenApp {
     return escapedHtml.replace(new RegExp(`(${safeQuery})`, 'gi'), '<mark>$1</mark>');
   }
 
+  // Returns true when the raw message consists only of emoji
+  // (Unicode emoji and/or :custom: tokens) plus optional whitespace.
+  // Capped at 27 to avoid jumbo-sizing a wall of emoji.
+  _isEmojiOnly(str) {
+    if (!str || !str.trim()) return false;
+    const customMatches = str.match(/:([a-zA-Z0-9_-]+):/g) || [];
+    // Only expand custom tokens that actually exist as loaded emojis
+    const resolvedCustom = customMatches.filter(m => {
+      const name = m.slice(1, -1).toLowerCase();
+      return this.customEmojis && this.customEmojis.some(e => e.name === name);
+    });
+    let s = str.replace(/:([a-zA-Z0-9_-]+):/g, ' ');
+    try {
+      // Strip unicode emoji, modifiers, ZWJ, variation selectors, flags
+      s = s.replace(/[\p{Extended_Pictographic}\u{FE00}-\u{FEFF}\u{200D}\u{20E3}\u{1F1E0}-\u{1F1FF}]/gu, '');
+    } catch {
+      s = s.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}\u{200D}\u{20E3}]/gu, '');
+    }
+    if (s.trim().length > 0) return false;
+    let unicodeCount = 0;
+    try { unicodeCount = (str.match(/[\p{Extended_Pictographic}]/gu) || []).length; } catch {}
+    const total = resolvedCustom.length + unicodeCount;
+    return total >= 1 && total <= 27;
+  }
+
   _formatContent(str) {
     // Decode legacy HTML entities from old server-side sanitization.
     // The server no longer entity-encodes, but older messages in the DB
     // may still contain entities like &#39; &amp; &lt; etc.
+    const emojiOnly = this._isEmojiOnly(str);
     str = this._decodeHtmlEntities(str);
 
     // Render file attachments [file:name](url|size)
@@ -11156,6 +11188,8 @@ class HavenApp {
     mdLinks.forEach((link, idx) => {
       html = html.replace(`\x00MDLINK_${idx}\x00`, link);
     });
+
+    if (emojiOnly) html = `<span class="emoji-only-msg">${html}</span>`;
 
     return html;
   }
@@ -12044,8 +12078,12 @@ class HavenApp {
     const contentEl = msgEl.querySelector('.message-content');
     if (!contentEl) return;
 
-    // Get raw text (strip HTML)
-    const rawText = contentEl.textContent;
+    // Use the stored raw markdown content (set on render and kept in sync on
+    // edit events). Falls back to textContent only for very old DOM nodes that
+    // pre-date this attribute, but avoids the two bugs that textContent causes:
+    // 1) markdown formatting stripped (bold/italic/etc. lost)
+    // 2) '(edited)' tag text leaked into the textarea on repeated edits.
+    const rawText = msgEl.dataset.rawContent ?? contentEl.textContent;
 
     // Replace content with an editable textarea
     const originalHtml = contentEl.innerHTML;
