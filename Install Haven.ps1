@@ -480,7 +480,9 @@ $ui['btnNext3'].Add_Click({
     Set-Step 'step3' 'active' 'Creating data directory...'
     if (!(Test-Path $DATA_DIR)) { New-Item -ItemType Directory -Path $DATA_DIR -Force | Out-Null }
     if ((Test-Path "$HAVEN_DIR\.env.example") -and !(Test-Path "$DATA_DIR\.env")) {
-        Copy-Item "$HAVEN_DIR\.env.example" "$DATA_DIR\.env"
+        $envContent = Get-Content "$HAVEN_DIR\.env.example" -Raw
+        if ($adminUser) { $envContent = $envContent -replace 'ADMIN_USERNAME=.*', "ADMIN_USERNAME=$adminUser" }
+        Set-Content -Path "$DATA_DIR\.env" -Value $envContent -NoNewline
     }
     Set-Step 'step3' 'done' 'Data directory ready'
     Set-Progress 55

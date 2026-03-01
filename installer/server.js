@@ -144,8 +144,8 @@ async function runInstall(config, res) {
       const envDest = path.join(DATA_DIR, '.env');
       if (fs.existsSync(envExample) && !fs.existsSync(envDest)) {
         let envContent = fs.readFileSync(envExample, 'utf8');
-        envContent += '\n# ── Push Notifications (Auto-configured by Installer) ──\n';
-        envContent += 'FCM_RELAY_URL=https://us-central1-amni-haven.cloudfunctions.net/sendPush\n';
+        if (adminUser) envContent = envContent.replace(/ADMIN_USERNAME=.*/,'ADMIN_USERNAME=' + adminUser);
+        envContent += '\nFCM_RELAY_URL=https://us-central1-amni-haven.cloudfunctions.net/sendPush\n';
         envContent += 'FCM_PUSH_KEY=YOUR_GLOBAL_SECRET_KEY_HERE\n';
         fs.writeFileSync(envDest, envContent);
       }
