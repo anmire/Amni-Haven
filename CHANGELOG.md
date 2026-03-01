@@ -11,6 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.4.0] — 2026-03-01
+
+### Added
+- **Emoji upload crop/zoom editor** — a canvas-based crop/zoom editor now opens when you upload a custom emoji. Drag to reposition, scroll wheel or the slider to zoom. GIFs are passed through as-is (no re-encoding). Output is a 128×128 PNG.
+- **Jumbo emoji for emoji-only messages** — when a message contains only emoji (Unicode or custom, up to 27), the emoji render at 2× size, Discord-style.
+- **Ezmana added to donors list**
+
+### Changed
+- **Donors modal redesign** — tier titles (Sponsors / Donors) are now styled as full-width section dividers with ruled lines flanking the label, sitting above their respective card. The donor chip lists live in card-style containers with a thin scrollbar for when the list grows.
+
+### Fixed
+- **Editing a message now preserves markdown** — the edit box was populated from the rendered HTML (`textContent`), stripping all formatting. It now reads from a `data-rawContent` attribute that stores the original markdown source. Fixes #106.
+- **"(edited)" no longer stacks on repeated edits** — the stale "(edited)" text was included in the edit-box content via `textContent`, causing it to be re-submitted and duplicated. Also fixed by the `data-rawContent` change. Fixes #106.
+
+---
+
 ## [2.3.9] — 2026-03-01
 
 ### Added
