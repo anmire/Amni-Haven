@@ -5659,6 +5659,12 @@ input[type="range"]:not(.rgb-slider)::-moz-range-track {
   display: inline;
   margin: 0 1px;
 }
+/* Jumbo rendering when a message contains only emoji */
+.emoji-only-msg {
+  font-size: 2em;
+  line-height: 1.25;
+  /* custom-emoji uses em units so it scales automatically */
+}
 .reaction-custom-emoji {
   width: 1em;
   height: 1em;
@@ -11249,32 +11255,57 @@ ul.chat-list { list-style-type: disc; }
 .donors-tiers {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   margin-bottom: 4px;
 }
 
 .donors-tier {
+  display: flex;
+  flex-direction: column;
   text-align: center;
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.07);
-  border-radius: 10px;
-  padding: 16px 14px;
 }
 
+/* Section-divider label: thin rules on each side of the title */
 .donors-tier-title {
-  font-size: 14px;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  /* Space below title, above the card */
   margin: 0 0 10px;
-  letter-spacing: .3px;
+  /* Never shrink — stays above the scroll box */
+  flex-shrink: 0;
+}
+.donors-tier-title::before,
+.donors-tier-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,.1);
 }
 .donors-sponsor-title { color: #f8c53a; }
 .donors-donor-title   { color: #f0a040; }
 
+/* The card lives on the grid, not the tier wrapper.
+   max-height triggers a scroll bar once names fill the box;
+   the title above is never inside the scroll area so it's always visible. */
 .donors-grid {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
+  align-content: flex-start;
   gap: 8px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 10px;
+  padding: 14px 14px;
+  max-height: 140px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.15) transparent;
 }
 
 .donor-chip {
