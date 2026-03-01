@@ -30,5 +30,8 @@
   "overrides": {
     "bn.js": ">=5.2.3",
     "axios": ">=1.8.2"
+  },
+  "devDependencies": {
+    "innosetup-compiler": "^6.3.1"
   }
 }
