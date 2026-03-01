@@ -1635,11 +1635,34 @@
         <input type="file" id="emoji-file-input" accept="image/png,image/gif,image/webp,image/jpeg" style="max-width:120px;font-size:11px">
         <button class="btn-sm btn-accent" id="emoji-upload-btn">Upload</button>
       </div>
+      <div id="emoji-crop-preview-row" style="display:none;align-items:center;gap:10px;margin-top:8px;padding:8px;background:var(--bg-tertiary);border-radius:var(--radius-sm)">
+        <img id="emoji-crop-thumb" src="" alt="" style="width:32px;height:32px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+        <span class="settings-hint" style="flex:1">Crop applied — ready to upload</span>
+        <button class="btn-xs" id="emoji-recrop-btn" title="Re-open cropper">✏️ Adjust</button>
+      </div>
       <div id="custom-emojis-list" style="margin-top:12px;">
         <p class="muted-text">No custom emojis uploaded</p>
       </div>
       <div class="modal-actions">
         <button class="btn-sm" id="close-emoji-modal-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Emoji Crop Modal -->
+  <div class="modal-overlay" id="emoji-crop-modal" style="display:none">
+    <div class="modal" style="max-width:320px;text-align:center">
+      <h3 style="margin-bottom:6px">✂️ Crop Emoji</h3>
+      <small class="settings-hint" style="display:block;margin-bottom:10px">Drag to reposition · Slider to zoom</small>
+      <canvas id="emoji-crop-canvas" width="256" height="256" style="border-radius:var(--radius);cursor:grab;display:block;margin:0 auto 10px;border:2px solid var(--accent);max-width:100%;touch-action:none"></canvas>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:0 4px">
+        <span style="font-size:13px" title="Zoom out">🔍</span>
+        <input type="range" id="emoji-crop-zoom" min="100" max="500" value="100" step="1" style="flex:1;accent-color:var(--accent)">
+        <span style="font-size:13px" title="Zoom in">🔎</span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-sm" id="emoji-crop-cancel-btn">Cancel</button>
+        <button class="btn-sm btn-accent" id="emoji-crop-confirm-btn">Use This Crop</button>
       </div>
     </div>
   </div>

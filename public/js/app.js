@@ -4493,6 +4493,10 @@ class HavenApp {
   // ═══════════════════════════════════════════════════════
 
   _setupEmojiManagement() {
+    this._croppedEmojiBlob = null;
+    this._cropState = null;
+    this._cropSourceFile = null;
+
     // Open emoji management modal
     const openEmojiBtn = document.getElementById('open-emoji-manager-btn');
     if (openEmojiBtn) {
@@ -4513,15 +4517,32 @@ class HavenApp {
     const nameInput = document.getElementById('emoji-name-input');
     if (!uploadBtn || !fileInput) return;
 
+    // When a file is chosen, open the cropper (skip for GIFs)
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      this._croppedEmojiBlob = null;
+      this._cropSourceFile = file;
+      const previewRow = document.getElementById('emoji-crop-preview-row');
+      if (previewRow) previewRow.style.display = 'none';
+      if (file.type === 'image/gif') return; // GIFs skip cropper
+      this._openEmojiCropper(file);
+    });
+
     uploadBtn.addEventListener('click', async () => {
       const file = fileInput.files[0];
       const name = nameInput ? nameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() : '';
       if (!file) return this._showToast('Select an image file', 'error');
       if (!name) return this._showToast('Enter an emoji name (lowercase, no spaces)', 'error');
-      if (file.size > 256 * 1024) return this._showToast('Emoji file too large (max 256 KB)', 'error');
+
+      // Use cropped blob for non-GIF uploads, otherwise raw file
+      const uploadBlob = (this._croppedEmojiBlob && file.type !== 'image/gif')
+        ? this._croppedEmojiBlob
+        : file;
+      if (uploadBlob.size > 256 * 1024) return this._showToast('Emoji file too large (max 256 KB)', 'error');
 
       const formData = new FormData();
-      formData.append('emoji', file);
+      formData.append('emoji', uploadBlob, file.name);
       formData.append('name', name);
 
       try {
@@ -4538,14 +4559,195 @@ class HavenApp {
         }
         this._showToast(`Emoji :${name}: uploaded!`, 'success');
         fileInput.value = '';
-        nameInput.value = '';
+        if (nameInput) nameInput.value = '';
+        this._croppedEmojiBlob = null;
+        this._cropSourceFile = null;
+        this._cropState = null;
+        const previewRow = document.getElementById('emoji-crop-preview-row');
+        if (previewRow) previewRow.style.display = 'none';
         this._loadCustomEmojis();
       } catch {
         this._showToast('Upload failed', 'error');
       }
     });
 
+    this._setupEmojiCropperEvents();
     this._loadCustomEmojis();
+  }
+
+  _setupEmojiCropperEvents() {
+    const canvas = document.getElementById('emoji-crop-canvas');
+    const zoomSlider = document.getElementById('emoji-crop-zoom');
+    if (!canvas || !zoomSlider) return;
+
+    // Zoom slider
+    zoomSlider.addEventListener('input', () => {
+      if (!this._cropState) return;
+      const s = this._cropState;
+      const prevScale = s.scale;
+      const newScale = s.minScale * (parseInt(zoomSlider.value) / 100);
+      // Zoom toward canvas center
+      s.ox = 128 - (128 - s.ox) * (newScale / prevScale);
+      s.oy = 128 - (128 - s.oy) * (newScale / prevScale);
+      s.scale = newScale;
+      this._clampEmojiCrop();
+      this._renderEmojiCropFrame();
+    });
+
+    // Mouse wheel → zoom
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (!this._cropState) return;
+      const delta = e.deltaY < 0 ? 15 : -15;
+      const newVal = Math.min(500, Math.max(100, parseInt(zoomSlider.value) + delta));
+      zoomSlider.value = newVal;
+      zoomSlider.dispatchEvent(new Event('input'));
+    }, { passive: false });
+
+    // Mouse drag
+    canvas.addEventListener('mousedown', (e) => {
+      if (!this._cropState) return;
+      this._cropState.dragging = true;
+      this._cropState.lastX = e.clientX;
+      this._cropState.lastY = e.clientY;
+      canvas.style.cursor = 'grabbing';
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!this._cropState?.dragging) return;
+      const s = this._cropState;
+      s.ox += e.clientX - s.lastX;
+      s.oy += e.clientY - s.lastY;
+      s.lastX = e.clientX;
+      s.lastY = e.clientY;
+      this._clampEmojiCrop();
+      this._renderEmojiCropFrame();
+    });
+    document.addEventListener('mouseup', () => {
+      if (this._cropState) this._cropState.dragging = false;
+      canvas.style.cursor = 'grab';
+    });
+
+    // Touch drag
+    canvas.addEventListener('touchstart', (e) => {
+      if (!this._cropState) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      this._cropState.dragging = true;
+      this._cropState.lastX = t.clientX;
+      this._cropState.lastY = t.clientY;
+    }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+      if (!this._cropState?.dragging) return;
+      e.preventDefault();
+      const s = this._cropState;
+      const t = e.touches[0];
+      s.ox += t.clientX - s.lastX;
+      s.oy += t.clientY - s.lastY;
+      s.lastX = t.clientX;
+      s.lastY = t.clientY;
+      this._clampEmojiCrop();
+      this._renderEmojiCropFrame();
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => {
+      if (this._cropState) this._cropState.dragging = false;
+    });
+
+    // Confirm crop
+    document.getElementById('emoji-crop-confirm-btn')?.addEventListener('click', () => {
+      if (!this._cropState) return;
+      const s = this._cropState;
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = 128;
+      outCanvas.height = 128;
+      const outCtx = outCanvas.getContext('2d');
+      const srcX = -s.ox / s.scale;
+      const srcY = -s.oy / s.scale;
+      const srcW = 256 / s.scale;
+      const srcH = 256 / s.scale;
+      outCtx.drawImage(s.img, srcX, srcY, srcW, srcH, 0, 0, 128, 128);
+      outCanvas.toBlob((blob) => {
+        this._croppedEmojiBlob = blob;
+        document.getElementById('emoji-crop-modal').style.display = 'none';
+        // Show preview row in the emoji modal
+        const thumb = document.getElementById('emoji-crop-thumb');
+        if (thumb) { thumb.src = outCanvas.toDataURL('image/png'); }
+        const previewRow = document.getElementById('emoji-crop-preview-row');
+        if (previewRow) previewRow.style.display = 'flex';
+      }, 'image/png');
+    });
+
+    // Cancel crop
+    document.getElementById('emoji-crop-cancel-btn')?.addEventListener('click', () => {
+      document.getElementById('emoji-crop-modal').style.display = 'none';
+      document.getElementById('emoji-file-input').value = '';
+      this._croppedEmojiBlob = null;
+      this._cropState = null;
+      this._cropSourceFile = null;
+    });
+
+    // Re-crop button in preview row
+    document.getElementById('emoji-recrop-btn')?.addEventListener('click', () => {
+      if (this._cropSourceFile) this._openEmojiCropper(this._cropSourceFile);
+    });
+  }
+
+  _openEmojiCropper(file) {
+    const modal = document.getElementById('emoji-crop-modal');
+    const canvas = document.getElementById('emoji-crop-canvas');
+    const zoomSlider = document.getElementById('emoji-crop-zoom');
+    if (!modal || !canvas || !zoomSlider) return;
+
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const minScale = Math.max(256 / img.width, 256 / img.height);
+      const initScale = minScale;
+      this._cropState = {
+        img,
+        minScale,
+        scale: initScale,
+        ox: (256 - img.width * initScale) / 2,
+        oy: (256 - img.height * initScale) / 2,
+        dragging: false,
+        lastX: 0,
+        lastY: 0
+      };
+      zoomSlider.value = 100;
+      this._clampEmojiCrop();
+      this._renderEmojiCropFrame();
+      modal.style.display = 'flex';
+    };
+    img.src = url;
+  }
+
+  _clampEmojiCrop() {
+    const s = this._cropState;
+    if (!s) return;
+    const w = s.img.width * s.scale;
+    const h = s.img.height * s.scale;
+    s.ox = Math.min(0, Math.max(256 - w, s.ox));
+    s.oy = Math.min(0, Math.max(256 - h, s.oy));
+  }
+
+  _renderEmojiCropFrame() {
+    const s = this._cropState;
+    if (!s) return;
+    const canvas = document.getElementById('emoji-crop-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 256, 256);
+    ctx.drawImage(s.img, s.ox, s.oy, s.img.width * s.scale, s.img.height * s.scale);
+    // Corner guides to indicate crop boundary
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 2;
+    const g = 14;
+    [[0,0,1,1],[256,0,-1,1],[0,256,1,-1],[256,256,-1,-1]].forEach(([x,y,sx,sy]) => {
+      ctx.beginPath();
+      ctx.moveTo(x + sx, y); ctx.lineTo(x + sx * g, y);
+      ctx.moveTo(x, y + sy); ctx.lineTo(x, y + sy * g);
+      ctx.stroke();
+    });
   }
 
   async _loadCustomEmojis() {
