@@ -2646,7 +2646,7 @@ class HavenApp {
 
     // ── Channel Code Settings Modal ─────────────────────
     document.getElementById('channel-code-settings-btn')?.addEventListener('click', () => {
-      if (!this.currentChannel || !this.user.isAdmin) return;
+      if (!this.currentChannel || (!this.user.isAdmin && !this._hasPerm('create_channel'))) return;
       const channel = this.channels.find(c => c.code === this.currentChannel);
       if (!channel || channel.is_dm) return;
 
@@ -5637,10 +5637,10 @@ class HavenApp {
     document.getElementById('channel-code-display').textContent = isDm ? '' : displayCode;
     document.getElementById('copy-code-btn').style.display = (isDm || isMaskedCode) ? 'none' : 'inline-flex';
 
-    // Show channel code settings gear for admins on non-DM channels
+    // Show channel code settings gear for admins / users with create_channel on non-DM channels
     const codeSettingsBtn = document.getElementById('channel-code-settings-btn');
     if (codeSettingsBtn) {
-      codeSettingsBtn.style.display = (!isDm && this.user.isAdmin) ? 'inline-flex' : 'none';
+      codeSettingsBtn.style.display = (!isDm && (this.user.isAdmin || this._hasPerm('create_channel'))) ? 'inline-flex' : 'none';
     }
 
     // Show the header actions box
@@ -5784,11 +5784,12 @@ class HavenApp {
     this._ctxMenuChannel = code;
     const menu = this._ctxMenuEl;
     if (!menu) return;
-    // Show/hide admin-only items
+    // Show/hide admin-only items (also allow users with create_channel perm)
     const isAdmin = this.user && this.user.isAdmin;
+    const canManageChannels = isAdmin || this._hasPerm('create_channel');
     const isMod = isAdmin || this._canModerate();
     menu.querySelectorAll('.admin-only').forEach(el => {
-      el.style.display = isAdmin ? '' : 'none';
+      el.style.display = canManageChannels ? '' : 'none';
     });
     menu.querySelectorAll('.mod-only').forEach(el => {
       el.style.display = isMod ? '' : 'none';
@@ -5806,7 +5807,7 @@ class HavenApp {
     const organizeBtn = menu.querySelector('[data-action="organize"]');
     if (organizeBtn) {
       const hasSubs = ch && !ch.parent_channel_id && this.channels.some(c => c.parent_channel_id === ch.id);
-      organizeBtn.style.display = (isAdmin && hasSubs) ? '' : 'none';
+      organizeBtn.style.display = (canManageChannels && hasSubs) ? '' : 'none';
     }
     // Update toggle indicators for streams/music
     const streamsBtn = menu.querySelector('[data-action="toggle-streams"]');
@@ -14019,7 +14020,7 @@ class HavenApp {
       'edit_own_messages', 'delete_own_messages', 'delete_message', 'delete_lower_messages',
       'pin_message', 'archive_messages', 'kick_user', 'mute_user', 'ban_user',
       'rename_channel', 'rename_sub_channel', 'set_channel_topic', 'manage_sub_channels',
-      'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
+      'create_channel', 'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
       'promote_user', 'transfer_admin'
     ];
     const permLabels = {
@@ -14029,6 +14030,7 @@ class HavenApp {
       kick_user: 'Kick Users', mute_user: 'Mute Users', ban_user: 'Ban Users',
       rename_channel: 'Rename Channels', rename_sub_channel: 'Rename Sub-channels',
       set_channel_topic: 'Set Channel Topic', manage_sub_channels: 'Manage Sub-channels',
+      create_channel: 'Create Channels',
       upload_files: 'Upload Files', use_voice: 'Use Voice Chat',
       manage_webhooks: 'Manage Webhooks', mention_everyone: 'Mention @everyone',
       view_history: 'View Message History',
@@ -14430,7 +14432,7 @@ class HavenApp {
       'edit_own_messages', 'delete_own_messages', 'delete_message', 'delete_lower_messages',
       'pin_message', 'archive_messages', 'kick_user', 'mute_user', 'ban_user',
       'rename_channel', 'rename_sub_channel', 'set_channel_topic', 'manage_sub_channels',
-      'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
+      'create_channel', 'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
       'promote_user', 'transfer_admin'
     ];
     const permLabels = {
@@ -14440,6 +14442,7 @@ class HavenApp {
       kick_user: 'Kick Users', mute_user: 'Mute Users', ban_user: 'Ban Users',
       rename_channel: 'Rename Channels', rename_sub_channel: 'Rename Sub-channels',
       set_channel_topic: 'Set Channel Topic', manage_sub_channels: 'Manage Sub-channels',
+      create_channel: 'Create Channels',
       upload_files: 'Upload Files', use_voice: 'Use Voice Chat',
       manage_webhooks: 'Manage Webhooks', mention_everyone: 'Mention @everyone',
       view_history: 'View Message History',
@@ -14820,9 +14823,9 @@ class HavenApp {
     const callerIsAdmin = this._racData.callerIsAdmin;
     const allPerms = [
       'edit_own_messages', 'delete_own_messages', 'delete_message', 'delete_lower_messages',
-      'pin_message', 'kick_user', 'mute_user', 'ban_user',
+      'pin_message', 'archive_messages', 'kick_user', 'mute_user', 'ban_user',
       'rename_channel', 'rename_sub_channel', 'set_channel_topic', 'manage_sub_channels',
-      'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
+      'create_channel', 'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
       'promote_user', 'transfer_admin'
     ];
     // Perms that only admin can grant
@@ -14831,10 +14834,12 @@ class HavenApp {
     const permLabels = {
       edit_own_messages: 'Edit Own Messages', delete_own_messages: 'Delete Own Messages',
       delete_message: 'Delete Any Message', delete_lower_messages: 'Delete Lower Messages',
-      pin_message: 'Pin Messages', kick_user: 'Kick Users', mute_user: 'Mute Users',
+      pin_message: 'Pin Messages', archive_messages: 'Protect Messages',
+      kick_user: 'Kick Users', mute_user: 'Mute Users',
       ban_user: 'Ban Users', rename_channel: 'Rename Channels',
       rename_sub_channel: 'Rename Sub-channels', set_channel_topic: 'Set Topic',
-      manage_sub_channels: 'Manage Sub-channels', upload_files: 'Upload Files',
+      manage_sub_channels: 'Manage Sub-channels', create_channel: 'Create Channels',
+      upload_files: 'Upload Files',
       use_voice: 'Use Voice', manage_webhooks: 'Manage Webhooks',
       mention_everyone: 'Mention Everyone', view_history: 'View History',
       promote_user: 'Promote Users', transfer_admin: 'Transfer Admin'

@@ -868,19 +868,16 @@ function setupSocketHandlers(io, db) {
         ).run(result.lastInsertRowid, socket.user.id);
 
         // Auto-assign creator a channel-scoped mod role in their new channel so they
-        // have elevated permissions in it (unless they're already an admin or server mod).
+        // have elevated permissions in it (unless they're the original server admin).
         if (!socket.user.isAdmin) {
-          const creatorLevel = getUserEffectiveLevel(socket.user.id);
-          if (creatorLevel < 50) {
-            // Find the highest-level channel-scoped role (e.g. Channel Mod)
-            const channelModRole = db.prepare(
-              "SELECT id FROM roles WHERE scope = 'channel' ORDER BY level DESC LIMIT 1"
-            ).get();
-            if (channelModRole) {
-              db.prepare(
-                'INSERT OR IGNORE INTO user_roles (user_id, role_id, channel_id, granted_by) VALUES (?, ?, ?, NULL)'
-              ).run(socket.user.id, channelModRole.id, result.lastInsertRowid);
-            }
+          // Find the highest-level channel-scoped role (e.g. Channel Mod)
+          const channelModRole = db.prepare(
+            "SELECT id FROM roles WHERE scope = 'channel' ORDER BY level DESC LIMIT 1"
+          ).get();
+          if (channelModRole) {
+            db.prepare(
+              'INSERT OR IGNORE INTO user_roles (user_id, role_id, channel_id, granted_by) VALUES (?, ?, ?, NULL)'
+            ).run(socket.user.id, channelModRole.id, result.lastInsertRowid);
           }
         }
 
@@ -3160,7 +3157,7 @@ function setupSocketHandlers(io, db) {
             'pin_message', 'kick_user', 'mute_user', 'ban_user',
             'rename_channel', 'rename_sub_channel', 'set_channel_topic', 'manage_sub_channels',
             'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
-            'promote_user', 'transfer_admin'
+            'promote_user', 'transfer_admin', 'archive_messages', 'create_channel'
           ];
           for (const [k, v] of Object.entries(obj)) {
             if (!validPerms.includes(k)) return;
@@ -3621,8 +3618,8 @@ function setupSocketHandlers(io, db) {
 
     socket.on('update-channel-code-settings', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) {
-        return socket.emit('error-msg', 'Only admins can change channel code settings');
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) {
+        return socket.emit('error-msg', 'You don\'t have permission to change channel code settings');
       }
 
       const channelId = typeof data.channelId === 'number' ? data.channelId : null;
@@ -4559,7 +4556,7 @@ function setupSocketHandlers(io, db) {
           'delete_lower_messages', 'edit_own_messages', 'pin_message', 'set_channel_topic',
           'manage_sub_channels', 'rename_channel', 'rename_sub_channel',
           'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
-          'promote_user', 'transfer_admin'
+          'promote_user', 'transfer_admin', 'archive_messages', 'create_channel'
         ];
         const insertPerm = db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission, allowed) VALUES (?, ?, 1)');
         perms.forEach(p => { if (validPerms.includes(p)) insertPerm.run(result.lastInsertRowid, p); });
@@ -4616,7 +4613,7 @@ function setupSocketHandlers(io, db) {
             'delete_lower_messages', 'edit_own_messages', 'pin_message', 'set_channel_topic',
             'manage_sub_channels', 'rename_channel', 'rename_sub_channel',
             'upload_files', 'use_voice', 'manage_webhooks', 'mention_everyone', 'view_history',
-            'promote_user', 'transfer_admin'
+            'promote_user', 'transfer_admin', 'archive_messages', 'create_channel'
           ];
           db.prepare('DELETE FROM role_permissions WHERE role_id = ?').run(roleId);
           const insertPerm = db.prepare('INSERT INTO role_permissions (role_id, permission, allowed) VALUES (?, ?, 1)');
@@ -5347,7 +5344,7 @@ function setupSocketHandlers(io, db) {
 
     socket.on('toggle-channel-permission', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) return socket.emit('error-msg', 'Only admins can toggle channel permissions');
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) return socket.emit('error-msg', 'You don\'t have permission to toggle channel permissions');
 
       const code = typeof data.code === 'string' ? data.code.trim() : '';
       if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
@@ -5386,7 +5383,7 @@ function setupSocketHandlers(io, db) {
     // ── Set slow mode interval ──────────────────────────────
     socket.on('set-slow-mode', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) return socket.emit('error-msg', 'Only admins can set slow mode');
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) return socket.emit('error-msg', 'You don\'t have permission to set slow mode');
 
       const code = typeof data.code === 'string' ? data.code.trim() : '';
       if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
@@ -5413,7 +5410,7 @@ function setupSocketHandlers(io, db) {
     // ── Set sort mode for sub-channels ──────────────────────
     socket.on('set-sort-alphabetical', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) return socket.emit('error-msg', 'Only admins can change sort settings');
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) return socket.emit('error-msg', 'You don\'t have permission to change sort settings');
 
       const code = typeof data.code === 'string' ? data.code.trim() : '';
       if (!code || !/^[a-f0-9]{8}$/i.test(code)) return;
@@ -5442,7 +5439,7 @@ function setupSocketHandlers(io, db) {
 
     socket.on('reorder-channels', (data) => {
       if (!data || typeof data !== 'object') return;
-      if (!socket.user.isAdmin) return socket.emit('error-msg', 'Only admins can reorder channels');
+      if (!socket.user.isAdmin && !userHasPermission(socket.user.id, 'create_channel')) return socket.emit('error-msg', 'You don\'t have permission to reorder channels');
 
       const order = data.order; // Array of { code, position }
       if (!Array.isArray(order) || order.length > 500) return; // cap to prevent DoS
