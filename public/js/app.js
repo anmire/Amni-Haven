@@ -2401,6 +2401,174 @@ class HavenApp {
       }
     });
 
+    // ── Two-Factor Authentication settings ─────────────
+    const totpStatusText     = document.getElementById('totp-status-text');
+    const totpEnableArea     = document.getElementById('totp-enable-area');
+    const totpSetupArea      = document.getElementById('totp-setup-area');
+    const totpBackupArea     = document.getElementById('totp-backup-area');
+    const totpManageArea     = document.getElementById('totp-manage-area');
+    const totpSetupStatus    = document.getElementById('totp-setup-status');
+    const totpManageStatus   = document.getElementById('totp-manage-status');
+
+    const loadTotpStatus = async () => {
+      if (!totpStatusText) return;
+      try {
+        const res = await fetch('/api/auth/totp/status', {
+          headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        const data = await res.json();
+        if (!res.ok) { totpStatusText.textContent = data.error || 'Error'; return; }
+
+        // Hide all sub-areas first
+        totpEnableArea.style.display = 'none';
+        totpSetupArea.style.display = 'none';
+        totpBackupArea.style.display = 'none';
+        totpManageArea.style.display = 'none';
+
+        if (data.enabled) {
+          totpStatusText.textContent = '';
+          totpManageArea.style.display = 'block';
+          const remaining = document.getElementById('totp-backup-remaining');
+          if (remaining) remaining.textContent = `${data.backupCodesRemaining} backup code${data.backupCodesRemaining === 1 ? '' : 's'} remaining`;
+          // Clear password input
+          const pwInput = document.getElementById('totp-disable-password');
+          if (pwInput) pwInput.value = '';
+          if (totpManageStatus) { totpManageStatus.textContent = ''; totpManageStatus.className = 'settings-hint'; }
+        } else {
+          totpStatusText.textContent = '';
+          totpEnableArea.style.display = 'block';
+        }
+      } catch {
+        totpStatusText.textContent = 'Connection error';
+      }
+    };
+
+    // Load status when the 2FA section becomes visible
+    const settingsNav = document.getElementById('settings-nav');
+    if (settingsNav) {
+      settingsNav.addEventListener('click', (e) => {
+        const item = e.target.closest('.settings-nav-item');
+        if (item && item.dataset.target === 'section-2fa') loadTotpStatus();
+      });
+    }
+
+    // Enable button → start setup
+    document.getElementById('totp-enable-btn')?.addEventListener('click', async () => {
+      totpEnableArea.style.display = 'none';
+      totpSetupArea.style.display = 'block';
+      if (totpSetupStatus) { totpSetupStatus.textContent = ''; totpSetupStatus.className = 'settings-hint'; }
+      document.getElementById('totp-verify-code').value = '';
+
+      try {
+        const res = await fetch('/api/auth/totp/setup', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (!res.ok) { totpSetupStatus.textContent = data.error || 'Setup failed'; return; }
+
+        document.getElementById('totp-qr-img').src = data.qrDataUrl;
+        document.getElementById('totp-secret-text').textContent = data.base32Secret;
+      } catch {
+        totpSetupStatus.textContent = 'Connection error';
+      }
+    });
+
+    // Copy secret button
+    document.getElementById('totp-copy-secret')?.addEventListener('click', () => {
+      const secret = document.getElementById('totp-secret-text')?.textContent;
+      if (secret) navigator.clipboard.writeText(secret).then(() => {
+        document.getElementById('totp-copy-secret').textContent = '✅';
+        setTimeout(() => { document.getElementById('totp-copy-secret').textContent = '📋 Copy'; }, 1500);
+      });
+    });
+
+    // Cancel setup
+    document.getElementById('totp-cancel-setup-btn')?.addEventListener('click', () => {
+      totpSetupArea.style.display = 'none';
+      totpEnableArea.style.display = 'block';
+    });
+
+    // Verify & Activate
+    document.getElementById('totp-verify-setup-btn')?.addEventListener('click', async () => {
+      const code = document.getElementById('totp-verify-code')?.value.trim();
+      if (!code || code.length !== 6) {
+        if (totpSetupStatus) totpSetupStatus.textContent = 'Enter the 6-digit code from your authenticator';
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/totp/verify-setup', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (totpSetupStatus) { totpSetupStatus.textContent = data.error || 'Verification failed'; totpSetupStatus.classList.add('error'); }
+          return;
+        }
+        // Show backup codes
+        totpSetupArea.style.display = 'none';
+        totpBackupArea.style.display = 'block';
+        const codesEl = document.getElementById('totp-backup-codes');
+        if (codesEl) codesEl.innerHTML = data.backupCodes.map(c => `<div>${c}</div>`).join('');
+      } catch {
+        if (totpSetupStatus) totpSetupStatus.textContent = 'Connection error';
+      }
+    });
+
+    // Done viewing backup codes
+    document.getElementById('totp-backup-done-btn')?.addEventListener('click', () => {
+      loadTotpStatus();
+    });
+
+    // Disable 2FA
+    document.getElementById('totp-disable-btn')?.addEventListener('click', async () => {
+      const pw = document.getElementById('totp-disable-password')?.value;
+      if (!pw) { if (totpManageStatus) totpManageStatus.textContent = 'Enter your password'; return; }
+      try {
+        const res = await fetch('/api/auth/totp/disable', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pw })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (totpManageStatus) { totpManageStatus.textContent = data.error || 'Failed'; totpManageStatus.classList.add('error'); }
+          return;
+        }
+        this._showToast('Two-factor authentication disabled', 'info');
+        loadTotpStatus();
+      } catch {
+        if (totpManageStatus) totpManageStatus.textContent = 'Connection error';
+      }
+    });
+
+    // Regenerate backup codes
+    document.getElementById('totp-regen-backup-btn')?.addEventListener('click', async () => {
+      const pw = document.getElementById('totp-disable-password')?.value;
+      if (!pw) { if (totpManageStatus) totpManageStatus.textContent = 'Enter your password'; return; }
+      try {
+        const res = await fetch('/api/auth/totp/regenerate-backup', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pw })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (totpManageStatus) { totpManageStatus.textContent = data.error || 'Failed'; totpManageStatus.classList.add('error'); }
+          return;
+        }
+        // Show the new backup codes
+        totpManageArea.style.display = 'none';
+        totpBackupArea.style.display = 'block';
+        const codesEl = document.getElementById('totp-backup-codes');
+        if (codesEl) codesEl.innerHTML = data.backupCodes.map(c => `<div>${c}</div>`).join('');
+      } catch {
+        if (totpManageStatus) totpManageStatus.textContent = 'Connection error';
+      }
+    });
+
     // ── Plugin refresh button ─────────────────────────────
     document.getElementById('plugin-refresh-btn')?.addEventListener('click', () => {
       if (window.HavenPluginLoader) {

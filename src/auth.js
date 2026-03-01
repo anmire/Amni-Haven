@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { getDb } = require('./database');
+const OTPAuth = require('otpauth');
+const QRCode = require('qrcode');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -11,6 +13,30 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
+
+// ── TOTP helpers ─────────────────────────────────────────
+// Short-lived tokens for the TOTP verification step (not full session tokens)
+function generateTotpChallengeToken(userId) {
+  return jwt.sign({ id: userId, purpose: 'totp_challenge' }, JWT_SECRET, { expiresIn: '5m' });
+}
+
+function verifyTotpChallengeToken(token) {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.purpose !== 'totp_challenge') return null;
+    return decoded;
+  } catch { return null; }
+}
+
+function generateBackupCodes(count = 8) {
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    // 8-char alphanumeric codes, grouped as XXXX-XXXX for readability
+    const raw = crypto.randomBytes(4).toString('hex').toUpperCase();
+    codes.push(raw.slice(0, 4) + '-' + raw.slice(4));
+  }
+  return codes;
+}
 
 // ── Rate Limiting (in-memory, no extra deps) ────────────
 const rateLimitStore = new Map();
@@ -199,8 +225,11 @@ router.post('/login', async (req, res) => {
 
     const displayName = user.display_name || user.username;
 
-    // e2eSecret is no longer generated server-side (v3 true E2E — wrapping
-    // key is derived from the user's password client-side)
+    // ── TOTP check: if enabled, require a second step ──
+    if (user.totp_enabled) {
+      const challengeToken = generateTotpChallengeToken(user.id);
+      return res.json({ requiresTOTP: true, challengeToken });
+    }
 
     const token = jwt.sign(
       { id: user.id, username: user.username, isAdmin: !!user.is_admin, displayName, pwv: user.password_version || 1 },
@@ -223,6 +252,275 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── TOTP Validate (second step of login) ─────────────────
+router.post('/totp/validate', async (req, res) => {
+  try {
+    const challengeToken = typeof req.body.challengeToken === 'string' ? req.body.challengeToken : '';
+    const code = typeof req.body.code === 'string' ? req.body.code.replace(/\s/g, '') : '';
+
+    if (!challengeToken || !code) {
+      return res.status(400).json({ error: 'Challenge token and code required' });
+    }
+
+    const challenge = verifyTotpChallengeToken(challengeToken);
+    if (!challenge) {
+      return res.status(401).json({ error: 'Invalid or expired challenge. Please log in again.' });
+    }
+
+    const db = getDb();
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(challenge.id);
+    if (!user || !user.totp_enabled || !user.totp_secret) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Try TOTP code first
+    const totp = new OTPAuth.TOTP({
+      issuer: 'Haven',
+      label: user.username,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(user.totp_secret)
+    });
+
+    const delta = totp.validate({ token: code, window: 1 });
+    let valid = delta !== null;
+
+    // If not a valid TOTP code, check backup codes
+    if (!valid) {
+      const normalizedCode = code.toUpperCase().replace(/-/g, '');
+      const backupCodes = db.prepare(
+        'SELECT id, code_hash FROM totp_backup_codes WHERE user_id = ? AND used = 0'
+      ).all(user.id);
+
+      for (const bc of backupCodes) {
+        // Compare hashed backup code
+        const codeToCheck = normalizedCode.slice(0, 4) + '-' + normalizedCode.slice(4);
+        if (crypto.timingSafeEqual(
+          Buffer.from(bc.code_hash, 'hex'),
+          Buffer.from(crypto.createHash('sha256').update(codeToCheck).digest('hex'), 'hex')
+        )) {
+          // Mark backup code as used
+          db.prepare('UPDATE totp_backup_codes SET used = 1 WHERE id = ?').run(bc.id);
+          valid = true;
+          break;
+        }
+      }
+    }
+
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid code' });
+    }
+
+    const displayName = user.display_name || user.username;
+    const token = jwt.sign(
+      { id: user.id, username: user.username, isAdmin: !!user.is_admin, displayName, pwv: user.password_version || 1 },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: { id: user.id, username: user.username, isAdmin: !!user.is_admin, displayName }
+    });
+  } catch (err) {
+    console.error('TOTP validate error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── TOTP Setup (generate secret + QR) ────────────────────
+router.post('/totp/setup', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const decoded = verifyToken(token);
+    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+
+    const db = getDb();
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.totp_enabled) {
+      return res.status(400).json({ error: '2FA is already enabled' });
+    }
+
+    // Generate a new TOTP secret
+    const secret = new OTPAuth.Secret({ size: 20 });
+    const totp = new OTPAuth.TOTP({
+      issuer: 'Haven',
+      label: user.username,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret
+    });
+
+    // Store secret (not yet enabled — user must verify first)
+    db.prepare('UPDATE users SET totp_secret = ? WHERE id = ?').run(secret.base32, user.id);
+
+    const otpauthUri = totp.toString();
+    const qrDataUrl = await QRCode.toDataURL(otpauthUri, { width: 256, margin: 2 });
+
+    res.json({
+      secret: secret.base32,
+      otpauthUri,
+      qrCode: qrDataUrl
+    });
+  } catch (err) {
+    console.error('TOTP setup error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── TOTP Verify Setup (confirm code → enable) ────────────
+router.post('/totp/verify-setup', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const decoded = verifyToken(token);
+    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+
+    const code = typeof req.body.code === 'string' ? req.body.code.replace(/\s/g, '') : '';
+    if (!code) return res.status(400).json({ error: 'Verification code required' });
+
+    const db = getDb();
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.totp_enabled) {
+      return res.status(400).json({ error: '2FA is already enabled' });
+    }
+    if (!user.totp_secret) {
+      return res.status(400).json({ error: 'No 2FA setup in progress. Start setup first.' });
+    }
+
+    const totp = new OTPAuth.TOTP({
+      issuer: 'Haven',
+      label: user.username,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(user.totp_secret)
+    });
+
+    const delta = totp.validate({ token: code, window: 1 });
+    if (delta === null) {
+      return res.status(401).json({ error: 'Invalid code. Make sure your authenticator app is synced and try again.' });
+    }
+
+    // Enable TOTP
+    db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?').run(user.id);
+
+    // Generate backup codes
+    const backupCodes = generateBackupCodes(8);
+    const insertCode = db.prepare('INSERT INTO totp_backup_codes (user_id, code_hash) VALUES (?, ?)');
+    // Clear any old backup codes
+    db.prepare('DELETE FROM totp_backup_codes WHERE user_id = ?').run(user.id);
+    for (const c of backupCodes) {
+      const hash = crypto.createHash('sha256').update(c).digest('hex');
+      insertCode.run(user.id, hash);
+    }
+
+    res.json({ success: true, backupCodes });
+  } catch (err) {
+    console.error('TOTP verify-setup error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── TOTP Disable ─────────────────────────────────────────
+router.post('/totp/disable', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const decoded = verifyToken(token);
+    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    if (!password) return res.status(400).json({ error: 'Password required to disable 2FA' });
+
+    const db = getDb();
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (!user.totp_enabled) {
+      return res.status(400).json({ error: '2FA is not enabled' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Incorrect password' });
+
+    db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?').run(user.id);
+    db.prepare('DELETE FROM totp_backup_codes WHERE user_id = ?').run(user.id);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('TOTP disable error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── TOTP Status ──────────────────────────────────────────
+router.get('/totp/status', (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const decoded = verifyToken(token);
+    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+
+    const db = getDb();
+    const user = db.prepare('SELECT totp_enabled FROM users WHERE id = ?').get(decoded.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const remaining = db.prepare(
+      'SELECT COUNT(*) as count FROM totp_backup_codes WHERE user_id = ? AND used = 0'
+    ).get(decoded.id);
+
+    res.json({ enabled: !!user.totp_enabled, backupCodesRemaining: remaining?.count || 0 });
+  } catch (err) {
+    console.error('TOTP status error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── TOTP Regenerate Backup Codes ─────────────────────────
+router.post('/totp/regenerate-backup', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const decoded = verifyToken(token);
+    if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    if (!password) return res.status(400).json({ error: 'Password required' });
+
+    const db = getDb();
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (!user.totp_enabled) {
+      return res.status(400).json({ error: '2FA is not enabled' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Incorrect password' });
+
+    const backupCodes = generateBackupCodes(8);
+    db.prepare('DELETE FROM totp_backup_codes WHERE user_id = ?').run(user.id);
+    const insertCode = db.prepare('INSERT INTO totp_backup_codes (user_id, code_hash) VALUES (?, ?)');
+    for (const c of backupCodes) {
+      const hash = crypto.createHash('sha256').update(c).digest('hex');
+      insertCode.run(user.id, hash);
+    }
+
+    res.json({ success: true, backupCodes });
+  } catch (err) {
+    console.error('TOTP regenerate-backup error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

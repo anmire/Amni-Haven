@@ -61,6 +61,26 @@
 
       <div id="auth-error" class="auth-error" style="display:none"></div>
 
+      <!-- TOTP verification form (shown after login when 2FA is enabled) -->
+      <form id="totp-form" class="auth-form" style="display:none">
+        <p style="text-align:center;color:var(--text-muted);font-size:0.9rem;margin-bottom:12px;">
+          🔐 Enter the 6-digit code from your authenticator app
+        </p>
+        <div class="form-group">
+          <label for="totp-code">Authentication Code</label>
+          <input type="text" id="totp-code" autocomplete="one-time-code" inputmode="numeric"
+                 pattern="[0-9]*" maxlength="10" placeholder="000000" required
+                 style="text-align:center;font-size:1.4rem;letter-spacing:0.3em">
+        </div>
+        <button type="submit" class="btn-primary">Verify</button>
+        <p style="text-align:center;margin-top:8px">
+          <a href="#" id="totp-use-backup" style="color:var(--text-muted);font-size:0.8rem;text-decoration:none">Use a backup code instead</a>
+        </p>
+        <p style="text-align:center;margin-top:4px">
+          <a href="#" id="totp-back-btn" style="color:var(--text-muted);font-size:0.8rem;text-decoration:none">← Back to login</a>
+        </p>
+      </form>
+
       <!-- EULA acceptance (required before login/register) -->
       <div class="eula-notice" id="eula-notice">
         <label class="eula-check-row">

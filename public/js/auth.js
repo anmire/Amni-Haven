@@ -82,7 +82,29 @@
   const tabs = document.querySelectorAll('.auth-tab');
   const loginForm = document.getElementById('login-form');
   const registerForm = document.getElementById('register-form');
+  const totpForm = document.getElementById('totp-form');
   const errorEl = document.getElementById('auth-error');
+
+  // Pending TOTP challenge state (set after successful password auth)
+  let _pendingChallenge = null; // { challengeToken, password }
+
+  function showTotpForm() {
+    loginForm.style.display = 'none';
+    registerForm.style.display = 'none';
+    totpForm.style.display = 'flex';
+    document.querySelector('.auth-tabs').style.display = 'none';
+    document.getElementById('totp-code').value = '';
+    document.getElementById('totp-code').focus();
+    hideError();
+  }
+
+  function hideTotpForm() {
+    totpForm.style.display = 'none';
+    loginForm.style.display = 'flex';
+    document.querySelector('.auth-tabs').style.display = 'flex';
+    _pendingChallenge = null;
+    hideError();
+  }
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -92,6 +114,7 @@
       const target = tab.dataset.tab;
       loginForm.style.display = target === 'login' ? 'flex' : 'none';
       registerForm.style.display = target === 'register' ? 'flex' : 'none';
+      totpForm.style.display = 'none';
       hideError();
     });
   });
@@ -151,6 +174,13 @@
       const data = await res.json();
       if (!res.ok) return showError(data.error || 'Login failed');
 
+      // ── TOTP challenge ──
+      if (data.requiresTOTP) {
+        _pendingChallenge = { challengeToken: data.challengeToken, password };
+        showTotpForm();
+        return;
+      }
+
       // Derive E2E wrapping key from password (client-side only, never sent to server)
       const e2eWrap = await deriveE2EWrappingKey(password);
       sessionStorage.setItem('haven_e2e_wrap', e2eWrap);
@@ -163,6 +193,74 @@
       showError('Connection error — is the server running?');
     }
   });
+
+  // ── TOTP verification ────────────────────────────────
+  totpForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideError();
+    if (!_pendingChallenge) return showError('Session expired — please log in again');
+
+    const code = document.getElementById('totp-code').value.trim();
+    if (!code) return showError('Enter your authentication code');
+
+    try {
+      const res = await fetch('/api/auth/totp/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken: _pendingChallenge.challengeToken, code })
+      });
+
+      const data = await res.json();
+      if (!res.ok) return showError(data.error || 'Verification failed');
+
+      // Derive E2E wrapping key from the original password
+      const e2eWrap = await deriveE2EWrappingKey(_pendingChallenge.password);
+      sessionStorage.setItem('haven_e2e_wrap', e2eWrap);
+
+      localStorage.setItem('haven_token', data.token);
+      localStorage.setItem('haven_user', JSON.stringify(data.user));
+      localStorage.setItem('haven_eula_accepted', '2.0');
+      _pendingChallenge = null;
+      window.location.href = '/app';
+    } catch (err) {
+      showError('Connection error — is the server running?');
+    }
+  });
+
+  // Toggle between TOTP code and backup code mode
+  const totpCodeInput = document.getElementById('totp-code');
+  const backupToggle = document.getElementById('totp-use-backup');
+  let _backupMode = false;
+  if (backupToggle) {
+    backupToggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      _backupMode = !_backupMode;
+      if (_backupMode) {
+        totpCodeInput.placeholder = 'XXXX-XXXX';
+        totpCodeInput.maxLength = 9;
+        totpCodeInput.inputMode = 'text';
+        totpCodeInput.pattern = '';
+        backupToggle.textContent = 'Use authenticator code instead';
+      } else {
+        totpCodeInput.placeholder = '000000';
+        totpCodeInput.maxLength = 6;
+        totpCodeInput.inputMode = 'numeric';
+        totpCodeInput.pattern = '[0-9]*';
+        backupToggle.textContent = 'Use a backup code instead';
+      }
+      totpCodeInput.value = '';
+      totpCodeInput.focus();
+    });
+  }
+
+  // Back to login from TOTP form
+  const totpBackBtn = document.getElementById('totp-back-btn');
+  if (totpBackBtn) {
+    totpBackBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      hideTotpForm();
+    });
+  }
 
   // ── Register ──────────────────────────────────────────
   registerForm.addEventListener('submit', async (e) => {

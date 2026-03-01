@@ -582,6 +582,30 @@ function initDatabase() {
     db.exec("ALTER TABLE roles ADD COLUMN link_channel_access INTEGER NOT NULL DEFAULT 0");
   }
 
+  // ── Migration: TOTP 2FA columns on users ────────────────
+  try {
+    db.prepare("SELECT totp_secret FROM users LIMIT 0").get();
+  } catch {
+    db.exec("ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT NULL");
+  }
+  try {
+    db.prepare("SELECT totp_enabled FROM users LIMIT 0").get();
+  } catch {
+    db.exec("ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0");
+  }
+
+  // ── Migration: TOTP backup codes table ──────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS totp_backup_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      code_hash TEXT NOT NULL,
+      used INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_totp_backup_user ON totp_backup_codes(user_id);
+  `);
+
   return db;
 }
 

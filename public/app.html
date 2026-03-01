@@ -877,6 +877,7 @@
           <div class="settings-nav-item" data-target="section-sounds">🔔 Sounds</div>
           <div class="settings-nav-item" data-target="section-push">📲 Push</div>
           <div class="settings-nav-item" data-target="section-password">🔒 Password</div>
+          <div class="settings-nav-item" data-target="section-2fa">🔐 Two-Factor</div>
           <div class="settings-nav-item" data-target="section-delete-account">⚠️ Account</div>
           <div class="settings-nav-item" data-target="section-plugins">🧩 Plugins & Themes</div>
           <div class="settings-nav-group settings-nav-admin" style="display:none">Admin</div>
@@ -1064,6 +1065,63 @@
           </div>
           <button class="btn-sm btn-full" id="change-password-btn">Change Password</button>
           <small class="settings-hint" id="password-status"></small>
+        </div>
+      </div>
+
+      <!-- Two-Factor Authentication Section -->
+      <div class="settings-section" id="section-2fa">
+        <h5 class="settings-section-title">🔐 Two-Factor Authentication</h5>
+
+        <!-- Status display -->
+        <div id="totp-status-area">
+          <p class="settings-hint" id="totp-status-text">Loading...</p>
+        </div>
+
+        <!-- Enable flow (shown when TOTP is OFF) -->
+        <div id="totp-enable-area" style="display:none">
+          <p class="settings-hint" style="margin-bottom:10px">Protect your account with a TOTP authenticator app (Google Authenticator, Authy, etc.).</p>
+          <button class="btn-sm btn-full" id="totp-enable-btn">Enable Two-Factor Auth</button>
+        </div>
+
+        <!-- Setup flow (shown after clicking Enable) -->
+        <div id="totp-setup-area" style="display:none">
+          <p class="settings-hint" style="margin-bottom:8px">Scan this QR code with your authenticator app:</p>
+          <div style="text-align:center;margin:12px 0">
+            <img id="totp-qr-img" alt="QR Code" style="max-width:200px;border-radius:8px;background:#fff;padding:8px">
+          </div>
+          <p class="settings-hint" style="margin-bottom:4px">Or enter this secret manually:</p>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
+            <code id="totp-secret-text" style="font-size:14px;letter-spacing:2px;user-select:all;flex:1;word-break:break-all"></code>
+            <button class="btn-sm" id="totp-copy-secret" title="Copy secret" style="white-space:nowrap">📋 Copy</button>
+          </div>
+          <div class="form-group compact">
+            <input type="text" id="totp-verify-code" placeholder="Enter 6-digit code to confirm" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" style="text-align:center;font-size:18px;letter-spacing:6px">
+          </div>
+          <button class="btn-sm btn-full" id="totp-verify-setup-btn">Verify & Activate</button>
+          <button class="btn-sm btn-full" id="totp-cancel-setup-btn" style="margin-top:6px;opacity:0.7">Cancel</button>
+          <small class="settings-hint" id="totp-setup-status"></small>
+        </div>
+
+        <!-- Backup codes display (shown after successful setup) -->
+        <div id="totp-backup-area" style="display:none">
+          <h5 style="margin-bottom:6px">🗝️ Backup Codes</h5>
+          <p class="settings-hint" style="margin-bottom:8px">Save these codes somewhere safe. Each can be used once if you lose access to your authenticator.</p>
+          <div id="totp-backup-codes" style="font-family:monospace;font-size:15px;line-height:2;background:var(--bg-primary);padding:12px;border-radius:8px;text-align:center;user-select:all"></div>
+          <button class="btn-sm btn-full" id="totp-backup-done-btn" style="margin-top:10px">Done</button>
+        </div>
+
+        <!-- Manage area (shown when TOTP is ON) -->
+        <div id="totp-manage-area" style="display:none">
+          <p class="settings-hint" style="color:var(--accent);margin-bottom:6px">✅ Two-factor authentication is enabled</p>
+          <p class="settings-hint" id="totp-backup-remaining" style="margin-bottom:12px"></p>
+          <div class="form-group compact">
+            <input type="password" id="totp-disable-password" placeholder="Enter password to modify" maxlength="128" autocomplete="current-password">
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-sm btn-danger-fill" id="totp-disable-btn" style="flex:1">Disable 2FA</button>
+            <button class="btn-sm" id="totp-regen-backup-btn" style="flex:1">Regenerate Backup Codes</button>
+          </div>
+          <small class="settings-hint" id="totp-manage-status"></small>
         </div>
       </div>
 
