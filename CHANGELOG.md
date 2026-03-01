@@ -11,6 +11,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Haven uses [Sema
 
 ---
 
+## [2.3.9] — 2026-03-01
+
+### Added
+- **Two-Factor Authentication (TOTP)** — users can protect their account with a TOTP authenticator app (Google Authenticator, Authy, etc.). Enable from Settings > Two-Factor. Includes QR code setup, manual secret entry, and 8 single-use backup codes. Login prompts for verification when 2FA is enabled. Admin recovery intentionally bypasses TOTP.
+- **Native OS notifications for new messages** — when the Haven tab or window is not visible, new messages now fire a native OS notification toast (browser Notification API or Electron native notification). Desktop app always uses native notifications; browser falls back to the Notification API when push notifications aren't active.
+
+### Fixed
+- **2FA setup QR code and secret not displaying** — the server response field names didn't match what the client expected, resulting in a blank QR code and empty secret text.
+- **Backup code rejected by browser validation** — switching to backup code mode left an empty `pattern` attribute on the input, causing the browser to reject valid alphanumeric backup codes.
+- **Backup codes had no copy button** — added a clipboard copy button to the backup codes display in settings.
+
+---
+
 ## [2.3.8] — 2026-02-28
 
 ### Fixed

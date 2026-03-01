@@ -496,6 +496,10 @@ class HavenApp {
           } else {
             this.notifications.play('message');
           }
+          // Fire native OS notification if tab is hidden (alt-tabbed, minimised, etc.)
+          if (document.hidden) {
+            this._fireNativeNotification(data.message, data.channelCode);
+          }
         }
         // TTS: speak the message aloud for all listeners
         if (data.message.tts) {
@@ -513,6 +517,8 @@ class HavenApp {
           } else {
             this.notifications.play('message');
           }
+          // Fire native OS notification when tab/window is not visible
+          this._fireNativeNotification(data.message, data.channelCode);
         }
       }
     });
@@ -7085,6 +7091,55 @@ class HavenApp {
   _updateDesktopBadge() {
     const total = Object.values(this.unreadCounts).reduce((s, v) => s + v, 0);
     window.havenDesktop?.setUnreadBadge?.(total > 0);
+  }
+
+  /**
+   * Fire a native OS notification (toast) for an incoming message.
+   * Desktop app: always uses havenDesktop.notify() (Electron native).
+   * Browser: uses Notification API only when push subscription is NOT active
+   *          to avoid duplicate notifications (server-side push handles the rest).
+   */
+  _fireNativeNotification(message, channelCode) {
+    if (!this.notifications.enabled) return;
+    // Don't notify for own messages
+    if (message.user_id === this.user?.id) return;
+
+    const sender = this._getNickname(message.user_id, message.username);
+    const channel = this.channels?.find(c => c.code === channelCode);
+    const channelLabel = channel?.is_dm ? 'DM' : `#${channel?.name || channelCode}`;
+    const title = `${sender} in ${channelLabel}`;
+    const body = (message.content || '').length > 120
+      ? message.content.slice(0, 117) + '...'
+      : (message.content || 'Sent an attachment');
+
+    // Desktop app: always use native Electron notifications
+    if (window.havenDesktop?.notify) {
+      window.havenDesktop.notify(title, body, { silent: true });
+      return;
+    }
+
+    // Browser: skip if push subscription is active (server sends push instead)
+    if (this._pushSubscription) return;
+
+    // Browser Notification API fallback
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        const n = new Notification(title, {
+          body,
+          tag: `haven-${channelCode}`,
+          renotify: true,
+          silent: true,
+          icon: '/uploads/server-icon.png',
+        });
+        n.onclick = () => {
+          window.focus();
+          this.switchChannel(channelCode);
+          n.close();
+        };
+        // Auto-close after 5 seconds
+        setTimeout(() => n.close(), 5000);
+      } catch { /* Notification constructor can throw in some contexts */ }
+    }
   }
 
   _updateDmSectionBadge() {
