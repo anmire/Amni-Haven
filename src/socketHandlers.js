@@ -2,6 +2,7 @@ const { verifyToken, generateChannelCode, generateToken } = require('./auth');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const webpush = require('web-push');
+const { sendFcm, isFcmEnabled } = require('./fcm');
 const HAVEN_VERSION = require('../package.json').version;
 
 // ── Normalize SQLite timestamps to UTC ISO 8601 ────────
@@ -515,23 +516,21 @@ function setupSocketHandlers(io, db) {
           AND ps.user_id != ?
       `).all(channelId, senderUserId);
 
-      if (!subs.length) return;
-
       // Truncate message for notification body
       const body = messageContent.length > 120
         ? messageContent.slice(0, 117) + '...'
         : messageContent;
 
+      const title = `${senderUsername} in #${channelName}`;
+
       const payload = JSON.stringify({
-        title: `${senderUsername} in #${channelName}`,
-        body,
-        channelCode,
+        title, body, channelCode,
         tag: `haven-${channelCode}`,
         url: '/app'
       });
 
+      // Web-push (VAPID) to browser subscribers
       for (const sub of subs) {
-        // Skip users whose tab is in focus (they see real-time events)
         if (activeUserIds.has(sub.user_id)) continue;
 
         const pushSub = {
@@ -541,12 +540,40 @@ function setupSocketHandlers(io, db) {
 
         webpush.sendNotification(pushSub, payload).catch((err) => {
           if (err.statusCode === 410 || err.statusCode === 404) {
-            // Subscription expired or invalid — remove it
             try {
               db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(sub.endpoint);
             } catch { /* non-critical */ }
           }
         });
+      }
+
+      // FCM push to mobile app users (via relay or direct)
+      if (isFcmEnabled()) {
+        const inactiveMembers = db.prepare(`
+          SELECT DISTINCT cm.user_id FROM channel_members cm
+          WHERE cm.channel_id = ? AND cm.user_id != ?
+        `).all(channelId, senderUserId)
+          .filter(m => !activeUserIds.has(m.user_id))
+          .map(m => m.user_id);
+
+        if (inactiveMembers.length) {
+          const placeholders = inactiveMembers.map(() => '?').join(',');
+          const fcmRows = db.prepare(
+            `SELECT token FROM fcm_tokens WHERE user_id IN (${placeholders})`
+          ).all(...inactiveMembers);
+          const tokens = fcmRows.map(r => r.token);
+
+          if (tokens.length) {
+            sendFcm(tokens, title, body, { channelCode, tag: `haven-${channelCode}` })
+              .then(res => {
+                if (res.failedTokens && res.failedTokens.length) {
+                  const ph = res.failedTokens.map(() => '?').join(',');
+                  try { db.prepare(`DELETE FROM fcm_tokens WHERE token IN (${ph})`).run(...res.failedTokens); } catch {}
+                }
+              })
+              .catch(err => console.error('FCM push error:', err.message));
+          }
+        }
       }
     } catch (err) {
       console.error('Push notification error:', err.message);

@@ -3,10 +3,10 @@
 // Sends mobile push notifications via Firebase Cloud Messaging.
 // Uses only jsonwebtoken (already a Haven dependency) — no firebase-admin needed.
 //
-// Two modes:
+// Three modes:
 //   1. Direct mode: Service account JSON present → sends to FCM API directly
-//   2. Relay mode:  FCM_RELAY_URL set → forwards to another Haven server's relay
-//   3. Disabled:    Neither configured → silently skips (no errors)
+//   2. Relay mode:  FCM_RELAY_URL set → forwards to a push relay server
+//   3. Default:     Neither configured → uses the Haven Global Relay automatically
 // ═══════════════════════════════════════════════════════════
 
 const jwt = require('jsonwebtoken');
@@ -22,6 +22,8 @@ let projectId = '';
 
 const FCM_SCOPES = 'https://www.googleapis.com/auth/firebase.messaging';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const DEFAULT_RELAY = 'https://us-central1-amni-haven.cloudfunctions.net/sendPush';
+const DEFAULT_KEY = 'firebase-notifications-007';
 
 /**
  * Initialize FCM. Call once at startup.
@@ -29,7 +31,6 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
  * @returns {{ mode: string }} - 'direct', 'relay', or 'disabled'
  */
 function initFcm(dataDir) {
-  // Try to load service account
   const saPath = process.env.FIREBASE_SERVICE_ACCOUNT
     || findServiceAccount(dataDir)
     || findServiceAccount(__dirname);
@@ -45,15 +46,15 @@ function initFcm(dataDir) {
     }
   }
 
-  // Fall back to custom relay mode from .env
-  relayUrl = process.env.FCM_RELAY_URL || 'https://us-central1-amni-haven.cloudfunctions.net/sendPush';
-  relayKey = process.env.FCM_PUSH_KEY || 'A7!haven!N5';
+  // Fall back to relay mode — uses Haven Global Relay by default
+  relayUrl = process.env.FCM_RELAY_URL || DEFAULT_RELAY;
+  relayKey = process.env.FCM_PUSH_KEY || DEFAULT_KEY;
 
   if (relayUrl && relayKey) {
-    if (relayUrl === 'https://us-central1-amni-haven.cloudfunctions.net/sendPush') {
-        console.log(`🔔 FCM enabled via Haven Global Relay`);
+    if (relayUrl === DEFAULT_RELAY) {
+      console.log('🔔 FCM enabled via Haven Global Relay');
     } else {
-        console.log(`🔔 FCM enabled via Custom Relay: ${relayUrl}`);
+      console.log(`🔔 FCM enabled via Custom Relay: ${relayUrl}`);
     }
     return { mode: 'relay' };
   }

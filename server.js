@@ -55,6 +55,7 @@ const { initDatabase } = require('./src/database');
 const { router: authRoutes, authLimiter, verifyToken } = require('./src/auth');
 const { setupSocketHandlers, sanitizeText } = require('./src/socketHandlers');
 const { startTunnel, stopTunnel, getTunnelStatus, registerProcessCleanup } = require('./src/tunnel');
+const { initFcm } = require('./src/fcm');
 
 const app = express();
 
@@ -1943,6 +1944,7 @@ const io = new Server(server, {
 
 // Initialize
 const db = initDatabase();
+initFcm(DATA_DIR);
 app.set('io', io);   // expose to auth routes (session invalidation on password change)
 setupSocketHandlers(io, db);
 registerProcessCleanup();
