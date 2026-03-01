@@ -12554,6 +12554,11 @@ class HavenApp {
         whitelistToggle.checked = this.serverSettings.whitelist_enabled === 'true';
       }
 
+      const updateBannerAdminOnly = document.getElementById('update-banner-admin-only');
+      if (updateBannerAdminOnly) {
+        updateBannerAdminOnly.checked = this.serverSettings.update_banner_admin_only === 'true';
+      }
+
       // Tunnel settings (live state, not part of Save/Cancel flow)
       const tunnelProvider = document.getElementById('tunnel-provider-select');
       if (tunnelProvider && this.serverSettings.tunnel_provider) {
@@ -12574,6 +12579,9 @@ class HavenApp {
 
     // Always update visual branding regardless of modal state
     this._applyServerBranding();
+
+    // Re-evaluate update banner visibility whenever settings change
+    this._applyUpdateBanner();
 
     if (!modalOpen && this.user && this.user.isAdmin) {
       this.socket.emit('get-whitelist');
@@ -12614,7 +12622,8 @@ class HavenApp {
       cleanup_max_age_days: this.serverSettings.cleanup_max_age_days || '0',
       cleanup_max_size_mb: this.serverSettings.cleanup_max_size_mb || '0',
       whitelist_enabled: this.serverSettings.whitelist_enabled || 'false',
-      max_upload_mb: this.serverSettings.max_upload_mb || '25'
+      max_upload_mb: this.serverSettings.max_upload_mb || '25',
+      update_banner_admin_only: this.serverSettings.update_banner_admin_only || 'false'
     };
     // Load webhooks list for admin preview
     if (this.user?.isAdmin) {
@@ -12673,6 +12682,12 @@ class HavenApp {
       changed = true;
     }
 
+    const updateBannerAdminOnly = document.getElementById('update-banner-admin-only')?.checked ? 'true' : 'false';
+    if (updateBannerAdminOnly !== (snap.update_banner_admin_only || 'false')) {
+      this.socket.emit('update-server-setting', { key: 'update_banner_admin_only', value: updateBannerAdminOnly });
+      changed = true;
+    }
+
     if (changed) {
       this._showToast('Settings saved', 'success');
     } else {
@@ -12698,6 +12713,8 @@ class HavenApp {
       if (wl) wl.checked = snap.whitelist_enabled === 'true';
       const mu = document.getElementById('max-upload-mb');
       if (mu) mu.value = snap.max_upload_mb || '25';
+      const uba = document.getElementById('update-banner-admin-only');
+      if (uba) uba.checked = snap.update_banner_admin_only === 'true';
     }
     document.getElementById('settings-modal').style.display = 'none';
   }
@@ -15704,15 +15721,14 @@ class HavenApp {
       if (!remoteVersion || !localVersion) return;
 
       if (this._isNewerVersion(remoteVersion, localVersion)) {
-        const banner = document.getElementById('update-banner');
-        if (banner) {
-          banner.style.display = 'inline-flex';
-          banner.querySelector('.update-text').textContent = `Update v${remoteVersion}`;
-          banner.title = `Haven v${remoteVersion} is available (you have v${localVersion}). Click to view.`;
-          // Link to release page (or zip download if available)
-          const zipAsset = (release.assets || []).find(a => a.name && a.name.endsWith('.zip'));
-          banner.href = zipAsset ? zipAsset.browser_download_url : release.html_url;
-        }
+        // Cache the update info so visibility can be toggled without re-fetching
+        const zipAsset = (release.assets || []).find(a => a.name && a.name.endsWith('.zip'));
+        this._pendingUpdate = {
+          text: `Update v${remoteVersion}`,
+          title: `Haven v${remoteVersion} is available (you have v${localVersion}). Click to view.`,
+          href: zipAsset ? zipAsset.browser_download_url : release.html_url
+        };
+        this._applyUpdateBanner();
       }
     } catch (e) {
       // Silently fail — update check is non-critical
@@ -15720,6 +15736,28 @@ class HavenApp {
 
     // Re-check every 30 minutes
     setTimeout(() => this._checkForUpdates(), 30 * 60 * 1000);
+  }
+
+  /**
+   * Show or hide the update banner based on cached update info and the
+   * update_banner_admin_only server setting.
+   */
+  _applyUpdateBanner() {
+    const banner = document.getElementById('update-banner');
+    if (!banner) return;
+    if (!this._pendingUpdate) return; // no update detected yet
+
+    const adminOnly = this.serverSettings?.update_banner_admin_only === 'true';
+    const canSee = !adminOnly || this.user?.isAdmin;
+
+    if (canSee) {
+      banner.style.display = 'inline-flex';
+      banner.querySelector('.update-text').textContent = this._pendingUpdate.text;
+      banner.title = this._pendingUpdate.title;
+      banner.href = this._pendingUpdate.href;
+    } else {
+      banner.style.display = 'none';
+    }
   }
 
   /**

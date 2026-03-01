@@ -3113,7 +3113,7 @@ function setupSocketHandlers(io, db) {
       const key = typeof data.key === 'string' ? data.key.trim() : '';
       const value = typeof data.value === 'string' ? data.value.trim() : '';
 
-      const allowedKeys = ['member_visibility', 'cleanup_enabled', 'cleanup_max_age_days', 'cleanup_max_size_mb', 'giphy_api_key', 'server_name', 'server_icon', 'permission_thresholds', 'tunnel_enabled', 'tunnel_provider', 'server_code', 'max_upload_mb', 'setup_wizard_complete'];
+      const allowedKeys = ['member_visibility', 'cleanup_enabled', 'cleanup_max_age_days', 'cleanup_max_size_mb', 'giphy_api_key', 'server_name', 'server_icon', 'permission_thresholds', 'tunnel_enabled', 'tunnel_provider', 'server_code', 'max_upload_mb', 'setup_wizard_complete', 'update_banner_admin_only'];
       if (!allowedKeys.includes(key)) return;
 
       if (key === 'member_visibility' && !['all', 'online', 'none'].includes(value)) return;
@@ -3143,6 +3143,7 @@ function setupSocketHandlers(io, db) {
       if (key === 'tunnel_enabled' && !['true', 'false'].includes(value)) return;
       if (key === 'tunnel_provider' && !['localtunnel', 'cloudflared'].includes(value)) return;
       if (key === 'setup_wizard_complete' && !['true', 'false'].includes(value)) return;
+      if (key === 'update_banner_admin_only' && !['true', 'false'].includes(value)) return;
       if (key === 'server_code') {
         // Server code is managed via generate/rotate events, not directly
         return;

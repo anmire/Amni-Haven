@@ -164,6 +164,7 @@ function initDatabase() {
   insertSetting.run('server_code', '');                // server-wide invite code (joins all channels)
   insertSetting.run('max_upload_mb', '25');             // max file upload size in MB
   insertSetting.run('setup_wizard_complete', 'false');   // first-time admin setup wizard
+  insertSetting.run('update_banner_admin_only', 'false'); // hide update banner from non-admins
 
   // ── Migration: pinned_messages table ──────────────────
   db.exec(`
